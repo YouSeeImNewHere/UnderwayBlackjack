@@ -1113,8 +1113,15 @@ private:
 	SDL_FRect activeHandTotalBox{ .x = 1270, .y = 590, .w = 130, .h = 50 };
 
 	void drawHandTotals(SDLState& state){
-		auto [dealerHard, dealerSoft] = dealer.hands[0].getShownTotals();
-		drawTotalBox(state, dealerTotalBox, "DEALER HAND", dealerHard, dealerSoft);
+		// Only once the dealer's actually holding cards -- during betting
+		// (or briefly right after clearTable() sweeps the last round away)
+		// there's nothing to show a total *of* yet, and drawing "0" there
+		// unconditionally just left an empty-looking box sitting on the
+		// board the whole time bets were being placed.
+		if(dealer.hands[0].getHandSize() > 0){
+			auto [dealerHard, dealerSoft] = dealer.hands[0].getShownTotals();
+			drawTotalBox(state, dealerTotalBox, "DEALER HAND", dealerHard, dealerSoft);
+		}
 
 		// Only meaningful while a player is actually taking their turn --
 		// once activePlayer reaches numberOfPlayers, play has moved on to
@@ -1434,14 +1441,19 @@ private:
 	// natural "just below the hand" position ran the row off the bottom
 	// of the 720-tall canvas entirely before this.
 	// The 2 new 5-player seats reuse dir=1/dir=-1's bucket verbatim here,
-	// same as the original seat that bucket belongs to -- tried moving
-	// them (twice: once relative to their own anchor, once to hand-placed
-	// absolute spots), and both attempts were reverted at request, back to
-	// this simpler shared behavior. The one exception is a small nudge (up
-	// and right, the right nudged further still on request: +20px total)
-	// for P4 specifically (dir=-1's own new seat, picked out by its
-	// non-cardinal rotation) -- P2 (dir=1's new seat) stays on the
-	// untouched shared formula per explicit request.
+	// same as the original seat that bucket belongs to -- P2 (dir=1's new
+	// seat) stays on the untouched shared formula per explicit request.
+	// P4 (dir=-1's own new seat, picked out by its non-cardinal rotation)
+	// gets a real, checked-against-everything-else placement instead: its
+	// shared-formula spot (centerX ~185, belowY 500) put its own BET row's
+	// bottom edge (~624) a few pixels into the "DEALER HAND" label's own
+	// space (label top ~619, box at x 40-170/y 645-695) -- moving it up
+	// enough to clear that landed it overlapping P4's *own* card box
+	// instead (x ~155-330/y ~390-580), since at this X they occupy the
+	// same vertical band. That first spot (centerX 460, belowY 400) was
+	// checked against P4's own card box, P5's row, and the dealer hand
+	// corner -- nudged further since, to taste (currently centerX 270,
+	// belowY 435).
 	bool isP4Seat(int i, int dir){
 		return dir == -1 && players[i].getSeatRotation() != 90.0f;
 	}
@@ -1449,17 +1461,15 @@ private:
 	float seatCenterX(int i){
 		Point anchor = players[i].getSeatAnchor();
 		int dir = players[i].getDirection();
-		float x;
-		if(dir == 0)
-			x = anchor.x + cardWidth / 2.0f;
-		else if(dir == 1)
-			x = anchor.x + cardHeight / 2.0f;
-		else
-			x = anchor.x - cardHeight / 2.0f;
 
 		if(isP4Seat(i, dir))
-			x += 20.0f;
-		return x;
+			return 270.0f;
+
+		if(dir == 0)
+			return anchor.x + cardWidth / 2.0f;
+		if(dir == 1)
+			return anchor.x + cardHeight / 2.0f;
+		return anchor.x - cardHeight / 2.0f;
 	}
 
 	BetRow betRow(int i){
@@ -1472,13 +1482,10 @@ private:
 			belowY = anchor.y + cardHeight;
 		} else if(dir == 1){
 			belowY = anchor.y;
+		} else if(isP4Seat(i, dir)){
+			belowY = 435.0f;
 		} else{
 			belowY = anchor.y + cardWidth;
-			// P4's unmodified belowY (400+100=500) already lands exactly
-			// on P2's own belowY (dir=1's anchor.y, 500) -- request was to
-			// match them, not offset one further, so no adjustment here
-			// (the earlier -10px vertical nudge is dropped; only the
-			// horizontal +20px from seatCenterX() remains).
 		}
 
 		float rowX = centerX - BET_ROW_W / 2.0f;
