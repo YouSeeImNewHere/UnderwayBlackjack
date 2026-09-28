@@ -697,12 +697,31 @@ bool initialize(SDLState &state){
     // web/shell.html has no CSS sizing rules for the canvas at all -- the
     // correct size is computed from the real viewport and requested here
     // directly (see main()), and kept in sync afterward by onBrowserResize().
-    state.window = SDL_CreateWindow("Hello World",state.width,state.height,SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY);
+    SDL_WindowFlags windowFlags = SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY;
+#ifdef SDL_PLATFORM_IOS
+    // Fullscreen hides the status bar; landscape-only matches the fixed
+    // 1440x720 canvas (the Info.plist says the same). Deferring system
+    // gestures means a swipe near the bottom edge -- which the game uses
+    // for its own gestures -- needs a second swipe before iOS treats it as
+    // "go home".
+    windowFlags |= SDL_WINDOW_FULLSCREEN;
+    SDL_SetHint(SDL_HINT_ORIENTATIONS, "LandscapeLeft LandscapeRight");
+    SDL_SetHint(SDL_HINT_IOS_HIDE_HOME_INDICATOR, "2");
+#endif
+    state.window = SDL_CreateWindow("Underway Blackjack",state.width,state.height,windowFlags);
     if(!state.window){
         SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR,"Error","Error creating window",nullptr);
         cleanup(state);
         initSucess = false;
     }
+#ifndef __EMSCRIPTEN__
+    // On phones/tablets the OS decides the window size (always the full
+    // screen), so the 1440x720 requested above isn't what we get. Read back
+    // the real size -- finger events are normalized against it -- instead
+    // of waiting on a SDL_EVENT_WINDOW_RESIZED that may never come.
+    if(state.window)
+        SDL_GetWindowSize(state.window, &state.width, &state.height);
+#endif
     //renderer
     state.renderer = SDL_CreateRenderer(state.window,nullptr);
     if(!state.renderer){
