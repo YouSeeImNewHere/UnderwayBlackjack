@@ -9,9 +9,12 @@ WHITE = (245, 245, 245, 255)
 FONT_CANDIDATES = [
     r"C:\Windows\Fonts\arialbd.ttf",
     r"C:\Windows\Fonts\arial.ttf",
+    # Arial-metric-compatible fallbacks for Linux/macOS
+    "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+    "/Library/Fonts/Arial Bold.ttf",
 ]
 
-def make_icon(size, path):
+def make_icon(size, path, alpha=True):
     img = Image.new("RGBA", (size, size), FELT_GREEN)
     draw = ImageDraw.Draw(img)
 
@@ -41,8 +44,14 @@ def make_icon(size, path):
         fill=WHITE,
     )
 
+    if not alpha:
+        # App Store icons must be fully opaque (no alpha channel at all)
+        img = img.convert("RGB")
     img.save(path)
     print("wrote", path)
 
 make_icon(192, os.path.join(OUT_DIR, "icon-192.png"))
 make_icon(512, os.path.join(OUT_DIR, "icon-512.png"))
+
+IOS_ICON_DIR = os.path.join(OUT_DIR, "..", "..", "ios", "Assets.xcassets", "AppIcon.appiconset")
+make_icon(1024, os.path.join(IOS_ICON_DIR, "icon-1024.png"), alpha=False)

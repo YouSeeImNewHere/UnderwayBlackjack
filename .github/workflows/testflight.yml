@@ -1,0 +1,88 @@
+# Builds the iOS app on a GitHub-hosted Mac, signs it, and uploads it to
+# App Store Connect so it shows up in TestFlight. Setup: ios/README.md.
+#
+# Run it from the repo's Actions tab ("iOS TestFlight" -> Run workflow), or
+# push a tag like ios-v1.0.
+name: iOS TestFlight
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "ios-v*"
+
+jobs:
+  testflight:
+    runs-on: macos-latest
+    timeout-minutes: 60
+    env:
+      IOS_BUNDLE_ID: ${{ vars.IOS_BUNDLE_ID || 'com.youseeimnewhere.underwayblackjack' }}
+      # Has to go up on every upload; run_attempt keeps re-runs unique too.
+      BUILD_NUMBER: ${{ github.run_number }}.${{ github.run_attempt }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check secrets are set
+        env:
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          ASC_KEY_ID: ${{ secrets.APPSTORE_API_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.APPSTORE_API_ISSUER_ID }}
+          ASC_PRIVATE_KEY: ${{ secrets.APPSTORE_API_PRIVATE_KEY }}
+        run: |
+          missing=0
+          for name in APPLE_TEAM_ID ASC_KEY_ID ASC_ISSUER_ID ASC_PRIVATE_KEY; do
+            if [ -z "${!name}" ]; then echo "::error::Missing secret for $name (see ios/README.md)"; missing=1; fi
+          done
+          exit $missing
+
+      # Apple only accepts uploads built with a recent Xcode/iOS SDK.
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Write App Store Connect API key
+        env:
+          ASC_PRIVATE_KEY: ${{ secrets.APPSTORE_API_PRIVATE_KEY }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/asc"
+          printf '%s\n' "$ASC_PRIVATE_KEY" > "$RUNNER_TEMP/asc/AuthKey.p8"
+          echo "ASC_KEY_PATH=$RUNNER_TEMP/asc/AuthKey.p8" >> "$GITHUB_ENV"
+
+      - name: Generate Xcode project
+        run: |
+          cmake -S . -B build-ios -G Xcode \
+            -DCMAKE_SYSTEM_NAME=iOS \
+            -DIOS_BUNDLE_ID="$IOS_BUNDLE_ID" \
+            -DIOS_TEAM_ID="${{ secrets.APPLE_TEAM_ID }}" \
+            -DAPP_BUILD_NUMBER="$BUILD_NUMBER"
+
+      # -allowProvisioningUpdates + the API key lets Xcode create/download
+      # the signing certificate and provisioning profile itself, so no
+      # certificates have to be exported from a Mac and stored as secrets.
+      - name: Archive
+        run: |
+          xcodebuild archive \
+            -project build-ios/UnderwayBlackjack.xcodeproj \
+            -scheme UnderwayBlackjack \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath "$RUNNER_TEMP/UnderwayBlackjack.xcarchive" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$ASC_KEY_PATH" \
+            -authenticationKeyID "${{ secrets.APPSTORE_API_KEY_ID }}" \
+            -authenticationKeyIssuerID "${{ secrets.APPSTORE_API_ISSUER_ID }}"
+
+      - name: Upload to App Store Connect (TestFlight)
+        run: |
+          xcodebuild -exportArchive \
+            -archivePath "$RUNNER_TEMP/UnderwayBlackjack.xcarchive" \
+            -exportOptionsPlist ios/ExportOptions.plist \
+            -exportPath "$RUNNER_TEMP/export" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$ASC_KEY_PATH" \
+            -authenticationKeyID "${{ secrets.APPSTORE_API_KEY_ID }}" \
+            -authenticationKeyIssuerID "${{ secrets.APPSTORE_API_ISSUER_ID }}"
+
+      - name: Clean up API key
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/asc"

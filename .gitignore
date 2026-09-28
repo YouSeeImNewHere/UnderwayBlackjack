@@ -25,3 +25,7 @@ web/dist/
 # Windows redirection artifact (a literal file named "nul" from some
 # earlier command, not source)
 nul
+
+# CMake / iOS build output
+build/
+build-*/
