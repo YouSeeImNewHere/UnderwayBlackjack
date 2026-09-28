@@ -19,9 +19,9 @@ struct CardAnimation {
 	SDL_FPoint start;
 	SDL_FPoint end;
 	SDL_FRect destination;
-	int startAngle = 0;
-	int currentAngle = 0;
-	int finalAngle = 0;
+	float startAngle = 0;
+	float currentAngle = 0;
+	float finalAngle = 0;
 
 	float elapsed = 0.0f;
 	float duration = 0.6f;
@@ -170,6 +170,12 @@ public:
 			}
 		}
 	}
+
+	// Set from GameOptionsMenu's own choices (see mina.cpp), before
+	// startGame() -- see each field's own declaration for what it does.
+	void setDealerSpeedFactor(float factor){ dealerSpeedFactor = factor; }
+	void setFaceDownDoubles(bool value){ faceDownDoubles = value; }
+	void setHideInactiveHands(bool value){ hideInactiveHands = value; }
 
 	// Called from mina.cpp once GameModeMenu picks a real mode (or a loaded
 	// save, for Resume) -- rebuilds the shoe from scratch at that deck
@@ -322,7 +328,7 @@ public:
 	// (drawCardCountStats()) to actually test their own counting instead
 	// of just reading the answer off the discard pile the whole time.
 	SDL_FRect cardCountToggleButton(){
-		return SDL_FRect{ .x = discardPosition.x, .y = discardPosition.y - 48.0f - 6.0f, .w = cardWidth, .h = 48 };
+		return SDL_FRect{ .x = discardPosition.x, .y = discardPosition.y - 24.0f - 6.0f, .w = cardWidth, .h = 24 };
 	}
 
 	bool isCardCountToggleHit(SDLState& state, float windowX, float windowY){
@@ -348,10 +354,16 @@ public:
 
 		std::string label = "CNT";
 		float pixel = 5.0f;
+		// Height shrunk to half (24, was 48) -- 5*pixel at the old default
+		// no longer fits inside it, so the width-only auto-shrink below
+		// needs a height check alongside it now too.
 		float maxW = btn.w - 8.0f;
+		float maxH = btn.h - 4.0f;
 		float w = DigitFont::textWidth(label, pixel);
 		if(w > maxW && w > 0.0f)
 			pixel *= maxW / w;
+		if(5 * pixel > maxH)
+			pixel = maxH / 5.0f;
 		w = DigitFont::textWidth(label, pixel);
 		DigitFont::drawText(state, label, btn.x + (btn.w - w) / 2.0f, btn.y + (btn.h - 5 * pixel) / 2.0f, pixel, SDL_Color{255, 255, 255, 255});
 	}
@@ -525,11 +537,17 @@ public:
 		drawCardCountStats(state);
 
 		// player hands
+		// hideInactiveHands (GameOptionsMenu): only while a round's
+		// actually being played through -- never during betting (nothing's
+		// dealt yet) and never once the dealer's finished (awaitingNewRound
+		// -- every hand needs to actually show for its WIN/PUSH/LOSE result
+		// to mean anything).
+		bool applyHideInactiveHands = hideInactiveHands && !awaitingBets && !awaitingNewRound;
 		for(int i = 0; i < numberOfPlayers; i++){
 			// activePlayer starts each round pointing at seat 0 before any
 			// bets are even placed, so the turn arrow would otherwise show
 			// up during betting pointing at an empty hand.
-			players[i].draw(state,res, !awaitingBets && activePlayer == i);
+			players[i].draw(state,res, !awaitingBets && activePlayer == i, applyHideInactiveHands);
 		}
 
 		// x computed live from each card's *current* index, not a position
@@ -818,7 +836,7 @@ public:
 			addToRunningCount(dealer.hands[0].cards[1].getValue());
 			dealer.showCards();
 
-			pauseTimer = HOLE_CARD_REVEAL_PAUSE_DURATION;
+			pauseTimer = HOLE_CARD_REVEAL_PAUSE_DURATION * dealerSpeedFactor;
 			onPauseComplete = [this](){
 				continueDealerPlay();
 			};
@@ -851,7 +869,7 @@ public:
 
 			// Let the finished dealer hand sit on screen for a beat before
 			// sweeping every hand into the discard pile.
-			pauseTimer = DEALER_FINISH_PAUSE_DURATION;
+			pauseTimer = DEALER_FINISH_PAUSE_DURATION * dealerSpeedFactor;
 			onPauseComplete = [this](){
 				clearTable();
 				awaitingNewRound = true;
@@ -1043,6 +1061,22 @@ private:
 	// long enough to feel like a second full stop on top of
 	// DEALER_FINISH_PAUSE_DURATION's longer one at the very end.
 	static constexpr float HOLE_CARD_REVEAL_PAUSE_DURATION = 1.0f;
+
+	// Dealer speed setting (see GameOptionsMenu): the 2 pauses the dealer
+	// themselves impose -- reading the hole card, sitting on a finished
+	// hand -- scale by this before being applied to pauseTimer (see
+	// HOLE_CARD_REVEAL_PAUSE_DURATION/DEALER_FINISH_PAUSE_DURATION's own
+	// call sites). Deliberately not applied to BUST_PAUSE_DURATION (a
+	// *player's* own bust, not the dealer's pace) or to
+	// DEAL_DURATION/DISCARD_DURATION (a card's own flight, shared by every
+	// seat's deals alike). <1 is faster, >1 is slower, 1 is unchanged.
+	float dealerSpeedFactor = 1.0f;
+
+	// GameOptionsMenu's 2 house-rule toggles, both off (today's existing
+	// behavior) by default. See onDouble()/resolveRound() for the first,
+	// and the players[i].draw() call site in draw() for the second.
+	bool faceDownDoubles = false;
+	bool hideInactiveHands = false;
 
 	// HUD: dealer's shown-card total, bottom left; the current active
 	// hand's total, bottom right. Fixed screen-space boxes, not tied to any
@@ -1418,8 +1452,11 @@ private:
 			belowY = anchor.y;
 		} else{
 			belowY = anchor.y + cardWidth;
-			if(isP4Seat(i, dir))
-				belowY -= 10.0f;
+			// P4's unmodified belowY (400+100=500) already lands exactly
+			// on P2's own belowY (dir=1's anchor.y, 500) -- request was to
+			// match them, not offset one further, so no adjustment here
+			// (the earlier -10px vertical nudge is dropped; only the
+			// horizontal +20px from seatCenterX() remains).
 		}
 
 		float rowX = centerX - BET_ROW_W / 2.0f;
@@ -1702,6 +1739,28 @@ private:
 			std::string text = "P" + std::to_string(i + 1) + " " + std::to_string(bankroll);
 			float w = DigitFont::textWidth(text, pixel);
 			labels.push_back(Label{i, seatCenterX(i), w, 0.0f, text, color});
+		}
+
+		// P2/P4 (the 2 new 5-player seats) sit right next to an original
+		// seat (P1/P3 and P3/P5 respectively), close enough that their own
+		// seatCenterX() fought that neighbor for space even after the
+		// de-overlap sweep below evened things out. P1/P3/P5 (the original
+		// 3 seats) keep their own natural position; P2/P4 instead get
+		// placed exactly halfway between whichever 2 of those they sit
+		// between.
+		if(numberOfPlayers >= 5){
+			auto centerOf = [&](int idx) -> float {
+				for(const Label& l : labels)
+					if(l.playerIndex == idx)
+						return l.centerX;
+				return 0.0f;
+			};
+			for(Label& label : labels){
+				if(label.playerIndex == 1)
+					label.centerX = (centerOf(0) + centerOf(2)) / 2.0f;
+				else if(label.playerIndex == 3)
+					label.centerX = (centerOf(2) + centerOf(4)) / 2.0f;
+			}
 		}
 
 		// Sorted left-to-right, then swept the same way so no two labels
@@ -2209,10 +2268,17 @@ private:
 		else
 			to.x += cardHeight * dir;
 
+		// faceDownDoubles (GameOptionsMenu): the double-down card lands
+		// face-down and stays that way until the dealer's actually done --
+		// resolveRound() reveals it (and every other card) right before
+		// settling results, same moment the dealer's own hole card is
+		// already showing by. getHandTotal() sums every card regardless of
+		// isShown, so hitting/standing/bust logic in the meantime is
+		// unaffected either way -- this only changes what's drawn.
 		dealQueue.push(DealRequest{
 			.playerIndex = activePlayer,
 			.isDealer = false,
-			.showCard = true,
+			.showCard = !faceDownDoubles,
 			.doubleHand = true,
 			.from = shoePosition,
 			.to = to,
@@ -2286,12 +2352,17 @@ private:
 				players[request.playerIndex].discardOneCard(request.handIndex);
 		}
 
-		int angle = 0;
-		int dir = request.isDealer ? dealer.getDirection() : players[request.playerIndex].getDirection();
-		if(dir < 5)
-			angle = -90 * dir;
-		else
-			angle = 180;
+		// Used to be -90*dir (or 180 for the dealer) -- a cardinal-only
+		// approximation that happened to equal every seat's real rotation
+		// back when there were only 4 possible seat angles. The 2 new
+		// 5-player seats reuse dir=1/dir=-1's bucket but sit at their own
+		// non-cardinal angle (see BettingSquare.h), so that approximation
+		// made a normal deal visibly fly in at the wrong tilt for those 2
+		// seats before snapping to the correct one the instant it landed
+		// (addCard() sets the real rotation on arrival, independently of
+		// this). Reading the seat's own stored rotation directly fixes the
+		// flight itself, not just the landed result.
+		float angle = request.isDealer ? dealer.getSeatRotation() : players[request.playerIndex].getSeatRotation();
 
 		angle -= (request.doubleHand) ? 90 : 0;
 
@@ -2360,6 +2431,45 @@ private:
 		activePlayer = 0;
 	}
 
+public:
+	// Restart (both the main menu's and the pause menu's) bails out to the
+	// GameMode screen entirely -- but that screen's/Setup's own update()
+	// loop never touches Table, only clearTable()'s did (draining the
+	// animated discard-sweep queue it pushes), and that loop only runs
+	// while AppScreen::Playing is showing. Navigating away before it's had
+	// a chance to drain left every card still sitting in player/dealer
+	// hands, cards visibly there again the moment a new game started
+	// (dealer's hand most obviously, since it's the first thing seen while
+	// betting). This instead clears everything immediately, no animation
+	// needed since there's no longer a Playing screen for one to play out
+	// on. Public (unlike clearTable(), which only Table itself ever
+	// drives) since mina.cpp's Restart handlers call this directly.
+	void resetForNewGame(){
+		dealQueue = {};
+		cardAnimation.reset();
+		chipAnimations.clear();
+		bankrollChanges.clear();
+
+		dealer.resetHands();
+		for(int i = 0; i < numberOfPlayers; i++)
+			players[i].resetHands();
+
+		activePlayer = 0;
+		awaitingBets = false;
+		awaitingNewRound = false;
+		awaitingInitialDeal = false;
+		shoeNeedsReshuffle = false;
+		runningCount = 0;
+
+		for(int i = 0; i < 5; i++){
+			sideBetResult[i] = HandResult::None;
+			matchUpResult[i] = HandResult::None;
+			matchDownResult[i] = HandResult::None;
+			luckyStiffPending[i] = false;
+		}
+	}
+
+private:
 	void firstDeal() {
 		// Burn the first card
 		dealQueue.push(DealRequest{
@@ -2517,6 +2627,25 @@ private:
 		int dealerTotal = dealer.getHandTotal();
 		bool dealerBust = dealerTotal > 21;
 		bool dealerBlackjack = dealer.hands[0].getHandSize() == 2 && dealerTotal == 21;
+
+		// faceDownDoubles (GameOptionsMenu) leaves a double-down card
+		// hidden until now -- reveal it before anything else here, same as
+		// the dealer's own hole card already was back in dealDealer().
+		// Counted the moment it's actually revealed (addToRunningCount()'s
+		// own landing-time hook in update() only fires for a card that's
+		// *already* shown when it lands, so a still-hidden one would
+		// otherwise never get counted at all, silently throwing the count
+		// off for the rest of the shoe).
+		for(int i = 0; i < numberOfPlayers; i++){
+			for(Hand& hand : players[i].hands){
+				for(Card& c : hand.cards){
+					if(!c.getShown()){
+						addToRunningCount(c.getValue());
+						c.showCard(true);
+					}
+				}
+			}
+		}
 
 		// Match Down can't be judged until the dealer's hole card is
 		// actually revealed (dealer.showCards(), called from dealDealer()

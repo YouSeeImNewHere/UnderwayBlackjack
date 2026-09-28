@@ -35,8 +35,15 @@ public:
 		hands[0].setBaseRotation(calcOffset().rotation);
 	}
 
-	void draw(SDLState& state,Resources& res,bool activePlayer){
+	// hideIfInactive: GameOptionsMenu's "hide inactive hands" house rule,
+	// applied only to seats this is turned on for (Table.h never passes
+	// true for the dealer's own draw call -- the dealer already has its
+	// own separate hole-card mechanic). Combined with activePlayer here
+	// rather than by the caller, since this is already the one place that
+	// knows whether this specific seat is the active one.
+	void draw(SDLState& state,Resources& res,bool activePlayer,bool hideIfInactive = false){
 		offSets adj = calcOffset();
+		bool forceHidden = hideIfInactive && !activePlayer;
 
 		float arrowRotaion = 0;
 		SDL_FRect arrow{
@@ -52,7 +59,7 @@ public:
 		arrow.y += (dir == 0) ? (cardHeight - arrowHeight) / 2 : dir * (arrowWidth + 15);
 
 		for(int hand = 0; hand < hands.size(); hand++){
-			hands[hand].draw(state,res);
+			hands[hand].draw(state,res,forceHidden);
 
 			if(activePlayer && activeHand == hand)
 				SDL_RenderTextureRotated(state.renderer,res.arrow,nullptr,&arrow,adj.rotation,&rotationTopLeft,SDL_FLIP_NONE);
@@ -135,6 +142,17 @@ public:
 
 	bool checkBreak(){
 		return hands[activeHand].checkIfBreak();
+	}
+
+	// Instantly back to one empty hand, no animation -- same end state as
+	// discardOneCard()'s own "hand's all empty" reset above, but callable
+	// directly. Used by Table::resetForNewGame() (see there for why
+	// clearTable()'s animated discard sweep can't be reused for a Restart).
+	void resetHands(){
+		hands.clear();
+		hands.push_back(Hand());
+		hands[0].setBaseRotation(calcOffset().rotation);
+		activeHand = 0;
 	}
 
 	int getDirection(){

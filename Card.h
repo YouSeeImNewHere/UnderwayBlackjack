@@ -82,7 +82,14 @@ public:
 	SDL_FPoint getPosition(){
 		return position;
 	}
-	void draw(SDLState& state,Resources& res){
+	// forceHidden: GameOptionsMenu's "hide inactive hands" house rule --
+	// draws the card back regardless of isShown, without touching isShown
+	// itself (still the card's real, permanent shown/hidden state, used
+	// for counting and for every other seat's own genuine reveal). Purely
+	// a rendering override for whichever seat isn't the active one right
+	// now (see Person::draw()), computed fresh every frame rather than
+	// stored, so it never needs updating when a turn starts or ends.
+	void draw(SDLState& state,Resources& res, bool forceHidden = false){
 		SDL_FRect dest{
 			.x = position.x,
 			.y = position.y,
@@ -90,7 +97,7 @@ public:
 			.h = cardHeight
 		};
 
-		const SDL_FRect& source = isShown ? src : backOFCard;
+		const SDL_FRect& source = (isShown && !forceHidden) ? src : backOFCard;
 		SDL_RenderTextureRotated(state.renderer,res.allCards,&source,&dest,rotation,&rotationTopLeft,SDL_FLIP_NONE);
 	}
 

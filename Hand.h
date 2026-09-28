@@ -42,9 +42,9 @@ public:
 			aceLocations.insert(cards.size() - 1);
 	}
 
-	void draw(SDLState& state,Resources& res){
+	void draw(SDLState& state,Resources& res, bool forceHidden = false){
 		for(Card& c : cards){
-			c.draw(state, res);
+			c.draw(state, res, forceHidden);
 		}
 	}
 

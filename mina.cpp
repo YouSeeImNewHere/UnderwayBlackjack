@@ -11,6 +11,7 @@
 #include "Table.h"
 #include "Menu.h"
 #include "GameModeMenu.h"
+#include "GameOptionsMenu.h"
 #include "SetupMenu.h"
 #include "PauseMenu.h"
 #include "StrategyChart.h"
@@ -22,6 +23,7 @@ enum class AppScreen {
     Menu,
     GameMode,
     GameModeAbout,
+    GameOptions,
     Setup,
     Gestures,
     Playing
@@ -56,6 +58,7 @@ struct AppContext {
     Table table;
     Menu menu;
     GameModeMenu gameModeMenu;
+    GameOptionsMenu gameOptionsMenu;
     SetupMenu setupMenu;
     PauseMenu pauseMenu;
     StrategyChart strategyChart;
@@ -145,8 +148,15 @@ static void applyMenuChoice(AppContext& ctx, MenuChoice choice){
             // See SaveData::clear()'s comment -- if the app closes before
             // SetupMenu's GO is ever reached, this keeps a future launch
             // from silently resuming the pre-restart game instead of
-            // showing Start again.
+            // showing Start again. resetForNewGame() clears the actual
+            // table state (dealer/player hands) that clearTable()'s own
+            // animated sweep never got to drain once the screen changed
+            // away from Playing; a fresh SetupMenu drops the previous
+            // game's player count/bankroll/bet choices instead of
+            // carrying them into the next one.
             ctx.save.clear();
+            ctx.table.resetForNewGame();
+            ctx.setupMenu = SetupMenu();
             ctx.screen = AppScreen::GameMode;
         break;
 
@@ -160,14 +170,25 @@ static void applyMenuChoice(AppContext& ctx, MenuChoice choice){
 }
 
 // GameModeMenu's button was tapped/clicked: remember the mode (deck count
-// plus whichever side bet it has, if any), then move on to Setup
-// (players/bankrolls/side-bet size) same as before.
+// plus whichever side bet it has, if any), then move on to GameOptions
+// (dealer speed, house-rule toggles) before Setup gets its own turn
+// (players/bankrolls/side-bet size).
 static void applyGameModeChoice(AppContext& ctx, GameMode mode){
     if(mode == GameMode::None)
         return;
 
     ctx.chosenMode = mode;
     ctx.setupMenu.setGameMode(mode);
+    ctx.screen = AppScreen::GameOptions;
+}
+
+// GameOptionsMenu's GO was tapped/clicked: bake its 3 choices into Table
+// (Setup hasn't configured players yet, but these don't depend on player
+// count, so there's no reason to wait), then move on to Setup.
+static void applyGameOptionsComplete(AppContext& ctx){
+    ctx.table.setDealerSpeedFactor(ctx.gameOptionsMenu.dealerSpeedFactor());
+    ctx.table.setFaceDownDoubles(ctx.gameOptionsMenu.faceDownDoubles);
+    ctx.table.setHideInactiveHands(ctx.gameOptionsMenu.hideInactiveHands);
     ctx.screen = AppScreen::Setup;
 }
 
@@ -203,7 +224,11 @@ static void applyPauseChoice(AppContext& ctx, PauseChoice choice){
             // selection entirely, not just a fresh round in the same mode
             // -- lets the player actually pick a different game, not only
             // reconfigure players/bankroll for the one they're already in.
+            // See applyMenuChoice()'s own Restart case for why both
+            // resetForNewGame() and a fresh SetupMenu are needed here too.
             ctx.save.clear();
+            ctx.table.resetForNewGame();
+            ctx.setupMenu = SetupMenu();
             ctx.pauseState = PauseState::None;
             ctx.screen = AppScreen::GameMode;
         break;
@@ -402,6 +427,11 @@ static void mainLoopIteration(void *arg) {
                         event.tfinger.x * ctx.state.width,
                         event.tfinger.y * ctx.state.height))
                     ctx.screen = AppScreen::GameMode;
+            } else if(ctx.screen == AppScreen::GameOptions){
+                if(event.type == SDL_EVENT_FINGER_UP && ctx.gameOptionsMenu.handlePoint(ctx.state,
+                        event.tfinger.x * ctx.state.width,
+                        event.tfinger.y * ctx.state.height))
+                    applyGameOptionsComplete(ctx);
             } else if(ctx.screen == AppScreen::Setup){
                 if(event.type == SDL_EVENT_FINGER_UP && ctx.setupMenu.handlePoint(ctx.state,
                         event.tfinger.x * ctx.state.width,
@@ -473,6 +503,8 @@ static void mainLoopIteration(void *arg) {
                     if(ctx.aboutMenu.handlePoint(ctx.state, event.button.x, event.button.y))
                         ctx.screen = AppScreen::GameMode;
                 }
+                else if(ctx.screen == AppScreen::GameOptions && ctx.gameOptionsMenu.handlePoint(ctx.state, event.button.x, event.button.y))
+                    applyGameOptionsComplete(ctx);
                 else if(ctx.screen == AppScreen::Setup && ctx.setupMenu.handlePoint(ctx.state, event.button.x, event.button.y))
                     applySetupComplete(ctx);
                 else if(ctx.screen == AppScreen::Gestures){
@@ -521,6 +553,8 @@ static void mainLoopIteration(void *arg) {
         ctx.gameModeMenu.draw(ctx.state, ctx.res);
     else if(ctx.screen == AppScreen::GameModeAbout)
         ctx.aboutMenu.draw(ctx.state, ctx.res, ctx.gameModeAboutPreview);
+    else if(ctx.screen == AppScreen::GameOptions)
+        ctx.gameOptionsMenu.draw(ctx.state, ctx.res);
     else if(ctx.screen == AppScreen::Setup)
         ctx.setupMenu.draw(ctx.state, ctx.res);
     else if(ctx.screen == AppScreen::Gestures)
