@@ -7,62 +7,148 @@ App Store Connect (`.github/workflows/testflight.yml`).
 
 ## One-time setup
 
-1. **Join the Apple Developer Program** ($99/year) at
-   <https://developer.apple.com/programs/>. TestFlight requires it.
+Apple's pages get small wording changes now and then; if a button isn't
+exactly where described, it's nearby with a similar name.
 
-2. **Find your Team ID.** It's on <https://developer.apple.com/account>
-   under Membership details (10 characters, like `ABCDE12345`).
+### 1. Copy your Team ID
 
-3. **Register the bundle ID.** At
-   <https://developer.apple.com/account/resources/identifiers/list>, add an
-   App ID with the bundle ID `com.youseeimnewhere.underwayblackjack` (or
-   pick your own and see step 6). No extra capabilities are needed.
+1. Go to <https://developer.apple.com/account> and sign in.
+2. Scroll down to **Membership details**.
+3. Copy the **Team ID** (10 characters, like `ABCDE12345`) somewhere handy.
 
-4. **Create the app in App Store Connect.** At
-   <https://appstoreconnect.apple.com/apps>, click **+ → New App**:
-   platform iOS, name "Underway Blackjack" (the name must be unique on the
-   App Store, so pick another one if it's taken), select the bundle ID from
-   step 3, and use any SKU (e.g. `underwayblackjack`).
+### 2. Register the bundle ID
 
-5. **Create an App Store Connect API key.** In App Store Connect go to
-   **Users and Access → Integrations → App Store Connect API**, and create a
-   key with the **Admin** role. The Admin role is what lets the workflow
-   create the signing certificate and provisioning profile for you. Note
-   the **Key ID** and **Issuer ID**, and download the `.p8` file (you can
-   only download it once).
+1. Go to <https://developer.apple.com/account/resources/identifiers/list>.
+2. Click the blue **+** next to "Identifiers".
+3. Select **App IDs** → **Continue**.
+4. Select **App** → **Continue**.
+5. **Description:** `Underway Blackjack`.
+   **Bundle ID:** leave **Explicit** selected and enter
+   `com.youseeimnewhere.underwayblackjack` exactly.
+6. Leave every capability unchecked → **Continue** → **Register**.
 
-6. **Add the GitHub secrets.** In this repo on GitHub, go to
-   **Settings → Secrets and variables → Actions** and add these
-   repository secrets:
+### 3. Create the app in App Store Connect
 
-   | Secret | Value |
+1. Go to <https://appstoreconnect.apple.com/apps>.
+2. If there's a banner at the top asking you to review or accept an
+   agreement, accept it first. Uploads fail until it's accepted.
+3. Click the blue **+** next to "Apps" → **New App**.
+4. Fill in:
+   - **Platforms:** check **iOS**
+   - **Name:** `Underway Blackjack`. This has to be unique across the whole
+     App Store; if it's taken, try something like `Underway Blackjack 21`.
+     It's only the store name and can be changed later.
+   - **Primary Language:** English (U.S.)
+   - **Bundle ID:** pick `Underway Blackjack - com.youseeimnewhere.underwayblackjack`
+     (it appears after step 2; refresh if not)
+   - **SKU:** `underwayblackjack`
+   - **User Access:** Full Access
+5. Click **Create**.
+
+### 4. Create an App Store Connect API key
+
+1. In App Store Connect, click **Users and Access** (top menu) →
+   **Integrations** tab → **App Store Connect API** in the left sidebar →
+   **Team Keys** tab.
+2. The first time, you'll see **Request Access**. Click it, accept the
+   terms, and reload the page.
+3. Click **Generate API Key** (or the **+** next to "Active").
+4. **Name:** `GitHub Actions`. **Access:** **Admin**. Admin is required:
+   it's what lets the workflow create the distribution certificate and
+   provisioning profile for you. Click **Generate**.
+5. On that page, copy:
+   - **Issuer ID**: shown above the table, with a **Copy** link.
+   - **Key ID**: in the new key's row (10 characters).
+6. Click **Download** in the key's row. You get
+   `AuthKey_<KEYID>.p8`. **Apple only lets you download it once**, so keep
+   it somewhere safe. If you lose it, revoke the key and make a new one.
+
+### 5. Add the GitHub secrets
+
+1. Go to
+   <https://github.com/YouSeeImNewHere/UnderwayBlackjack/settings/secrets/actions>.
+2. For each row below, click **New repository secret**, enter the
+   **Name** exactly as shown, paste the value, and click **Add secret**:
+
+   | Name | Value |
    | --- | --- |
-   | `APPLE_TEAM_ID` | Team ID from step 2 |
-   | `APPSTORE_API_KEY_ID` | Key ID from step 5 |
-   | `APPSTORE_API_ISSUER_ID` | Issuer ID from step 5 |
-   | `APPSTORE_API_PRIVATE_KEY` | The full contents of the `.p8` file, including the `BEGIN`/`END` lines |
+   | `APPLE_TEAM_ID` | Team ID from step 1 |
+   | `APPSTORE_API_KEY_ID` | Key ID from step 4 |
+   | `APPSTORE_API_ISSUER_ID` | Issuer ID from step 4 (looks like a UUID with dashes) |
+   | `APPSTORE_API_PRIVATE_KEY` | The whole `.p8` file |
 
-   If you used a different bundle ID in step 3, also add a repository
-   **variable** (the Variables tab, not Secrets) named `IOS_BUNDLE_ID`
-   with that value.
+   To get the `.p8` contents on Windows, right-click the file → **Open
+   with** → **Notepad**, press Ctrl+A, then Ctrl+C. Paste all of it,
+   including the `-----BEGIN PRIVATE KEY-----` and
+   `-----END PRIVATE KEY-----` lines.
+
+   If you registered a different bundle ID in step 2, also open the
+   **Variables** tab on that page → **New repository variable**, name it
+   `IOS_BUNDLE_ID`, and set it to your bundle ID.
 
 ## Uploading a build
 
-Go to the repo's **Actions** tab, pick **iOS TestFlight**, and click
-**Run workflow**. Pushing a tag such as `ios-v1.0` also starts it.
+1. Go to <https://github.com/YouSeeImNewHere/UnderwayBlackjack/actions>.
+2. Click **iOS TestFlight** in the left sidebar. (It only appears once this
+   workflow file is on the `master` branch.)
+3. Click **Run workflow** (right side) → leave Branch as `master` → click
+   the green **Run workflow**.
+4. Click the run that appears to watch it. It takes about 10–20 minutes.
+   A green check means the upload succeeded.
 
-After the upload finishes, Apple takes roughly 5–30 minutes to process the
-build. It then appears under your app's **TestFlight** tab in App Store
-Connect.
+Pushing a tag such as `ios-v1.0` also starts it.
 
-- **Internal testers** (people on your App Store Connect team, up to 100)
-  can install it right away: add them under TestFlight → Internal Testing.
-- **External testers** (anyone by email or a public link, up to 10,000)
-  need a short Beta App Review from Apple the first time. Create an
-  external group, add the build, and fill in the test info Apple asks for.
+Then, in App Store Connect → **Apps** → your app → **TestFlight** tab, the
+build shows as "Processing" for about 5–30 minutes. Apple also emails you
+when it's done.
 
-Testers install the **TestFlight** app from the App Store and accept the
-invite.
+### Testing it yourself (internal testing, no review)
+
+1. In the **TestFlight** tab, click the **+** next to **Internal Testing**
+   in the left sidebar.
+2. Name the group (e.g. `Me`), leave **Enable automatic distribution**
+   checked, and click **Create**.
+3. In the group, click **+** next to **Testers**, check yourself, and click
+   **Add**. Anyone you add must already be a user in Users and Access.
+   Up to 100 people.
+4. On your iPhone, install **TestFlight** from the App Store and sign in
+   with the same Apple ID.
+5. Open the invite email on the phone and tap **View in TestFlight**, or
+   just open the TestFlight app. Tap **Install**.
+
+With automatic distribution on, every later build shows up there by itself.
+
+### Sharing with anyone (external testing, one-time review)
+
+1. In the **TestFlight** tab, click the **+** next to **External Testing**,
+   name the group (e.g. `Friends`), and click **Create**.
+2. Under **Test Information** in the left sidebar, fill in **Beta App
+   Description**, **Feedback Email**, and your contact info. Uncheck **Sign-in
+   required**, since the app has no login.
+3. Back in the group, click **+** next to **Builds**, pick the build, and
+   enter "What to Test" (e.g. "Try a few hands of blackjack").
+4. Click **Submit for Review**. The first review usually takes about a
+   day; later builds of the same version are often approved automatically.
+5. Once approved, either add testers by email (**+** next to Testers) or
+   click **Enable Public Link** and share that link. Up to 10,000 testers.
+
+### If the workflow fails
+
+Click the failed step to see its log.
+
+- **"Missing secret for ..."**: a secret name is misspelled or empty
+  (step 5).
+- **"Cloud signing permission error"**, or it can't create a certificate:
+  the API key isn't **Admin** (step 4).
+- **"No profiles for 'com.youseeimnewhere.underwayblackjack' were found"**:
+  the bundle ID in step 2 doesn't match exactly, or `APPLE_TEAM_ID` is wrong.
+- **"Cannot determine the Apple ID from Bundle ID"**, or upload errors
+  about the app: the App Store Connect app (step 3) doesn't exist yet or
+  uses a different bundle ID.
+- **An error about an agreement**: accept it in App Store Connect
+  (step 3.2) or under **Business**.
+- **An error that the build number was already used**: re-run the
+  workflow; each run gets a new number.
 
 ## Versions
 
