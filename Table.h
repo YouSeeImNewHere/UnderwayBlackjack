@@ -1,0 +1,3013 @@
+#pragma once
+#include <random>
+#include <algorithm>
+#include <queue>
+#include <optional>
+#include <unordered_map>
+#include <cmath>
+#include <functional>
+
+#include "Person.h"
+#include "BettingSquare.h"
+#include "DigitFont.h"
+#include "StrategyChart.h"
+#include "GameModeMenu.h"
+
+struct CardAnimation {
+	Card card;
+
+	SDL_FPoint start;
+	SDL_FPoint end;
+	SDL_FRect destination;
+	int startAngle = 0;
+	int currentAngle = 0;
+	int finalAngle = 0;
+
+	float elapsed = 0.0f;
+	float duration = 0.6f;
+
+	int playerIndex;
+	int handIndex;
+	bool split;
+	bool showCard;
+	bool isDealer;
+	bool discard;
+	bool doubleHand;
+};
+
+struct DealRequest{
+	int playerIndex;
+	int handIndex = 0;
+	bool isDealer;
+	bool discard = false;
+	bool showCard;
+	bool split = false;
+	bool removeFromHand = false;
+	bool doubleHand = false;
+
+	SDL_FPoint from;
+	SDL_FPoint to;
+	Card card;
+};
+
+// A round-end payout chip flying from the tray to a winning/pushed
+// player's seat -- see Table::resolveRound()/queueChipPayout(). Simpler
+// than CardAnimation on purpose: no rotation, no hand/discard bookkeeping,
+// just a straight flight that credits bankroll on arrival. Several of
+// these can be in flight at once (every paid-out hand pays out together),
+// unlike cards which are strictly one-at-a-time -- so this isn't run
+// through dealQueue/cardAnimation at all, just its own small vector.
+struct ChipAnimation{
+	SDL_FPoint start;
+	SDL_FPoint end;
+	float elapsed = 0.0f;
+	float duration = 0.5f;
+	int denomIndex;
+	int columnIndex;
+	int playerIndex;
+	int creditAmount;
+	// A push's payout is just the player's own bet coming back, not a net
+	// gain -- flagged so the bankroll-change readout (see
+	// queueBankrollChange()) can say so instead of showing it exactly like
+	// a real win, which is misleading (bankroll visibly goes up, so it
+	// looks like a gain, even though it's a net wash against what already
+	// left the bankroll at deal time).
+	bool isPush = false;
+};
+
+class Table
+{
+public:
+	Table(int numberOfPlayers,bool H17,int numberOfDecks){
+		this->numberOfPlayers = numberOfPlayers;
+		this->H17 = H17;
+		this->numberOfDecks = numberOfDecks;
+
+		float xs[4] = {1229,670,211, 1058};
+		float ys[4] = {391,507,92, 423};
+
+		int direction[4] = {1,0,-1, 5};
+		for(int i = 0; i < 4; i++){
+			bettingSquares[i] = BettingSquare(xs[i], ys[i], direction[i]);
+		}
+
+		makeShoe();
+
+		dealer = Person(false, bettingSquares[3]);
+		for(int i = 0; i < numberOfPlayers; i++){
+			players[i] = Person(true, bettingSquares[seatIndexFor(i, numberOfPlayers)]);
+		}
+	}
+
+	// bettingSquares[0..2] are right/bottom-center/left (see xs[]/ys[] just
+	// above). With 2-3 players seated, that's the natural order -- but a
+	// single player landing in seat 0 put them off in the far-right seat
+	// instead of facing the dealer head-on, which reads as an odd default
+	// for the one-player case specifically. Only that case gets remapped;
+	// 2 and 3 players keep the existing seats/order.
+	int seatIndexFor(int playerIndex, int totalPlayers){
+		if(totalPlayers == 1)
+			return 1;
+		return playerIndex;
+	}
+
+	// Called from mina.cpp once the setup screen (or a loaded save, for
+	// Resume) knows the real player count/bankrolls/starting bets -- the
+	// constructor above just seeds a default 3-seat table since the actual
+	// choice isn't made until after AppContext exists. Re-seats every
+	// active player fresh, so this is only meant to run before startGame()
+	// deals anything.
+	// sideBetSizes is nullptr for modes with no side bet -- callers that
+	// don't have one (or don't care) can just omit it. Applied according to
+	// whichever game mode configureGameMode() already set, so call that
+	// first: Lucky Ladies gets one side bet, Player's Edge gets both of its
+	// Match bets seeded to the same starting amount (see
+	// Person::setInitialMatchBets()).
+	void configurePlayers(int newNumberOfPlayers, const int bankrolls[3], const int initialBets[3], const int* sideBetSizes = nullptr){
+		numberOfPlayers = newNumberOfPlayers;
+		for(int i = 0; i < numberOfPlayers; i++){
+			players[i] = Person(true, bettingSquares[seatIndexFor(i, numberOfPlayers)]);
+			players[i].setBankroll(bankrolls[i]);
+			players[i].setInitialBet(initialBets[i]);
+
+			if(sideBetSizes){
+				if(hasLuckyLadies(gameMode) || hasLuckyStiff(gameMode))
+					players[i].setInitialSideBet(sideBetSizes[i]);
+				else if(isPlayersEdge(gameMode))
+					players[i].setInitialMatchBets(sideBetSizes[i]);
+			}
+		}
+	}
+
+	// Called from mina.cpp once GameModeMenu picks a real mode (or a loaded
+	// save, for Resume) -- rebuilds the shoe from scratch at that deck
+	// count/composition and remembers the mode for everything that varies
+	// by it (side-bet UI, Spanish shoe, eventually Spanish 21 payouts).
+	void configureGameMode(GameMode mode){
+		gameMode = mode;
+		numberOfDecks = deckCountFor(mode);
+		makeShoe();
+		runningCount = 0;
+	}
+
+	// So screens outside Table (the About screen, mainly) can show the
+	// right content for whatever's actually being played, without mina.cpp
+	// needing to separately track and keep a second copy in sync (the
+	// Resume path only calls configureGameMode() -- there's no other spot
+	// that would remember the mode otherwise).
+	GameMode getGameMode(){
+		return gameMode;
+	}
+
+	// Table is constructed up front (see AppContext), but shouldn't start
+	// dealing until the player actually picks Start/Resume off the menu --
+	// called once, from mina.cpp, on that transition. Rather than dealing
+	// immediately, this opens the betting phase (see awaitingBets) so bets
+	// get set before the very first round too, not just every one after it.
+	void startGame(){
+		openBettingPhase();
+	}
+
+	// The only two places a betting phase actually opens (the very first
+	// one, and every one after a round finishes) -- both route through
+	// here instead of setting awaitingBets directly so a bankroll that
+	// dropped from the last round's result (or never covered a standing
+	// bet to begin with) gets its stale bet clamped down immediately,
+	// before the player ever sees or touches the raise/lower controls.
+	// Without this, a bet that was affordable when it was set could sit
+	// there un-reclamped, visibly exceeding the new bankroll, until the
+	// player happened to tap a control themselves.
+	void openBettingPhase(){
+		for(int i = 0; i < numberOfPlayers; i++)
+			clampBetsToBankroll(i);
+
+		awaitingBets = true;
+	}
+
+	bool isAwaitingBets(){
+		return awaitingBets;
+	}
+
+	// For the pause menu's Strategy Table: works out which cell of the
+	// basic-strategy chart matches whatever's actually happening right
+	// now, so it can highlight it. section: 0=hard totals, 1=soft totals,
+	// 2=pairs; row/col are indices into StrategyChart's own data (col is
+	// the dealer's up-card: 0->2,...,8->10,9->Ace). Returns false when
+	// there's no meaningful "current hand" -- not mid-turn, no cards yet,
+	// dealer's hole card not revealed.
+	bool getStrategySituation(int& section, int& row, int& col){
+		if(awaitingBets || activePlayer >= numberOfPlayers)
+			return false;
+
+		Person& p = players[activePlayer];
+		int handIdx = p.getActiveHand();
+		if(handIdx >= p.hands.size())
+			return false;
+
+		Hand& hand = p.hands[handIdx];
+		if(hand.getHandSize() < 2)
+			return false;
+
+		int dealerUp = -1;
+		for(Card& c : dealer.hands[0].cards){
+			if(c.getShown()){
+				int v = c.getValue();
+				dealerUp = (v > 10) ? 10 : v;
+				break;
+			}
+		}
+		if(dealerUp < 0)
+			return false;
+
+		col = (dealerUp == 1) ? 9 : dealerUp - 2;
+
+		// A pair: exactly 2 cards sharing the same blackjack value-tier
+		// (face cards all collapse to 10, matching how onSplit() itself
+		// doesn't require identical ranks either).
+		if(hand.getHandSize() == 2){
+			int v0 = hand.cards[0].getValue();
+			int v1 = hand.cards[1].getValue();
+			int tier0 = (v0 > 10) ? 10 : v0;
+			int tier1 = (v1 > 10) ? 10 : v1;
+			if(tier0 == tier1){
+				section = 2;
+				row = (tier0 == 1) ? 9 : tier0 - 2;
+				return true;
+			}
+		}
+
+		// Every card in a player's own hand is always face-up, so this
+		// reads as a plain hard/soft total getter here too.
+		auto [hard, soft] = hand.getShownTotals();
+		if(soft != hard && soft >= 13 && soft <= 20){
+			section = 1;
+			row = soft - 13;
+		} else{
+			section = 0;
+			int total = hard;
+			if(total <= 8)
+				row = 0;
+			else if(total >= 17)
+				row = 9;
+			else
+				row = total - 8;
+		}
+
+		return true;
+	}
+
+	// Top-right-ish, near the active hand HUD -- toggles the in-game quick
+	// tip popup. Public (along with the hit-test/toggle below) since
+	// mina.cpp needs to claim its own finger the same way it already does
+	// for the pause button (see AppContext::uiClaimedFinger), to stop a
+	// tap here from also registering as a "hit" gesture.
+	// Directly below the pause button (same x/width, matching its 1364,8,
+	// 68x48 -- see mina.cpp's pauseButtonRect()), not off near the active
+	// hand HUD -- the two read as a pair of HUD buttons in the same corner
+	// now instead of being scattered.
+	SDL_FRect quickTipButton(){
+		return SDL_FRect{ .x = 1364, .y = 64, .w = 68, .h = 48 };
+	}
+
+	bool isQuickTipButtonHit(SDLState& state, float windowX, float windowY){
+		float x, y;
+		if(!SDL_RenderCoordinatesFromWindow(state.renderer, windowX, windowY, &x, &y))
+			return false;
+
+		SDL_FPoint p{x, y};
+		SDL_FRect btn = quickTipButton();
+		return SDL_PointInRectFloat(&p, &btn);
+	}
+
+	void toggleQuickTip(){
+		showQuickTip = !showQuickTip;
+	}
+
+	// Directly above the discard pile it toggles the overlay on (matching
+	// its width, cardWidth), not stacked with the pause/quick-tip buttons
+	// -- same claimed-finger handling in mina.cpp regardless of where it
+	// sits. Lets the player hide the running count/true count overlay
+	// (drawCardCountStats()) to actually test their own counting instead
+	// of just reading the answer off the discard pile the whole time.
+	SDL_FRect cardCountToggleButton(){
+		return SDL_FRect{ .x = discardPosition.x, .y = discardPosition.y - 48.0f - 6.0f, .w = cardWidth, .h = 48 };
+	}
+
+	bool isCardCountToggleHit(SDLState& state, float windowX, float windowY){
+		float x, y;
+		if(!SDL_RenderCoordinatesFromWindow(state.renderer, windowX, windowY, &x, &y))
+			return false;
+
+		SDL_FPoint p{x, y};
+		SDL_FRect btn = cardCountToggleButton();
+		return SDL_PointInRectFloat(&p, &btn);
+	}
+
+	void toggleCardCount(){
+		showCardCount = !showCardCount;
+	}
+
+	void drawCardCountToggleButton(SDLState& state){
+		SDL_FRect btn = cardCountToggleButton();
+		SDL_SetRenderDrawColor(state.renderer, showCardCount ? 90 : 70, showCardCount ? 150 : 70, showCardCount ? 110 : 140, 255);
+		SDL_RenderFillRect(state.renderer, &btn);
+		SDL_SetRenderDrawColor(state.renderer, 255, 255, 255, 255);
+		SDL_RenderRect(state.renderer, &btn);
+
+		std::string label = "CNT";
+		float pixel = 5.0f;
+		float maxW = btn.w - 8.0f;
+		float w = DigitFont::textWidth(label, pixel);
+		if(w > maxW && w > 0.0f)
+			pixel *= maxW / w;
+		w = DigitFont::textWidth(label, pixel);
+		DigitFont::drawText(state, label, btn.x + (btn.w - w) / 2.0f, btn.y + (btn.h - 5 * pixel) / 2.0f, pixel, SDL_Color{255, 255, 255, 255});
+	}
+
+	// DEAL was pressed: locks in whatever each player's raise/lower buttons
+	// landed on and actually starts the round. A player who bet nothing
+	// sits this round out entirely -- no cards, no turn (see firstDeal()
+	// and skipZeroBetPlayers()).
+	void beginRound(){
+		if(!awaitingBets)
+			return;
+
+		awaitingBets = false;
+
+		// Belt-and-suspenders: every raise already re-clamps itself (see
+		// handleBettingPoint()), but re-checking once more right before
+		// bets actually leave the bankroll costs nothing and guarantees
+		// this invariant holds no matter how it got here.
+		for(int i = 0; i < numberOfPlayers; i++)
+			clampBetsToBankroll(i);
+
+		for(int i = 0; i < numberOfPlayers; i++){
+			if(players[i].getBet() > 0){
+				// Total leaving the bankroll this deal -- main bet plus
+				// whichever side bet(s) are actually in play -- shown as
+				// one combined -$ readout rather than several at once.
+				int totalWagered = players[i].getBet();
+				if(hasAnySideBet(gameMode))
+					totalWagered += players[i].getSideBet() + players[i].getMatchUpBet() + players[i].getMatchDownBet();
+
+				players[i].deductBet();
+				players[i].startRoundBet();
+				if(hasAnySideBet(gameMode))
+					players[i].deductSideBets();
+
+				queueBankrollChange(i, -totalWagered);
+			}
+
+			sideBetResult[i] = HandResult::None;
+			matchUpResult[i] = HandResult::None;
+			matchDownResult[i] = HandResult::None;
+			luckyStiffPending[i] = false;
+		}
+
+		activePlayer = 0;
+		skipZeroBetPlayers();
+
+		firstDeal();
+		awaitingInitialDeal = hasAnySideBet(gameMode);
+	}
+
+	// Keeps a seat's main bet + side bet(s) from ever adding up to more
+	// than that player's own bankroll -- raiseBet()/raiseSideBet()/etc.
+	// each independently clamp themselves to bankroll, but that only
+	// guarantees any *one* of them fits alone, not that they all still fit
+	// together (e.g. a full-bankroll main bet, then a side bet raised on
+	// top of it). Side bets give way first (they're the optional extra,
+	// not the hand itself), then the main bet itself is pinned down to
+	// whatever's actually left.
+	void clampBetsToBankroll(int playerIndex){
+		Person& p = players[playerIndex];
+		int bankroll = p.getBankroll();
+		int mainBet = p.getBet();
+		int sideTotal = p.getSideBet() + p.getMatchUpBet() + p.getMatchDownBet();
+
+		if(mainBet + sideTotal <= bankroll)
+			return;
+
+		p.zeroSideBets();
+		p.setBetDirect(std::min(mainBet, bankroll));
+	}
+
+	// windowX/windowY: raw event coordinates in window space, same
+	// convention as Menu/SetupMenu's handlePoint. Self-contained: mutates
+	// each player's bet directly and calls beginRound() itself once DEAL
+	// is hit, so mina.cpp doesn't need to do anything with the return.
+	void handleBettingPoint(SDLState& state, float windowX, float windowY){
+		float x, y;
+		if(!SDL_RenderCoordinatesFromWindow(state.renderer, windowX, windowY, &x, &y))
+			return;
+
+		SDL_FPoint p{x, y};
+
+		for(int i = 0; i < numberOfPlayers; i++){
+			if(players[i].getBankroll() <= 0){
+				SDL_FRect buyIn = buyInButton(i);
+				if(SDL_PointInRectFloat(&p, &buyIn))
+					players[i].rebuy();
+				continue;
+			}
+
+			BetRow row = betRow(i);
+			int denom = BET_DENOMS[chipIndex[i]];
+
+			if(SDL_PointInRectFloat(&p, &row.lower)){
+				players[i].lowerBet(denom);
+				return;
+			}
+			if(SDL_PointInRectFloat(&p, &row.raise)){
+				players[i].raiseBet(denom);
+				clampBetsToBankroll(i);
+				return;
+			}
+			if(SDL_PointInRectFloat(&p, &row.selMinus)){
+				chipIndex[i] = std::max(0, chipIndex[i] - 1);
+				return;
+			}
+			if(SDL_PointInRectFloat(&p, &row.selPlus)){
+				chipIndex[i] = std::min(4, chipIndex[i] + 1);
+				return;
+			}
+
+			// Side bets use the same currently-selected chip denomination
+			// as the main bet -- one denom control per seat, not a second
+			// one duplicated for the side bet(s).
+			if(hasLuckyLadies(gameMode) || hasLuckyStiff(gameMode)){
+				SideBetRow sb = sideBetRow(i, 0);
+				if(SDL_PointInRectFloat(&p, &sb.selMinus)){
+					players[i].lowerSideBet(denom);
+					return;
+				}
+				if(SDL_PointInRectFloat(&p, &sb.selPlus)){
+					players[i].raiseSideBet(denom);
+					clampBetsToBankroll(i);
+					return;
+				}
+			} else if(isPlayersEdge(gameMode)){
+				SideBetRow up = sideBetRow(i, 0);
+				if(SDL_PointInRectFloat(&p, &up.selMinus)){
+					players[i].lowerMatchUpBet(denom);
+					return;
+				}
+				if(SDL_PointInRectFloat(&p, &up.selPlus)){
+					players[i].raiseMatchUpBet(denom);
+					clampBetsToBankroll(i);
+					return;
+				}
+
+				SideBetRow down = sideBetRow(i, 1);
+				if(SDL_PointInRectFloat(&p, &down.selMinus)){
+					players[i].lowerMatchDownBet(denom);
+					return;
+				}
+				if(SDL_PointInRectFloat(&p, &down.selPlus)){
+					players[i].raiseMatchDownBet(denom);
+					clampBetsToBankroll(i);
+					return;
+				}
+			}
+		}
+
+		SDL_FRect deal = dealButton();
+		if(SDL_PointInRectFloat(&p, &deal))
+			beginRound();
+	}
+
+	void draw(SDLState& state, Resources& res){
+
+		// table
+        SDL_RenderTexture(state.renderer,res.tableCloth,nullptr,nullptr);
+
+		// Drawn before any cards (and unconditionally, not just once play
+		// starts) so it's visible from the moment the game loads, and so
+		// cards land on top of it rather than the other way around.
+		drawChipTray(state, res);
+
+		for(int i = 0; i < discard.size(); i++){
+			discard[i].draw(state,res);
+		}
+
+		drawCardCountStats(state);
+
+		// player hands
+		for(int i = 0; i < numberOfPlayers; i++){
+			// activePlayer starts each round pointing at seat 0 before any
+			// bets are even placed, so the turn arrow would otherwise show
+			// up during betting pointing at an empty hand.
+			players[i].draw(state,res, !awaitingBets && activePlayer == i);
+		}
+
+		// x computed live from each card's *current* index, not a position
+		// baked in once by makeShoe() -- shoe[i]'s stored position never
+		// changes as getNextCard() erases the front of the vector, so a
+		// stack drawn from stale stored positions just revealed
+		// progressively-further-right cards as it depleted instead of
+		// visibly shrinking back toward shoePosition the way cards are
+		// actually being pulled from.
+		for(int i = shoe.size() - 1; i >= 0; i--){
+			SDL_FRect dest{
+				.x = shoePosition.x + i * shoeCardSpacing,
+				.y = shoePosition.y,
+				.w = cardWidth / 10,
+				.h = cardHeight
+			};
+
+			if(shoe[i].getValue() == 14)
+				SDL_RenderTexture(state.renderer,res.allCards,&shoeYellow,&dest);
+			else
+				SDL_RenderTexture(state.renderer,res.allCards,&shoeBack,&dest);
+		}
+
+		// dealer hand
+		dealer.draw(state,res,false);
+
+		if(cardAnimation.has_value()) {
+			CardAnimation& animation = cardAnimation.value();
+
+			SDL_FRect source = animation.showCard ? animation.card.getSrc() : backOFCard;
+
+			SDL_RenderTextureRotated(state.renderer,res.allCards,&source,&animation.destination,animation.currentAngle,&rotationTopLeft,SDL_FLIP_NONE);
+		}
+
+		drawHandTotals(state);
+		drawBankrolls(state);
+		drawHandResults(state);
+
+		if(awaitingBets)
+			drawBetting(state);
+		else{
+			drawActiveBet(state, res);
+			drawQuickTipButton(state);
+			drawQuickTip(state);
+		}
+
+		drawCardCountToggleButton(state);
+		drawChipAnimations(state, res);
+	}
+
+	void handleEvent(const SDL_Event& event)
+	{
+		switch(event.type)
+		{
+			case SDL_EVENT_KEY_UP:
+				if(cardAnimation.has_value() || pauseTimer > 0.0f || awaitingBets)
+					break;
+
+				switch(event.key.scancode)
+				{
+					case SDL_SCANCODE_A:
+						onStand();
+					break;
+
+					case SDL_SCANCODE_S:
+						onHit();
+					break;
+
+					case SDL_SCANCODE_D:
+						onSplit();
+					break;
+
+					case SDL_SCANCODE_F:
+						onDouble();
+					break;
+
+					case SDL_SCANCODE_G:
+						onSurrender();
+					break;
+
+					default:
+					break;
+				}
+			break;
+
+			// Touch bookkeeping always runs, even mid-animation, so a finger
+			// lifted while an animation is playing doesn't leave a phantom
+			// entry in activeTouches and throw off the next gesture's finger count.
+			case SDL_EVENT_FINGER_DOWN: {
+				SDL_FingerID id = event.tfinger.fingerID;
+				activeTouches[id] = TouchPoint{
+					event.tfinger.x, event.tfinger.y,
+					event.tfinger.x, event.tfinger.y
+				};
+				break;
+			}
+
+			case SDL_EVENT_FINGER_MOTION: {
+				auto it = activeTouches.find(event.tfinger.fingerID);
+				if(it != activeTouches.end()){
+					it->second.x = event.tfinger.x;
+					it->second.y = event.tfinger.y;
+				}
+				break;
+			}
+
+			case SDL_EVENT_FINGER_UP: {
+				auto it = activeTouches.find(event.tfinger.fingerID);
+				if(it != activeTouches.end()){
+					it->second.x = event.tfinger.x;
+					it->second.y = event.tfinger.y;
+
+					endedTouches.push_back(it->second);
+					activeTouches.erase(it);
+				}
+
+				// Only once every finger from this gesture has lifted do we
+				// know the final finger count and can classify the gesture.
+				if(activeTouches.empty() && !endedTouches.empty()){
+					if(!cardAnimation.has_value() && pauseTimer <= 0.0f && !awaitingBets)
+						processGesture(endedTouches);
+
+					endedTouches.clear();
+				}
+				break;
+			}
+
+			default:
+			break;
+		}
+	}
+
+	void update(float deltaTime) {
+		// Payout chips fly independently of everything else below -- they
+		// start firing exactly when the dealer-finish pause does (see
+		// dealDealer()) and need to keep progressing *during* that pause,
+		// not be blocked by it like dealing/resolving are.
+		for(auto it = chipAnimations.begin(); it != chipAnimations.end();){
+			it->elapsed += deltaTime;
+			if(it->elapsed >= it->duration){
+				players[it->playerIndex].credit(it->creditAmount);
+				queueBankrollChange(it->playerIndex, it->creditAmount, it->isPush);
+
+				// A collected (lost-bet) chip only rejoins the tray once it
+				// actually arrives -- a payout already dropped its column
+				// the moment it was queued (see queueChipPayout()), so
+				// crediting it again here would double-count.
+				if(it->creditAmount == 0)
+					trayFillCount[it->columnIndex] = std::min(TRAY_FILL_COUNT, trayFillCount[it->columnIndex] + 1);
+
+				it = chipAnimations.erase(it);
+			} else{
+				++it;
+			}
+		}
+
+		// Ages independently of everything else below too, same reasoning
+		// as chipAnimations just above.
+		for(auto it = bankrollChanges.begin(); it != bankrollChanges.end();){
+			it->elapsed += deltaTime;
+			if(it->elapsed >= it->duration)
+				it = bankrollChanges.erase(it);
+			else
+				++it;
+		}
+
+		// Hold everything -- no dealing, no resolving -- until a pending
+		// pause (bust shown, or dealer's finished hand) has run its course.
+		if(pauseTimer > 0.0f){
+			pauseTimer -= deltaTime;
+			if(pauseTimer > 0.0f)
+				return;
+
+			pauseTimer = 0.0f;
+			if(onPauseComplete){
+				std::function<void()> action = onPauseComplete;
+				onPauseComplete = nullptr;
+				action();
+			}
+		}
+
+		// If no card is moving, start the next queued deal.
+		if(!cardAnimation.has_value()) {
+			startDeal();
+			if(!cardAnimation.has_value() && dealQueue.empty()){
+				if(awaitingInitialDeal){
+					awaitingInitialDeal = false;
+					resolveSideBets();
+				}
+				if(awaitingNewRound){
+					awaitingNewRound = false;
+
+					// Every card from the just-finished round has landed
+					// in discard by this point (dealQueue's empty, nothing
+					// is animating) -- safe to sweep it and cut a fresh
+					// shoe before opening bets on the next round.
+					if(shoeNeedsReshuffle){
+						shoeNeedsReshuffle = false;
+						discard.clear();
+						makeShoe();
+						runningCount = 0;
+					}
+
+					openBettingPhase();
+				}
+			}
+			return;
+		}
+
+		CardAnimation& animation = cardAnimation.value();
+
+		animation.elapsed += deltaTime;
+
+		float progress = animation.elapsed / animation.duration;
+
+		if(progress > 1.0f)
+			progress = 1.0f;
+
+		animation.destination.x =
+			animation.start.x +
+			(animation.end.x - animation.start.x) * progress;
+
+		animation.destination.y =
+			animation.start.y +
+			(animation.end.y - animation.start.y) * progress;
+
+		animation.currentAngle = animation.startAngle + (animation.finalAngle - animation.startAngle) * progress;
+
+		if(progress >= 1.0f) {
+			animation.card.setPostion(animation.end);
+			// Persist the settled rotation onto the card itself, same as
+			// position just above -- matters most for the discard pile,
+			// which (unlike Hand::draw()) has nothing else to pass a
+			// rotation in with; it relies entirely on Card::draw() reading
+			// whatever's already stored on the card.
+			animation.card.setRotation(animation.finalAngle);
+			if(animation.discard){
+				// A card arriving in the discard pile keeps whatever isShown
+				// it had in the hand (true, for any card that was dealt face
+				// up) unless told otherwise here -- addCard() does this same
+				// showCard() call for the dealer/player branches below, but
+				// nothing did it for discard until now, so discarded cards
+				// were rendering face-up forever.
+				animation.card.showCard(animation.showCard);
+				discard.push_back(animation.card);
+			} else if(animation.isDealer) {
+				dealer.addCard(animation.card, animation.showCard);
+				// The dealer's hole card is dealt with showCard=false and
+				// counted separately once it's actually revealed -- see
+				// dealDealer().
+				if(animation.showCard)
+					addToRunningCount(animation.card.getValue());
+			} else {
+				players[animation.playerIndex].addCard(animation.card, animation.showCard, animation.split, animation.doubleHand);
+				// A split card is one that already landed (and was
+				// already counted) once before -- it's just moving to a
+				// new hand, not a newly-seen card, so it doesn't count
+				// again here.
+				if(animation.showCard && !animation.split)
+					addToRunningCount(animation.card.getValue());
+				checkBreak(animation.doubleHand);
+			}
+
+			cardAnimation.reset();
+			startDeal();
+		}
+	}
+
+	void dealDealer(){
+		if(activePlayer < numberOfPlayers)
+			return;
+
+		if(cardAnimation.has_value() || !dealQueue.empty() || pauseTimer > 0.0f)
+			return;
+
+		// The hole card is revealed exactly once (guarded on its own
+		// isShown, since dealDealer() gets called again on every
+		// subsequent frame while the dealer keeps hitting past this
+		// point), with a brief pause afterward so it actually registers
+		// before the next card -- if the dealer needs to hit -- starts
+		// flying. Without this, revealing the hole card and queuing the
+		// next card happened in the same frame, easy to miss entirely.
+		if(dealer.hands[0].getHandSize() >= 2 && !dealer.hands[0].cards[1].getShown()){
+			// The hole card counts the moment it's actually revealed, not
+			// at deal time.
+			addToRunningCount(dealer.hands[0].cards[1].getValue());
+			dealer.showCards();
+
+			pauseTimer = HOLE_CARD_REVEAL_PAUSE_DURATION;
+			onPauseComplete = [this](){
+				continueDealerPlay();
+			};
+			return;
+		}
+
+		continueDealerPlay();
+	}
+
+	// The rest of dealDealer() -- hit again if under 17, otherwise resolve
+	// the round -- split out so it can run either immediately (hole card
+	// already revealed on some earlier call) or once the reveal pause above
+	// actually finishes.
+	void continueDealerPlay(){
+		std::cout << "Deal the dealer" << std::endl;
+
+		if(dealer.getHandTotal() < 17)
+			dealQueue.push(DealRequest{
+			.playerIndex = -1,
+			.isDealer = true,
+			.showCard = true,
+			.from = shoePosition,
+			.to = dealer.getNextCardPosition(),
+			.card = getNextCard()
+			});
+		else{
+			// "When the dealer is done" -- settle every hand against the
+			// final dealer total before their cards get swept away.
+			resolveRound();
+
+			// Let the finished dealer hand sit on screen for a beat before
+			// sweeping every hand into the discard pile.
+			pauseTimer = DEALER_FINISH_PAUSE_DURATION;
+			onPauseComplete = [this](){
+				clearTable();
+				awaitingNewRound = true;
+			};
+		}
+	}
+
+private:
+	struct TouchPoint {
+		float startX, startY;
+		float x, y;
+	};
+
+	Person dealer;
+	Person players[3];
+	BettingSquare bettingSquares[4];
+
+	int numberOfPlayers;
+	bool H17;
+
+	// Which game is actually being played -- drives side-bet UI/resolution
+	// (hasLuckyLadies()/isPlayersEdge(), GameModeMenu.h) and, later, which
+	// rules engine resolveRound() uses. Set once via configureGameMode().
+	GameMode gameMode = GameMode::TwoDeck;
+
+	int numberOfDecks;
+	std::vector<Card> shoe;
+	std::vector<Card> discard;
+
+	int activePlayer = 0;
+	std::queue<DealRequest> dealQueue;
+	std::optional<CardAnimation> cardAnimation;
+	std::vector<ChipAnimation> chipAnimations;
+
+	// A brief "-$25"/"+$50" readout under a seat's bankroll number
+	// whenever it actually changes -- initial bet, split, double, a
+	// side-bet or hand payout landing -- so a bankroll number moving or a
+	// chip flying isn't the only sign anything happened. Purely time-based
+	// (no fade, just disappears once elapsed >= duration): simpler than
+	// wiring up alpha blending for what's meant to be a quick, glanceable
+	// readout, not a polished animation.
+	struct BankrollChange{
+		int playerIndex;
+		std::string text;
+		SDL_Color color;
+		float elapsed = 0.0f;
+		float duration = 1.6f;
+	};
+	std::vector<BankrollChange> bankrollChanges;
+
+	// isPush: a push's credit is the player's own bet coming back, not a
+	// net gain -- labeled and colored differently (neutral white "PUSH
+	// +$X" instead of a green "+$X") so it doesn't read as a win. Without
+	// this, a push and an actual win looked identical here, which is what
+	// made a push look like it was somehow paying double: bankroll visibly
+	// went up by the full bet, styled exactly like a real payout.
+	void queueBankrollChange(int playerIndex, int amount, bool isPush = false){
+		if(amount == 0)
+			return;
+
+		std::string text = isPush
+			? "PUSH +$" + std::to_string(amount)
+			: (amount > 0 ? "+$" : "-$") + std::to_string(std::abs(amount));
+		SDL_Color color = isPush
+			? SDL_Color{220, 220, 220, 255}
+			: (amount > 0 ? SDL_Color{90, 220, 110, 255} : SDL_Color{230, 80, 80, 255});
+
+		bankrollChanges.push_back(BankrollChange{
+			.playerIndex = playerIndex,
+			.text = text,
+			.color = color
+		});
+	}
+
+	bool awaitingNewRound = false;
+
+	// Set by getNextCard() the moment the yellow cut card is burned;
+	// consumed once the round it was drawn during actually finishes (see
+	// update()'s awaitingNewRound handling) -- discards everything and
+	// deals a fresh shoe before the next round's bets open, same as a real
+	// table cutting to a new shoe once the cut card's reached.
+	bool shoeNeedsReshuffle = false;
+
+	// Hi-Lo running count -- persists across every hand dealt from the
+	// current shoe, reset only when the shoe itself is (a fresh
+	// configureGameMode() or the cut-card reshuffle above), never per hand.
+	// See addToRunningCount()'s call sites for exactly when a card counts.
+	int runningCount = 0;
+
+	// Per-card horizontal offset the shoe's on-table stack draws with --
+	// set by makeShoe(), read by draw()'s shoe-rendering loop (see there
+	// for why position isn't just baked into each Card once).
+	float shoeCardSpacing = 3.0f;
+
+	// Mirrors awaitingNewRound's "deal queue just drained" detection, but
+	// for the *opening* deal instead of the closing one -- set by
+	// beginRound() right after firstDeal() is queued, consumed the moment
+	// those cards actually finish landing (see update()), which is exactly
+	// when Lucky Ladies/Match Up (Table::resolveSideBets()) should fire:
+	// as soon as each seat's first two cards are known, before anyone's
+	// first decision.
+	bool awaitingInitialDeal = false;
+
+	// Snapshot of each seat's original first two cards, taken the moment
+	// resolveSideBets() runs and kept for the rest of the round -- side
+	// bets (Lucky Ladies, Match Up/Down) are always judged against these
+	// exact two cards, never whatever's in hands[0] later. That distinction
+	// only matters after a split (which pulls the second original card out
+	// of hands[0] and into a new hand, backfilling hands[0] with a freshly
+	// dealt one) -- without this, a Match Down resolved at round end could
+	// silently match against a card the player was never dealt as part of
+	// their original two.
+	struct InitialTwoCards{ bool valid = false; int suit1 = 0, value1 = 0, suit2 = 0, value2 = 0; };
+	InitialTwoCards initialTwoCards[3];
+
+	// Per-seat side-bet outcomes, so drawSideBetRows() can show a WIN/LOSE
+	// readout next to each selector instead of the payout/collection chip
+	// flight being the only sign anything happened. Reset to None at the
+	// start of every round (see beginRound()); set the moment each bet
+	// actually resolves (resolveSideBets() for Lucky Ladies/Match Up/most
+	// Lucky Stiff hands, resolveRound() for Match Down and a pending Lucky
+	// Stiff hand, since those resolve later -- see their own comments).
+	HandResult sideBetResult[3] = { HandResult::None, HandResult::None, HandResult::None };
+	HandResult matchUpResult[3] = { HandResult::None, HandResult::None, HandResult::None };
+	HandResult matchDownResult[3] = { HandResult::None, HandResult::None, HandResult::None };
+
+	// Lucky Stiff only: set by evaluateLuckyStiffImmediate() when the
+	// starting hand is an unpaired hard 12-16 -- neither an immediate win
+	// nor an immediate loss, it rides along with the main hand and pays
+	// (or doesn't) based on whether that hand ends up beating the dealer.
+	// Consumed in resolveRound(), reset false at the start of every round.
+	bool luckyStiffPending[3] = { false, false, false };
+
+	// True between rounds (including before the very first one) while the
+	// table's waiting on bets -- see startGame()/beginRound(). Drives both
+	// which input mina.cpp routes to (betting controls vs. gameplay
+	// gestures) and whether drawBetting() renders.
+	bool awaitingBets = false;
+
+	// Which BET_DENOMS entry each player's raise/lower buttons currently
+	// use, set via their own chip-size selector. Defaults to index 2 (25).
+	int chipIndex[3] = {2, 2, 2};
+
+	// In-game "quick view" -- unlike the pause menu's full StrategyChart,
+	// this just pops up the one relevant row (see getStrategySituation())
+	// so you don't have to leave the hand to check it.
+	bool showQuickTip = false;
+	// Defaults off -- the overlay used to always show, which defeats the
+	// point of being able to test your own count; toggled on via
+	// cardCountToggleButton() only when the player actually wants to check
+	// themselves against it.
+	bool showCardCount = false;
+
+	// Freezes the table (no deals, no input) so the player has a moment to
+	// actually see a busted/finished hand before its cards get swept off to
+	// the discard pile. onPauseComplete holds whichever action was deferred
+	// (discarding the bust, or clearing the table) and fires once when the
+	// timer runs out.
+	float pauseTimer = 0.0f;
+	std::function<void()> onPauseComplete;
+
+	SDL_FRect shoeBack{
+		.x = 0,
+		.y = 140,
+		.w = 5,
+		.h = 70
+	};
+
+	SDL_FRect shoeYellow{
+		.x = 0,
+		.y = 210,
+		.w = 5,
+		.h = 70
+	};
+
+	std::unordered_map<SDL_FingerID, TouchPoint> activeTouches;
+	std::vector<TouchPoint> endedTouches;
+	static constexpr float TAP_MOVE_THRESHOLD = 0.02f;
+	static constexpr float SPLIT_DOT_THRESHOLD = -0.2f;
+
+	static constexpr float DEAL_DURATION = 0.6f;
+	static constexpr float DISCARD_DURATION = 0.2f;
+	static constexpr float BUST_PAUSE_DURATION = 1.2f;
+	// Long enough to read the WIN/PUSH/LOSE labels before clearTable()
+	// sweeps the hands away, without feeling sluggish during normal play.
+	static constexpr float DEALER_FINISH_PAUSE_DURATION = 2.5f;
+	// Just the hole card's own reveal -- a beat to actually register it
+	// before the next card (if the dealer needs to hit) starts flying, not
+	// long enough to feel like a second full stop on top of
+	// DEALER_FINISH_PAUSE_DURATION's longer one at the very end.
+	static constexpr float HOLE_CARD_REVEAL_PAUSE_DURATION = 1.0f;
+
+	// HUD: dealer's shown-card total, bottom left; the current active
+	// hand's total, bottom right. Fixed screen-space boxes, not tied to any
+	// seat. activeHandTotalBox sits higher than dealerTotalBox specifically
+	// to leave room for the active bet/chip display drawn under it.
+	// x is nudged in from the very edge (was 20 / 1290) -- drawTotalBox()
+	// centers the "DEALER HAND"/"ACTIVE HAND" label on the box's width, and
+	// that label is wider than the box itself, so at the old x the label
+	// text ran past the canvas edge (x<0 on the left, >1440 on the right)
+	// instead of just the box looking close to it.
+	SDL_FRect dealerTotalBox{ .x = 40, .y = 645, .w = 130, .h = 50 };
+	SDL_FRect activeHandTotalBox{ .x = 1270, .y = 590, .w = 130, .h = 50 };
+
+	void drawHandTotals(SDLState& state){
+		auto [dealerHard, dealerSoft] = dealer.hands[0].getShownTotals();
+		drawTotalBox(state, dealerTotalBox, "DEALER HAND", dealerHard, dealerSoft);
+
+		// Only meaningful while a player is actually taking their turn --
+		// once activePlayer reaches numberOfPlayers, play has moved on to
+		// the dealer and there's no "current active hand" to show. Also
+		// guard getActiveHand() itself: clearTable() resets activePlayer
+		// back to 0 the instant the dealer finishes, but that player's own
+		// hands/activeHand stay stale (often one past the end, from their
+		// last stand/bust) until their cards finish discarding one at a
+		// time over the following frames -- reading hands[activeHand]
+		// during that window is exactly the out-of-range crash this hit.
+		if(!awaitingBets && activePlayer < numberOfPlayers){
+			Person& p = players[activePlayer];
+			int hand = p.getActiveHand();
+			if(hand < p.hands.size()){
+				auto [hard, soft] = p.hands[hand].getShownTotals();
+				drawTotalBox(state, activeHandTotalBox, "ACTIVE HAND", hard, soft);
+			}
+		}
+	}
+
+	// Only worth showing (and tappable) when there's actually a hand to
+	// give advice on -- reuses the exact same situation getStrategySituation()
+	// already provides for highlighting the full chart.
+	void drawQuickTipButton(SDLState& state){
+		int section, row, col;
+		if(awaitingBets || !getStrategySituation(section, row, col))
+			return;
+
+		SDL_FRect btn = quickTipButton();
+		SDL_SetRenderDrawColor(state.renderer, showQuickTip ? 90 : 70, showQuickTip ? 150 : 70, showQuickTip ? 110 : 140, 255);
+		SDL_RenderFillRect(state.renderer, &btn);
+		SDL_SetRenderDrawColor(state.renderer, 255, 255, 255, 255);
+		SDL_RenderRect(state.renderer, &btn);
+
+		std::string label = "TIP";
+		float pixel = 5.0f;
+		float maxW = btn.w - 8.0f;
+		float w = DigitFont::textWidth(label, pixel);
+		if(w > maxW && w > 0.0f)
+			pixel *= maxW / w;
+		w = DigitFont::textWidth(label, pixel);
+		DigitFont::drawText(state, label, btn.x + (btn.w - w) / 2.0f, btn.y + (btn.h - 5 * pixel) / 2.0f, pixel, SDL_Color{255, 255, 255, 255});
+	}
+
+	// The actual popup: just the one relevant row (hard/soft/pairs, per
+	// getStrategySituation()) instead of StrategyChart's full 3-table
+	// screen -- a glance, not a lookup. Closes itself the moment there's
+	// no longer a valid situation to show (hand resolved, turn moved on),
+	// same as the button itself.
+	void drawQuickTip(SDLState& state){
+		int section, row, col;
+		if(!showQuickTip || awaitingBets || !getStrategySituation(section, row, col)){
+			showQuickTip = false;
+			return;
+		}
+
+		float cellW = 46.0f, cellH = 40.0f, gap = 5.0f;
+		float stride = cellW + gap;
+		// 10 cells with a gap *between* each (9 gaps, not 10) -- the loop
+		// below never draws a trailing gap after the last column, so
+		// 10*stride overcounted the real content width by one gap's worth,
+		// leaving the right-side padding 5px wider than the left's.
+		float tableW = 10 * cellW + 9 * gap;
+
+		// No row-label column here (unlike StrategyChart.h's full table) --
+		// the row's already named in the title above ("HARD TOTALS 16"),
+		// so reserving space for one left an empty 60px gap that made the
+		// whole grid sit well left of center inside the box, even though
+		// the box itself was centered on screen.
+		float boxW = tableW + 40.0f;
+		// Was cellH + 90 with rowY (below) at boxY+40 -- the title (at
+		// boxY+12, 30 tall at titlePixel 6) actually ended at boxY+42,
+		// *past* where the header row started, hence the overlap. +104
+		// instead of +90 gives rowY the extra room it needs (see below)
+		// while keeping the same bottom padding under the cells.
+		float boxH = cellH + 104.0f;
+		float boxX = 720.0f - boxW / 2.0f;
+		// Was 420 -- sat squarely over the active hand's own cards, which
+		// is exactly what a player wants visible while deciding what to
+		// do with them. Moved up over the chip tray/shoe area instead (75
+		// clears the CNT toggle button now sitting right above the
+		// discard pile, y 21-69).
+		float boxY = 75.0f;
+
+		SDL_SetRenderDrawColor(state.renderer, 10, 30, 15, 245);
+		SDL_FRect bg{ .x = boxX, .y = boxY, .w = boxW, .h = boxH };
+		SDL_RenderFillRect(state.renderer, &bg);
+		SDL_SetRenderDrawColor(state.renderer, 255, 255, 255, 255);
+		SDL_RenderRect(state.renderer, &bg);
+
+		std::string title = std::string(StrategyChart::sectionTitle(section)) + " " + StrategyChart::rowLabel(section, row);
+		float titlePixel = 6.0f;
+		float titleW = DigitFont::textWidth(title, titlePixel);
+		DigitFont::drawText(state, title, 720.0f - titleW / 2.0f, boxY + 12.0f, titlePixel, SDL_Color{255, 255, 255, 255});
+
+		// Was boxY + 40 -- the title's own bottom edge (boxY+42, see boxH's
+		// comment above) sat past this, so the header row started before
+		// the title even finished. +54 actually clears it.
+		float rowY = boxY + 54.0f;
+		float tableX = boxX + 20.0f;
+		const char* data = StrategyChart::rowData(section, row);
+
+		for(int c = 0; c < 10; c++){
+			SDL_FRect headerRect{ .x = tableX + c * stride, .y = rowY, .w = cellW, .h = 22.0f };
+			SDL_SetRenderDrawColor(state.renderer, 40, 60, 45, 255);
+			SDL_RenderFillRect(state.renderer, &headerRect);
+			SDL_SetRenderDrawColor(state.renderer, 255, 255, 255, 255);
+			SDL_RenderRect(state.renderer, &headerRect);
+			std::string colLabel = StrategyChart::dealerColLabel(c);
+			float lw = DigitFont::textWidth(colLabel, 4.0f);
+			DigitFont::drawText(state, colLabel, headerRect.x + (cellW - lw) / 2.0f, headerRect.y + (22.0f - 5 * 4.0f) / 2.0f, 4.0f, SDL_Color{255, 255, 255, 255});
+
+			char action = data[c];
+			bool hl = (c == col);
+			SDL_Color fill = hl ? SDL_Color{255, 225, 60, 255} : StrategyChart::colorFor(action);
+			SDL_Color textColor = hl ? SDL_Color{20, 20, 20, 255} : SDL_Color{255, 255, 255, 255};
+
+			SDL_FRect cellRect{ .x = tableX + c * stride, .y = rowY + 26.0f, .w = cellW, .h = cellH };
+			SDL_SetRenderDrawColor(state.renderer, fill.r, fill.g, fill.b, fill.a);
+			SDL_RenderFillRect(state.renderer, &cellRect);
+			SDL_SetRenderDrawColor(state.renderer, 255, 255, 255, 255);
+			SDL_RenderRect(state.renderer, &cellRect);
+
+			std::string text(1, action);
+			float pixel = 8.0f;
+			float tw = DigitFont::textWidth(text, pixel);
+			DigitFont::drawText(state, text, cellRect.x + (cellW - tw) / 2.0f, cellRect.y + (cellH - 5 * pixel) / 2.0f, pixel, textColor);
+
+			if(hl){
+				SDL_SetRenderDrawColor(state.renderer, 20, 20, 20, 255);
+				SDL_FRect outer{ .x = cellRect.x - 2, .y = cellRect.y - 2, .w = cellRect.w + 4, .h = cellRect.h + 4 };
+				SDL_RenderRect(state.renderer, &outer);
+			}
+		}
+	}
+
+	// Above each hand, once resolveRound() has settled it: WIN/PUSH/LOSE.
+	// Naturally stops showing once a hand's cards start actually leaving
+	// the table (getHandSize() drops to 0 as each one's individual discard
+	// animation lands) and resets to None on its own once a fresh Hand
+	// exists for the next round -- no explicit clearing needed either way.
+	void drawHandResults(SDLState& state){
+		for(int i = 0; i < numberOfPlayers; i++){
+			for(Hand& hand : players[i].hands){
+				if(hand.getResult() == HandResult::None || hand.getHandSize() == 0)
+					continue;
+
+				std::string text;
+				SDL_Color color;
+				switch(hand.getResult()){
+					case HandResult::Win:  text = "WIN";  color = SDL_Color{80, 220, 100, 255}; break;
+					case HandResult::Push: text = "PUSH"; color = SDL_Color{230, 230, 230, 255}; break;
+					case HandResult::Loss: text = "LOSE"; color = SDL_Color{230, 70, 70, 255}; break;
+					default: continue;
+				}
+
+				drawResultBanner(state, hand, text, color);
+			}
+		}
+
+		// Dealer BUST, mirrored from the player WIN/PUSH/LOSE banners --
+		// drawResultBanner() itself doesn't care whose hand it is. Shown
+		// once the hole card's actually revealed (before that, the total
+		// isn't final -- an unrevealed hole card could still bring it back
+		// under 21) and the hand's still on the table, same "stops once
+		// cards start leaving" behavior as the player ones.
+		Hand& dealerHand = dealer.hands[0];
+		if(dealerHand.getHandSize() > 0 && dealerHand.cards.size() >= 2
+				&& dealerHand.cards[1].getShown() && dealerHand.getHandTotal() > 21){
+			drawResultBanner(state, dealerHand, "BUST", SDL_Color{230, 70, 70, 255});
+		}
+	}
+
+	// A solid-black, fully opaque banner laid diagonally across the hand:
+	// from the first card's bottom-left corner to the last card's
+	// top-right corner, both corners rotated by the card's own actual
+	// on-table rotation (matches SDL_RenderTextureRotated's own
+	// top-left-pivot, clockwise-in-Y-down convention -- the same one
+	// already worked out for betRow()/drawActiveBet()'s seat footprints).
+	// DigitFont/SDL_RenderFillRect can't rotate directly, so the label is
+	// first drawn to a small off-screen texture at its natural size, then
+	// that whole texture is rotated in one shot with the same primitive
+	// already used to draw every card.
+	void drawResultBanner(SDLState& state, Hand& hand, const std::string& text, SDL_Color color){
+		constexpr float PI = 3.14159265358979323846f;
+
+		Card& first = hand.cards.front();
+		Card& last = hand.cards.back();
+		float rad = first.getRotation() * PI / 180.0f;
+		float cosT = std::cos(rad), sinT = std::sin(rad);
+
+		SDL_FPoint firstPos = first.getPosition();
+		SDL_FPoint lastPos = last.getPosition();
+
+		// Local corner (0, cardHeight) = bottom-left, before rotation.
+		SDL_FPoint start{
+			firstPos.x + (-cardHeight * sinT),
+			firstPos.y + (cardHeight * cosT)
+		};
+
+		// Local corner (cardWidth, 0) = top-right, before rotation.
+		SDL_FPoint end{
+			lastPos.x + (cardWidth * cosT),
+			lastPos.y + (cardWidth * sinT)
+		};
+
+		float angleDeg = std::atan2(end.y - start.y, end.x - start.x) * 180.0f / PI;
+
+		// atan2 gives the direction of an infinite line, which is
+		// identical at angle and angle+180 -- but rotated TEXT very much
+		// isn't, since one of those two readings is upside down. For some
+		// seats (dir==1 in particular) the raw start->end angle lands well
+		// past vertical, which flips the text; wrapping into (-90,90]
+		// keeps the same diagonal line but always the upright reading of
+		// it. (An upside-down "N" happens to be pixel-identical to this
+		// font's "M" -- that's what "WIN" rendering like "WIX" actually was.)
+		if(angleDeg > 90.0f)
+			angleDeg -= 180.0f;
+		else if(angleDeg < -90.0f)
+			angleDeg += 180.0f;
+
+		float pixel = 6.0f;
+		float padX = 8.0f, padY = 6.0f;
+		int texW = (int)(DigitFont::textWidth(text, pixel) + padX * 2.0f);
+		int texH = (int)(5.0f * pixel + padY * 2.0f);
+
+		SDL_Texture* label = SDL_CreateTexture(state.renderer, SDL_PIXELFORMAT_RGBA32, SDL_TEXTUREACCESS_TARGET, texW, texH);
+		SDL_SetRenderTarget(state.renderer, label);
+		SDL_SetRenderDrawColor(state.renderer, 0, 0, 0, 255);
+		SDL_RenderClear(state.renderer);
+		DigitFont::drawText(state, text, padX, padY, pixel, color);
+		SDL_SetRenderTarget(state.renderer, nullptr);
+
+		SDL_FPoint mid{ (start.x + end.x) / 2.0f, (start.y + end.y) / 2.0f };
+		SDL_FRect dst{ .x = mid.x - texW / 2.0f, .y = mid.y - texH / 2.0f, .w = (float)texW, .h = (float)texH };
+		SDL_FPoint pivot{ texW / 2.0f, texH / 2.0f };
+		SDL_RenderTextureRotated(state.renderer, label, nullptr, &dst, angleDeg, &pivot, SDL_FLIP_NONE);
+
+		SDL_DestroyTexture(label);
+	}
+
+	void drawTotalBox(SDLState& state, const SDL_FRect& box, const std::string& label, int hard, int soft){
+		// The label ("DEALER HAND"/"ACTIVE HAND") is always wider than the
+		// box itself -- floats centered above it rather than being clipped
+		// to box.w -- so it's auto-shrunk against a fixed budget instead of
+		// box.w, just enough to keep it from running off the canvas edge.
+		float labelPixel = 4.0f;
+		float maxLabelW = 200.0f;
+		float labelW = DigitFont::textWidth(label, labelPixel);
+		if(labelW > maxLabelW && labelW > 0.0f)
+			labelPixel *= maxLabelW / labelW;
+		labelW = DigitFont::textWidth(label, labelPixel);
+		float labelX = box.x + (box.w - labelW) / 2.0f;
+		float labelY = box.y - (5 * labelPixel) - 6.0f;
+		DigitFont::drawText(state, label, labelX, labelY, labelPixel, SDL_Color{255, 255, 255, 255});
+
+		SDL_SetRenderDrawColor(state.renderer, 10, 40, 20, 230);
+		SDL_RenderFillRect(state.renderer, &box);
+		SDL_SetRenderDrawColor(state.renderer, 255, 255, 255, 255);
+		SDL_RenderRect(state.renderer, &box);
+
+		// Only worth showing both numbers when they actually differ --
+		// otherwise (no ace among the shown cards, or the soft total would
+		// bust) hard == soft and there's just one true total.
+		std::string text = (soft != hard)
+			? std::to_string(hard) + "/" + std::to_string(soft)
+			: std::to_string(hard);
+
+		float pixel = 6.0f;
+		float maxTextW = box.w - 10.0f;
+		float textW = DigitFont::textWidth(text, pixel);
+		if(textW > maxTextW && textW > 0.0f)
+			pixel *= maxTextW / textW;
+		textW = DigitFont::textWidth(text, pixel);
+		float textX = box.x + (box.w - textW) / 2.0f;
+		float textY = box.y + (box.h - 5 * pixel) / 2.0f;
+
+		DigitFont::drawText(state, text, textX, textY, pixel, SDL_Color{255, 255, 255, 255});
+	}
+
+	// Betting phase -- runs before every round (including the first one,
+	// see startGame()). Each active player gets one raise/lower button
+	// (not five -- see chipIndex) flanking their bet total, anchored below
+	// their seat, with a small chip-size selector directly above the total
+	// that cycles which BET_DENOMS entry those two buttons actually use.
+	// DEAL sits where the dealer's own cards actually land. A player who
+	// bet 0 sits the round out entirely -- see beginRound()/firstDeal().
+	static constexpr int BET_DENOMS[5] = {1, 5, 25, 100, 500};
+	static constexpr float BET_BTN_W = 56;
+	static constexpr float BET_BTN_H = 48;
+	static constexpr float BET_GAP = 8;
+	static constexpr float BET_TOTAL_W = 110;
+	static constexpr float BET_ROW_W = BET_BTN_W + BET_GAP + BET_TOTAL_W + BET_GAP + BET_BTN_W;
+
+	// At least as big as BET_BTN_W/H (the bet lower/raise buttons) -- any
+	// smaller and it's hard to tap accurately, which is exactly what this
+	// selector was before.
+	static constexpr float SEL_BTN_W = 56;
+	static constexpr float SEL_BTN_H = 48;
+	static constexpr float SEL_VALUE_W = 72;
+	static constexpr float SEL_GAP = 6;
+	static constexpr float SEL_W = SEL_BTN_W + SEL_GAP + SEL_VALUE_W + SEL_GAP + SEL_BTN_W;
+
+	struct BetRow{ SDL_FRect lower, total, raise, selMinus, selValue, selPlus; };
+
+	// Centered on the seat's actual on-screen card footprint, not its raw
+	// anchor point (bettingSquare.firstPoint(), the *unrotated* card rect's
+	// top-left corner -- SDL_RenderTextureRotated pivots each card around
+	// that same corner, via rotationTopLeft{0,0}). What that footprint
+	// actually looks like depends on which way the seat's rotated:
+	//   dir==0  (0 deg):   card sits right+down of anchor  -- normal.
+	//   dir==1  (-90 deg): card sits right+UP of anchor     -- anchor.y is
+	//                       already the card's *bottom* edge.
+	//   dir==-1 (+90 deg): card sits LEFT+down of anchor    -- anchor.x is
+	//                       already the card's *right* edge.
+	// Both axes are clamped to the screen bounds -- the bottom seat's
+	// natural "just below the hand" position ran the row off the bottom
+	// of the 720-tall canvas entirely before this.
+	float seatCenterX(int i){
+		Point anchor = players[i].getSeatAnchor();
+		int dir = players[i].getDirection();
+		if(dir == 0)
+			return anchor.x + cardWidth / 2.0f;
+		if(dir == 1)
+			return anchor.x + cardHeight / 2.0f;
+		return anchor.x - cardHeight / 2.0f;
+	}
+
+	BetRow betRow(int i){
+		Point anchor = players[i].getSeatAnchor();
+		int dir = players[i].getDirection();
+
+		float centerX = seatCenterX(i);
+		float belowY;
+		if(dir == 0){
+			belowY = anchor.y + cardHeight;
+		} else if(dir == 1){
+			belowY = anchor.y;
+		} else{
+			belowY = anchor.y + cardWidth;
+		}
+
+		float rowX = centerX - BET_ROW_W / 2.0f;
+		float blockH = SEL_BTN_H + 8.0f + BET_BTN_H;
+		float blockY = belowY + 20.0f;
+
+		rowX = std::max(10.0f, std::min(rowX, 1440.0f - BET_ROW_W - 10.0f));
+		blockY = std::max(10.0f, std::min(blockY, 720.0f - blockH - 10.0f));
+
+		float selY = blockY;
+		float rowY = blockY + SEL_BTN_H + 8.0f;
+
+		float totalX = rowX + BET_BTN_W + BET_GAP;
+		float raiseX = totalX + BET_TOTAL_W + BET_GAP;
+
+		BetRow row{};
+		row.lower = SDL_FRect{ .x = rowX, .y = rowY, .w = BET_BTN_W, .h = BET_BTN_H };
+		row.total = SDL_FRect{ .x = totalX, .y = rowY, .w = BET_TOTAL_W, .h = BET_BTN_H };
+		row.raise = SDL_FRect{ .x = raiseX, .y = rowY, .w = BET_BTN_W, .h = BET_BTN_H };
+
+		// Directly above the total, not below it or off to the side.
+		float selX = totalX + (BET_TOTAL_W - SEL_W) / 2.0f;
+		row.selMinus = SDL_FRect{ .x = selX, .y = selY, .w = SEL_BTN_W, .h = SEL_BTN_H };
+		row.selValue = SDL_FRect{ .x = selX + SEL_BTN_W + SEL_GAP, .y = selY, .w = SEL_VALUE_W, .h = SEL_BTN_H };
+		row.selPlus = SDL_FRect{ .x = selX + SEL_BTN_W + SEL_GAP + SEL_VALUE_W + SEL_GAP, .y = selY, .w = SEL_BTN_W, .h = SEL_BTN_H };
+
+		return row;
+	}
+
+	struct SideBetRow{ SDL_FRect selMinus, selValue, selPlus; };
+
+	// A side-bet amount selector -- same SEL_* sizing/shape as betRow()'s
+	// own chip-size selector, per the "a selector just like the hand does"
+	// ask, but stacked *above* the whole existing bet block instead of
+	// being part of it. betIndex 0 sits directly above the chip-size
+	// selector; betIndex 1 (Player's Edge's second side bet, Match Down)
+	// stacks one more block above that. Horizontal position is borrowed
+	// straight from betRow() so both selectors stay centered on the same
+	// column.
+	// Each block reserves SEL_BTN_H (the row itself) + 8 (gap) -- the
+	// resolved-outcome readout lives inside the row's own value box (see
+	// drawSideBetSelector()), not a separate line underneath, so no extra
+	// height is needed here for it.
+	static constexpr float SIDE_BET_BLOCK_H = SEL_BTN_H + 8.0f;
+
+	SideBetRow sideBetRow(int i, int betIndex){
+		BetRow row = betRow(i);
+		float y = row.selMinus.y - SIDE_BET_BLOCK_H * (betIndex + 1);
+
+		SideBetRow r{};
+		r.selMinus = SDL_FRect{ .x = row.selMinus.x, .y = y, .w = SEL_BTN_W, .h = SEL_BTN_H };
+		r.selValue = SDL_FRect{ .x = row.selValue.x, .y = y, .w = SEL_VALUE_W, .h = SEL_BTN_H };
+		r.selPlus  = SDL_FRect{ .x = row.selPlus.x,  .y = y, .w = SEL_BTN_W, .h = SEL_BTN_H };
+		return r;
+	}
+
+	// Centered on the table itself -- the dealer's own seat (xs[3]=1058,
+	// ys[3]=423) isn't actually at the table's visual center, so anchoring
+	// on it instead of the true canvas center kept landing off to one
+	// side. 1440x720 is the fixed logical canvas size (see main()'s
+	// SDL_SetRenderLogicalPresentation call), so its center never moves.
+	SDL_FRect dealButton(){
+		float w = 220.0f, h = 80.0f;
+		return SDL_FRect{ .x = 1440.0f / 2.0f - w / 2.0f, .y = 720.0f / 2.0f - h / 2.0f, .w = w, .h = h };
+	}
+
+	void drawButton(SDLState& state, const SDL_FRect& rect, SDL_Color color){
+		SDL_SetRenderDrawColor(state.renderer, color.r, color.g, color.b, color.a);
+		SDL_RenderFillRect(state.renderer, &rect);
+		SDL_SetRenderDrawColor(state.renderer, 255, 255, 255, 255);
+		SDL_RenderRect(state.renderer, &rect);
+	}
+
+	void drawDenomButton(SDLState& state, const SDL_FRect& rect, int denom, bool isRaise){
+		drawButton(state, rect, isRaise ? SDL_Color{40, 110, 50, 255} : SDL_Color{120, 50, 50, 255});
+
+		std::string text = std::to_string(denom);
+		float pixel = 4.0f;
+		float maxW = rect.w - 8.0f;
+		float w = DigitFont::textWidth(text, pixel);
+		if(w > maxW && w > 0.0f)
+			pixel *= maxW / w;
+		w = DigitFont::textWidth(text, pixel);
+		DigitFont::drawText(state, text, rect.x + (rect.w - w) / 2.0f, rect.y + (rect.h - 5 * pixel) / 2.0f, pixel, SDL_Color{255, 255, 255, 255});
+	}
+
+	// A bankrupt seat (bankroll == 0 -- raiseBet()/raiseSideBet() already
+	// clamp every wager to bankroll, so this is the only way a seat can
+	// ever end up unable to bet anything at all) gets this instead of the
+	// normal bet row -- there's nothing to raise/lower when there's
+	// nothing to wager with. Reuses the same rect the bet row's lower/
+	// total/raise buttons would occupy, just as one single wide button.
+	SDL_FRect buyInButton(int i){
+		BetRow row = betRow(i);
+		return SDL_FRect{ .x = row.lower.x, .y = row.lower.y, .w = BET_ROW_W, .h = BET_BTN_H };
+	}
+
+	void drawBuyInButton(SDLState& state, int i){
+		SDL_FRect btn = buyInButton(i);
+		drawButton(state, btn, SDL_Color{150, 110, 40, 255});
+
+		std::string label = "BUY IN";
+		float pixel = 5.0f;
+		float maxW = btn.w - 8.0f;
+		float w = DigitFont::textWidth(label, pixel);
+		if(w > maxW && w > 0.0f)
+			pixel *= maxW / w;
+		w = DigitFont::textWidth(label, pixel);
+		DigitFont::drawText(state, label, btn.x + (btn.w - w) / 2.0f, btn.y + (btn.h - 5 * pixel) / 2.0f, pixel, SDL_Color{255, 255, 255, 255});
+	}
+
+	void drawBetRow(SDLState& state, int i){
+		BetRow row = betRow(i);
+		int denom = BET_DENOMS[chipIndex[i]];
+
+		// BET labels the lower/total/raise row, running down its left side
+		// -- there's no clear strip above it to put a horizontal label in
+		// (the chip-size selector already sits directly above), so this
+		// mirrors the side-bet selectors' vertical side-label style instead.
+		// Was offset by labelPixel*4 (the old 3-wide font's full stride) --
+		// the new font's glyphs are 5 columns wide, so that offset no
+		// longer cleared the glyph's own width from the anchor point and
+		// the label ran into the button next to it instead of sitting
+		// cleanly to its left.
+		float betLabelPixel = 3.0f;
+		float betLabelH = DigitFont::verticalTextHeight("BET", betLabelPixel);
+		DigitFont::drawVerticalText(state, "BET", row.lower.x - betLabelPixel * 6.0f, row.lower.y + (BET_BTN_H - betLabelH) / 2.0f, betLabelPixel, SDL_Color{220, 220, 220, 255});
+
+		drawDenomButton(state, row.lower, denom, false);
+
+		SDL_SetRenderDrawColor(state.renderer, 10, 40, 20, 230);
+		SDL_RenderFillRect(state.renderer, &row.total);
+		SDL_SetRenderDrawColor(state.renderer, 255, 255, 255, 255);
+		SDL_RenderRect(state.renderer, &row.total);
+
+		std::string betText = std::to_string(players[i].getBet());
+		float pixel = 5.0f;
+		float maxBetW = row.total.w - 8.0f;
+		float w = DigitFont::textWidth(betText, pixel);
+		if(w > maxBetW && w > 0.0f)
+			pixel *= maxBetW / w;
+		w = DigitFont::textWidth(betText, pixel);
+		DigitFont::drawText(state, betText, row.total.x + (row.total.w - w) / 2.0f, row.total.y + (row.total.h - 5 * pixel) / 2.0f, pixel, SDL_Color{255, 255, 255, 255});
+
+		drawDenomButton(state, row.raise, denom, true);
+
+		// Chip-size selector, directly above the bet total -- CHP (not the
+		// full "CHIP": 4 stacked letters would run taller than the row
+		// itself) labeled down its left side, same as BET above.
+		// Deliberately not a horizontal label above the row: when this
+		// mode also has a side bet, sideBetRow() stacks its own row(s)
+		// directly above this one with no gap to spare for a caption there.
+		// Offset by labelPixel*6 (a full stride at the new 5-wide font),
+		// not *4 -- see the BET label's comment above.
+		float chipLabelPixel = 3.0f;
+		float chipLabelH = DigitFont::verticalTextHeight("CHP", chipLabelPixel);
+		DigitFont::drawVerticalText(state, "CHP", row.selMinus.x - chipLabelPixel * 6.0f, row.selMinus.y + (SEL_BTN_H - chipLabelH) / 2.0f, chipLabelPixel, SDL_Color{220, 220, 220, 255});
+
+		drawButton(state, row.selMinus, SDL_Color{80, 80, 80, 255});
+		float symPixel = 4.0f;
+		DigitFont::drawText(state, "-", row.selMinus.x + (SEL_BTN_W - 3 * symPixel) / 2.0f, row.selMinus.y + (SEL_BTN_H - 5 * symPixel) / 2.0f, symPixel, SDL_Color{255, 255, 255, 255});
+
+		SDL_SetRenderDrawColor(state.renderer, 10, 40, 20, 230);
+		SDL_RenderFillRect(state.renderer, &row.selValue);
+		SDL_SetRenderDrawColor(state.renderer, 255, 255, 255, 255);
+		SDL_RenderRect(state.renderer, &row.selValue);
+		std::string denomText = std::to_string(denom);
+		float dPixel = 4.0f;
+		float dw = DigitFont::textWidth(denomText, dPixel);
+		DigitFont::drawText(state, denomText, row.selValue.x + (row.selValue.w - dw) / 2.0f, row.selValue.y + (row.selValue.h - 5 * dPixel) / 2.0f, dPixel, SDL_Color{255, 255, 255, 255});
+
+		drawButton(state, row.selPlus, SDL_Color{80, 80, 80, 255});
+		DigitFont::drawText(state, "+", row.selPlus.x + (SEL_BTN_W - 3 * symPixel) / 2.0f, row.selPlus.y + (SEL_BTN_H - 5 * symPixel) / 2.0f, symPixel, SDL_Color{255, 255, 255, 255});
+	}
+
+	// A side-bet amount readout -- deliberately NOT the same look as
+	// drawBetRow()'s chip-size selector (neutral gray -/+ buttons around a
+	// dark green value), which read as "just another chip selector" and
+	// was easy to mistake for it. Instead: a short label running down the
+	// left side in vertical text (so it doesn't need its own horizontal
+	// strip above the row, and reads as a tag on the control rather than a
+	// caption floating over it), and the -/+ buttons themselves tinted the
+	// same theme color as the value box instead of neutral gray, so the
+	// whole row reads as one colored unit at a glance.
+	void drawSideBetSelector(SDLState& state, const SideBetRow& row, const std::string& label, int amount, SDL_Color themeColor, HandResult result = HandResult::None){
+		SDL_Color dim{
+			static_cast<Uint8>(themeColor.r * 0.6f),
+			static_cast<Uint8>(themeColor.g * 0.6f),
+			static_cast<Uint8>(themeColor.b * 0.6f),
+			255
+		};
+
+		// Offset by labelPixel*6 (a full stride at the new 5-wide font),
+		// not *4 -- see drawBetRow()'s BET label comment for why.
+		float labelPixel = 3.0f;
+		float labelH = DigitFont::verticalTextHeight(label, labelPixel);
+		DigitFont::drawVerticalText(state, label, row.selMinus.x - labelPixel * 6.0f, row.selMinus.y + (SEL_BTN_H - labelH) / 2.0f, labelPixel, themeColor);
+
+		drawButton(state, row.selMinus, dim);
+		float symPixel = 4.0f;
+		DigitFont::drawText(state, "-", row.selMinus.x + (SEL_BTN_W - 3 * symPixel) / 2.0f, row.selMinus.y + (SEL_BTN_H - 5 * symPixel) / 2.0f, symPixel, SDL_Color{255, 255, 255, 255});
+
+		// The value box always shows the wager amount -- never overwritten
+		// with WIN/LOSE text, so the player can still see what they bet
+		// after the fact -- just tinted green/red once
+		// resolveSideBets()/resolveRound() actually settle it
+		// (sideBetResult/matchUpResult/matchDownResult), instead of a win/
+		// loss only being visible as a chip silently flying to or from the
+		// tray.
+		SDL_Color valueFill = themeColor;
+		std::string valueText = std::to_string(amount);
+		if(result == HandResult::Win){
+			valueFill = SDL_Color{40, 150, 70, 255};
+		} else if(result == HandResult::Loss){
+			valueFill = SDL_Color{150, 50, 50, 255};
+		} else if(result == HandResult::Push){
+			// Only Lucky Stiff's pending-hand tier can push -- a neutral
+			// tint distinct from both the win/loss colors and the theme
+			// color a still-live bet shows.
+			valueFill = SDL_Color{140, 140, 140, 255};
+		}
+
+		SDL_SetRenderDrawColor(state.renderer, valueFill.r, valueFill.g, valueFill.b, valueFill.a);
+		SDL_RenderFillRect(state.renderer, &row.selValue);
+		SDL_SetRenderDrawColor(state.renderer, 255, 255, 255, 255);
+		SDL_RenderRect(state.renderer, &row.selValue);
+		float dPixel = 4.0f;
+		float dw = DigitFont::textWidth(valueText, dPixel);
+		DigitFont::drawText(state, valueText, row.selValue.x + (row.selValue.w - dw) / 2.0f, row.selValue.y + (row.selValue.h - 5 * dPixel) / 2.0f, dPixel, SDL_Color{255, 255, 255, 255});
+
+		drawButton(state, row.selPlus, dim);
+		DigitFont::drawText(state, "+", row.selPlus.x + (SEL_BTN_W - 3 * symPixel) / 2.0f, row.selPlus.y + (SEL_BTN_H - 5 * symPixel) / 2.0f, symPixel, SDL_Color{255, 255, 255, 255});
+	}
+
+	// Draws whichever side bet(s) the active game mode actually has for
+	// this seat -- Lucky Ladies gets one selector labeled "LL" (purple),
+	// Player's Edge gets two stacked ones labeled "UP"/"DN" (blue),
+	// standard modes get none. Each shows its own WIN/LOSE readout once
+	// resolveSideBets()/resolveRound() have actually settled it.
+	void drawSideBetRows(SDLState& state, int i){
+		if(hasLuckyLadies(gameMode)){
+			drawSideBetSelector(state, sideBetRow(i, 0), "LL", players[i].getSideBet(), SDL_Color{150, 70, 170, 255}, sideBetResult[i]);
+		} else if(isPlayersEdge(gameMode)){
+			drawSideBetSelector(state, sideBetRow(i, 0), "UP", players[i].getMatchUpBet(), SDL_Color{50, 110, 170, 255}, matchUpResult[i]);
+			drawSideBetSelector(state, sideBetRow(i, 1), "DN", players[i].getMatchDownBet(), SDL_Color{50, 110, 170, 255}, matchDownResult[i]);
+		} else if(hasLuckyStiff(gameMode)){
+			drawSideBetSelector(state, sideBetRow(i, 0), "LS", players[i].getSideBet(), SDL_Color{170, 100, 50, 255}, sideBetResult[i]);
+		}
+	}
+
+	// Top of the board, on the brown border strip (y=0-41 there, see
+	// Table.png) -- drawn unconditionally (not just during betting) so
+	// it's visible through the whole round. Each player's bankroll is
+	// positioned above their own seat via seatCenterX(), not clustered
+	// into one centered string -- so it's legible at a glance whose
+	// number is whose instead of a single "P1 500  P2 500  P3 500" line.
+	void drawBankrolls(SDLState& state){
+		for(int i = 0; i < numberOfPlayers; i++){
+			int bankroll = players[i].getBankroll();
+			int buyIn = players[i].getInitialBankroll();
+
+			// Colored against the buy-in, not round to round -- red if
+			// you're down overall, green if you're up, plain white if
+			// you're exactly even.
+			SDL_Color color{255, 255, 255, 255};
+			if(bankroll < buyIn)
+				color = SDL_Color{230, 80, 80, 255};
+			else if(bankroll > buyIn)
+				color = SDL_Color{90, 220, 110, 255};
+
+			std::string text = "P" + std::to_string(i + 1) + " " + std::to_string(bankroll);
+			// Was 5.0f, clamped only to the canvas edge -- the right seat's
+			// bankroll sits close enough to the pause button (x 1364+) that
+			// at the new font's width it ran under/past it instead of just
+			// the canvas edge, hence the smaller size and the tighter
+			// right-side clamp (1350, not 1440) below.
+			float pixel = 3.5f;
+			float w = DigitFont::textWidth(text, pixel);
+			float x = std::max(10.0f, std::min(seatCenterX(i) - w / 2.0f, 1350.0f - w));
+			DigitFont::drawText(state, text, x, 15.0f, pixel, color);
+		}
+
+		// -$/+$ readouts, one line each, stacked directly under whichever
+		// seat's bankroll they belong to -- see queueBankrollChange().
+		float changePixel = 3.0f;
+		float changeY[3] = {15.0f + 5 * 3.5f + 4.0f, 15.0f + 5 * 3.5f + 4.0f, 15.0f + 5 * 3.5f + 4.0f};
+		for(const BankrollChange& change : bankrollChanges){
+			int i = change.playerIndex;
+			if(i < 0 || i >= numberOfPlayers)
+				continue;
+
+			float w = DigitFont::textWidth(change.text, changePixel);
+			float x = std::max(10.0f, std::min(seatCenterX(i) - w / 2.0f, 1350.0f - w));
+			DigitFont::drawText(state, change.text, x, changeY[i], changePixel, change.color);
+			changeY[i] += 5 * changePixel + 4.0f;
+		}
+	}
+
+	// Under the ACTIVE HAND HUD box (bottom right), during actual play
+	// (not betting): the active player's bet total plus a small stack of
+	// chip icons from Chips.png -- greedily broken down into BET_DENOMS
+	// (largest first), same denominations/order as the betting phase's own
+	// chip-size selector. One shared spot rather than drawn per-seat on
+	// the board, which just cluttered it. Chips.png is a 150x33 strip, 5
+	// chips of 30x30 each starting at y=3 (the first 3 rows are unused for
+	// now, per Chips.png's own header/padding).
+	static constexpr float CHIP_SRC_SIZE = 30.0f;
+	static constexpr float CHIP_SRC_Y = 3.0f;
+
+	void drawActiveBet(SDLState& state, Resources& res){
+		if(awaitingBets || activePlayer >= numberOfPlayers)
+			return;
+
+		// Same guard as drawHandTotals(): a player's own activeHand can be
+		// momentarily stale (out of range for their own hands vector)
+		// right as the table hands off between players -- reading through
+		// it here without checking is the exact crash that hit before.
+		Person& p = players[activePlayer];
+		if(p.getActiveHand() >= p.hands.size())
+			return;
+
+		// The active *hand's* bet, not the player's original round bet --
+		// a double or split can make them diverge (see onDouble()/onSplit()).
+		int bet = p.getActiveHandBet();
+		if(bet <= 0)
+			return;
+
+		float centerX = activeHandTotalBox.x + activeHandTotalBox.w / 2.0f;
+		float topY = activeHandTotalBox.y + activeHandTotalBox.h;
+
+		int counts[5];
+		int remaining = bet;
+		for(int d = 4; d >= 0; d--){
+			counts[d] = remaining / BET_DENOMS[d];
+			remaining -= counts[d] * BET_DENOMS[d];
+		}
+
+		std::string betText = std::to_string(bet);
+		float textPixel = 5.0f;
+		float textW = DigitFont::textWidth(betText, textPixel);
+
+		float chipSize = 28.0f;
+		float chipGap = 4.0f;
+		int chipKinds = 0;
+		for(int d = 0; d < 5; d++)
+			if(counts[d] > 0)
+				chipKinds++;
+
+		float chipsW = chipKinds > 0 ? (chipKinds * chipSize + (chipKinds - 1) * chipGap) : 0.0f;
+		float betweenGap = chipKinds > 0 ? 10.0f : 0.0f;
+
+		float blockW = textW + betweenGap + chipsW;
+		float blockH = std::max(5 * textPixel, chipSize);
+
+		float blockX = std::max(10.0f, std::min(centerX - blockW / 2.0f, 1440.0f - blockW - 10.0f));
+		float blockY = std::min(topY + 12.0f, 720.0f - blockH - 10.0f);
+
+		DigitFont::drawText(state, betText, blockX, blockY + (blockH - 5 * textPixel) / 2.0f, textPixel, SDL_Color{255, 255, 255, 255});
+
+		float chipX = blockX + textW + betweenGap;
+		for(int d = 4; d >= 0; d--){
+			if(counts[d] <= 0)
+				continue;
+
+			SDL_FRect src{ .x = d * CHIP_SRC_SIZE, .y = CHIP_SRC_Y, .w = CHIP_SRC_SIZE, .h = CHIP_SRC_SIZE };
+
+			// Up to 3 layered copies per denomination (capped regardless of
+			// actual count) for a stacked look instead of a "x N" label.
+			int stackHeight = std::min(counts[d], 3);
+			for(int s = 0; s < stackHeight; s++){
+				SDL_FRect dst{
+					.x = chipX,
+					.y = blockY + (blockH - chipSize) / 2.0f - s * 4.0f,
+					.w = chipSize,
+					.h = chipSize
+				};
+				SDL_RenderTexture(state.renderer, res.chips, &src, &dst);
+			}
+
+			chipX += chipSize + chipGap;
+		}
+	}
+
+	// A 7-column chip tray: 1s, two columns of 5s, two of 25s, one of
+	// 100s, one of 500s. Column X positions were given directly; the Y
+	// range (57 to 240 for every column -- NOT the alternating 57/67 first
+	// given, which turned out to be an approximation) is measured straight
+	// from Table.png's actual gray column art, so the stack sits flush
+	// with its top and fills exactly to its bottom. Filled downward with
+	// the *edge-on* chip slice -- Chips.png rows 0-2, a chip lying flat as
+	// it would sit in a real tray, not the circular top-down coin (rows
+	// 3-32) used everywhere a single resting chip is shown
+	// (drawActiveBet(), drawChipAnimations()).
+	static constexpr int TRAY_COLUMN_DENOM[7] = {0, 1, 1, 2, 2, 3, 4};
+	static constexpr float TRAY_COLUMN_X[7] = {586, 626, 666, 706, 746, 786, 826};
+	static constexpr float TRAY_TOP_Y = 57.0f;
+	static constexpr float TRAY_BOTTOM_Y = 240.0f;
+	static constexpr float TRAY_SLICE_H = 4.0f;
+	static constexpr int TRAY_FILL_COUNT = (int)((TRAY_BOTTOM_Y - TRAY_TOP_Y) / TRAY_SLICE_H);
+	static constexpr float CHIP_EDGE_SRC_H = 3.0f;
+
+	// How many layers each column currently shows -- starts full, drops
+	// when a payout is queued (that chip's visibly leaving) and rises
+	// when a collected (lost-bet) chip actually lands back (see
+	// queueChipPayout()/update()'s chip-animation landing). Clamped to
+	// [0, TRAY_FILL_COUNT] so a long losing/winning streak can't under-
+	// or overflow a column.
+	int trayFillCount[7] = {
+		TRAY_FILL_COUNT, TRAY_FILL_COUNT, TRAY_FILL_COUNT, TRAY_FILL_COUNT,
+		TRAY_FILL_COUNT, TRAY_FILL_COUNT, TRAY_FILL_COUNT
+	};
+
+	// First column whose denomination matches -- used both to pick which
+	// column a payout/collection actually affects and, in drawChipTray(),
+	// implicitly (every column already knows its own denom).
+	int firstColumnForDenom(int denomIndex){
+		for(int col = 0; col < 7; col++)
+			if(TRAY_COLUMN_DENOM[col] == denomIndex)
+				return col;
+		return 0;
+	}
+
+	// Hi-Lo card counting: 2-6 count +1, 7-9 count 0, 10/J/Q/K/A count -1.
+	// Tracked incrementally (see runningCount/addToRunningCount()) rather
+	// than rescanned from currently-visible cards each frame -- a card
+	// swept into the discard pile at round end gets forced back to
+	// showCard(false) once it lands there (see update()'s discard branch,
+	// which exists so the muck shows card backs, not faces), so a scan
+	// that only trusted getShown() would silently "forget" every past
+	// hand's cards and only ever reflect the one currently in progress.
+	// Counting the moment a card is actually revealed instead means it
+	// stays correct across the whole shoe regardless of what the discard
+	// pile's cards currently render as.
+	int hiLoValue(int cardValue){
+		if(cardValue >= 2 && cardValue <= 6)
+			return 1;
+		if(cardValue >= 7 && cardValue <= 9)
+			return 0;
+		return -1; // 10, J, Q, K, A
+	}
+
+	void addToRunningCount(int cardValue){
+		runningCount += hiLoValue(cardValue);
+	}
+
+	// value*10, rounded, split back into whole and tenths -- avoids
+	// pulling in <cstdio> just for one float-to-string formatting call.
+	std::string formatOneDecimal(float value){
+		bool negative = value < 0;
+		int tenths = static_cast<int>(std::round(std::fabs(value) * 10.0f));
+		std::string s = (negative && tenths != 0 ? "-" : "") + std::to_string(tenths / 10) + "." + std::to_string(tenths % 10);
+		return s;
+	}
+
+	// Drawn right over the discard pile -- running count (raw Hi-Lo sum)
+	// and true count (running count / decks remaining in the shoe, the
+	// number that actually adjusts for how much of the shoe is left) are
+	// what a counter tracks, not just the raw sum, so both are shown.
+	// cardsPerDeck accounts for Player's Edge's Spanish (48-card, no 10s)
+	// decks so "decks remaining" isn't inflated by counting a deck that's
+	// missing 4 cards as if it still had 52.
+	void drawCardCountStats(SDLState& state){
+		if(!showCardCount)
+			return;
+
+		float cardsPerDeck = isPlayersEdge(gameMode) ? 48.0f : 52.0f;
+		float decksRemaining = std::max(0.25f, shoe.size() / cardsPerDeck);
+		float trueCount = runningCount / decksRemaining;
+
+		SDL_FRect box{ .x = discardPosition.x, .y = discardPosition.y, .w = cardWidth, .h = cardHeight };
+		SDL_SetRenderDrawBlendMode(state.renderer, SDL_BLENDMODE_BLEND);
+		SDL_SetRenderDrawColor(state.renderer, 0, 0, 0, 170);
+		SDL_RenderFillRect(state.renderer, &box);
+		SDL_SetRenderDrawBlendMode(state.renderer, SDL_BLENDMODE_NONE);
+		SDL_SetRenderDrawColor(state.renderer, 255, 255, 255, 255);
+		SDL_RenderRect(state.renderer, &box);
+
+		// Was 4.0f -- "COUNT" (5 characters) actually overflowed the
+		// 100-wide box at the new font's width; 3.0f fits with margin.
+		// Gaps below were also uneven (8 between a label and its own
+		// value, 18 between that value and the next label) -- now a
+		// consistent, tighter rhythm throughout instead.
+		float pixel = 3.0f;
+		auto centeredLine = [&](const std::string& text, float y, SDL_Color color){
+			float w = DigitFont::textWidth(text, pixel);
+			DigitFont::drawText(state, text, box.x + (box.w - w) / 2.0f, y, pixel, color);
+		};
+
+		SDL_Color label{200, 180, 100, 255};
+		SDL_Color value{255, 255, 255, 255};
+
+		float lineH = 5 * pixel;
+		float y = box.y + 12.0f;
+		centeredLine("COUNT", y, label);
+		y += lineH + 6.0f;
+		centeredLine(std::to_string(runningCount), y, value);
+		y += lineH + 12.0f;
+		centeredLine("TRUE", y, label);
+		y += lineH + 6.0f;
+		centeredLine(formatOneDecimal(trueCount), y, value);
+	}
+
+	void drawChipTray(SDLState& state, Resources& res){
+		// Each of Table.png's tray columns is exactly 30px wide (measured
+		// directly -- matches CHIP_SRC_SIZE 1:1, no scaling needed); 36 was
+		// overflowing 6px into the gap on either side.
+		float chipW = CHIP_SRC_SIZE;
+
+		for(int col = 0; col < 7; col++){
+			SDL_FRect src{ .x = TRAY_COLUMN_DENOM[col] * CHIP_SRC_SIZE, .y = 0.0f, .w = CHIP_SRC_SIZE, .h = CHIP_EDGE_SRC_H };
+
+			for(int layer = 0; layer < trayFillCount[col]; layer++){
+				SDL_FRect dst{ .x = TRAY_COLUMN_X[col], .y = TRAY_TOP_Y + layer * TRAY_SLICE_H, .w = chipW, .h = TRAY_SLICE_H };
+				SDL_RenderTexture(state.renderer, res.chips, &src, &dst);
+			}
+		}
+	}
+
+	void drawChipAnimations(SDLState& state, Resources& res){
+		for(ChipAnimation& anim : chipAnimations){
+			float progress = std::min(1.0f, anim.elapsed / anim.duration);
+			float x = anim.start.x + (anim.end.x - anim.start.x) * progress;
+			float y = anim.start.y + (anim.end.y - anim.start.y) * progress;
+
+			SDL_FRect src{ .x = anim.denomIndex * CHIP_SRC_SIZE, .y = CHIP_SRC_Y, .w = CHIP_SRC_SIZE, .h = CHIP_SRC_SIZE };
+			SDL_FRect dst{ .x = x - 15.0f, .y = y - 15.0f, .w = 30.0f, .h = 30.0f };
+			SDL_RenderTexture(state.renderer, res.chips, &src, &dst);
+		}
+	}
+
+	void drawBetting(SDLState& state){
+		SDL_FRect deal = dealButton();
+		drawButton(state, deal, SDL_Color{60, 130, 70, 255});
+		float dealPixel = 8.5f;
+		float dealW = DigitFont::textWidth("DEAL", dealPixel);
+		DigitFont::drawText(state, "DEAL", deal.x + (deal.w - dealW) / 2.0f, deal.y + (deal.h - 5 * dealPixel) / 2.0f, dealPixel, SDL_Color{255, 255, 255, 255});
+
+		for(int i = 0; i < numberOfPlayers; i++){
+			if(players[i].getBankroll() <= 0){
+				drawBuyInButton(state, i);
+				continue;
+			}
+
+			drawBetRow(state, i);
+			drawSideBetRows(state, i);
+		}
+	}
+
+	void processGesture(const std::vector<TouchPoint>& touches){
+		if(touches.size() == 1){
+			const TouchPoint& t = touches[0];
+			float dx = t.x - t.startX;
+			float dy = t.y - t.startY;
+			float dist = std::sqrt(dx * dx + dy * dy);
+
+			if(dist < TAP_MOVE_THRESHOLD){
+				onHit();
+			} else if(std::fabs(dy) > std::fabs(dx)){
+				// Steep swipe (up or down) -> surrender.
+				onSurrender();
+			} else {
+				// Shallow swipe (left or right) -> stand.
+				onStand();
+			}
+		} else if(touches.size() == 2){
+			const TouchPoint& a = touches[0];
+			const TouchPoint& b = touches[1];
+
+			float aDx = a.x - a.startX, aDy = a.y - a.startY;
+			float bDx = b.x - b.startX, bDy = b.y - b.startY;
+
+			float aDist = std::sqrt(aDx * aDx + aDy * aDy);
+			float bDist = std::sqrt(bDx * bDx + bDy * bDy);
+
+			if(aDist < TAP_MOVE_THRESHOLD && bDist < TAP_MOVE_THRESHOLD){
+				onDouble();
+			} else if(aDist >= TAP_MOVE_THRESHOLD && bDist >= TAP_MOVE_THRESHOLD){
+				float dot = (aDx * bDx + aDy * bDy) / (aDist * bDist);
+
+				if(dot < SPLIT_DOT_THRESHOLD)
+					onSplit();
+				else
+					std::cout << "Two-finger gesture not recognized (moved together)\n";
+			} else {
+				std::cout << "Two-finger gesture not recognized (one finger held still)\n";
+			}
+		} else if(!touches.empty()){
+			std::cout << "Unsupported gesture with " << touches.size() << " fingers\n";
+		}
+	}
+
+
+	// player moves
+	void onHit(){
+		dealQueue.push(DealRequest{
+			.playerIndex = activePlayer,
+			.isDealer = false,
+			.showCard = true,
+			.from = shoePosition,
+			.to = players[activePlayer].getNextCardPosition(),
+			.card = getNextCard()
+		});
+	}
+
+	void onStand(){
+		activePlayer += players[activePlayer].stand();
+		skipZeroBetPlayers();
+	}
+
+	// Free Bet Blackjack only: is the active hand's pair eligible for a
+	// free split -- any value-tier except 10 (verified against
+	// wizardofodds.com: "all pairs except 10's").
+	bool isFreeSplitEligible(){
+		Person& p = players[activePlayer];
+		Hand& hand = p.hands[p.getActiveHand()];
+		int v0 = hand.cards[0].getValue();
+		int tier = (v0 > 10) ? 10 : v0;
+		return tier != 10;
+	}
+
+	// Free Bet Blackjack only: is the active hand eligible for a free
+	// double -- exactly 2 cards, hard total 9, 10, or 11 (an Ace counts as
+	// 1 here, same "true hard total" reasoning as Lucky Stiff's
+	// evaluateLuckyStiffImmediate()).
+	bool isFreeDoubleEligible(){
+		Person& p = players[activePlayer];
+		Hand& hand = p.hands[p.getActiveHand()];
+		if(hand.getHandSize() != 2)
+			return false;
+
+		auto tier = [](int v){ return v > 10 ? 10 : v; };
+		int hardTotal = tier(hand.cards[0].getValue()) + tier(hand.cards[1].getValue());
+		return hardTotal >= 9 && hardTotal <= 11;
+	}
+
+	// Exactly 2 cards, sharing the same blackjack value-tier (face cards
+	// all collapse to 10 -- e.g. a King and a Queen are a splittable pair,
+	// same as two Kings) -- the same tiering getStrategySituation() already
+	// uses to classify a hand as a pair, kept in sync with it rather than
+	// re-deriving separately. Without this, the split gesture used to fire
+	// unconditionally on whatever hand happened to be active, silently
+	// "splitting" a 3-card hand or two unrelated cards. Requires the
+	// bankroll to cover a matching second wager -- a split doubles what's
+	// at risk on this hand, same as a double does -- unless Free Bet
+	// Blackjack is footing this particular split for free, in which case
+	// no bankroll is needed at all. Free Bet Blackjack also caps
+	// re-splitting at 4 total hands (including aces), where every other
+	// mode has no such cap.
+	bool canSplitActiveHand(){
+		Person& p = players[activePlayer];
+		int handIdx = p.getActiveHand();
+		if(handIdx >= p.hands.size())
+			return false;
+
+		Hand& hand = p.hands[handIdx];
+		if(hand.getHandSize() != 2)
+			return false;
+
+		if(isFreeBet(gameMode) && p.hands.size() >= 4)
+			return false;
+
+		bool free = isFreeBet(gameMode) && isFreeSplitEligible();
+		if(!free && p.getBankroll() < hand.getBet())
+			return false;
+
+		int v0 = hand.cards[0].getValue();
+		int v1 = hand.cards[1].getValue();
+		int tier0 = (v0 > 10) ? 10 : v0;
+		int tier1 = (v1 > 10) ? 10 : v1;
+		return tier0 == tier1;
+	}
+
+	// Same affordability check as canSplitActiveHand() -- a double also
+	// wagers the active hand's bet a second time, unless Free Bet
+	// Blackjack is footing this double for free.
+	bool canDoubleActiveHand(){
+		Person& p = players[activePlayer];
+		int handIdx = p.getActiveHand();
+		if(handIdx >= p.hands.size())
+			return false;
+
+		if(isFreeBet(gameMode) && isFreeDoubleEligible())
+			return true;
+
+		return p.getBankroll() >= p.hands[handIdx].getBet();
+	}
+
+	void onSplit(){
+		if(!canSplitActiveHand())
+			return;
+
+		// The new hand costs the same as the one being split -- split()
+		// (Person.h) already copies the stake onto it. Ordinarily this is
+		// what actually pulls that matching amount out of the bankroll --
+		// but if Free Bet Blackjack is footing this split for free, no
+		// money moves at all, and the new hand's entire bet gets flagged
+		// as free (addFreeBetAmount(), after split() so it isn't wiped by
+		// Hand::setBet()'s own reset) so a loss on it costs nothing and a
+		// push only returns real money (there is none here).
+		int betAmount = players[activePlayer].getActiveHandBet();
+		bool free = isFreeBet(gameMode) && isFreeSplitEligible();
+		if(!free){
+			players[activePlayer].deductFromBankroll(betAmount);
+			queueBankrollChange(activePlayer, -betAmount);
+		}
+
+		Card c = players[activePlayer].split();
+
+		if(free){
+			int newHandIdx = players[activePlayer].getActiveHand() + 1;
+			players[activePlayer].hands[newHandIdx].addFreeBetAmount(betAmount);
+		}
+
+		SDL_FPoint from = c.getPosition();
+		SDL_FPoint to = players[activePlayer].getNextCardPositionOfBlankHand();
+
+		dealQueue.push(DealRequest{
+			.playerIndex = activePlayer,
+			.isDealer = false,
+			.showCard = true,
+			.split = true,
+			.from = from,
+			.to = to,
+			.card = c
+		});
+
+		// hit
+		onHit();
+	}
+
+	void onDouble(){
+		if(!canDoubleActiveHand())
+			return;
+
+		std::cout << "Double. ActivePlayer: " << activePlayer << '\n';
+
+		// Doubling wagers the same amount again -- deduct that extra
+		// before doubling the hand's own recorded bet, so both the
+		// bankroll and the bet/chip display end up reflecting it. Unless
+		// Free Bet Blackjack is footing this double for free, in which
+		// case no money moves and the newly-added half is flagged free
+		// (addFreeBetAmount(), after doubleActiveHandBet() so it adds to
+		// -- not gets wiped by -- any free amount this hand already had
+		// from a free split).
+		int betAmount = players[activePlayer].getActiveHandBet();
+		bool free = isFreeBet(gameMode) && isFreeDoubleEligible();
+		if(!free){
+			players[activePlayer].deductFromBankroll(betAmount);
+			queueBankrollChange(activePlayer, -betAmount);
+		}
+		players[activePlayer].doubleActiveHandBet();
+		if(free){
+			int handIdx = players[activePlayer].getActiveHand();
+			players[activePlayer].hands[handIdx].addFreeBetAmount(betAmount);
+		}
+
+		SDL_FPoint to = players[activePlayer].getNextCardPosition();
+		int dir = players[activePlayer].getDirection();
+		if(dir == 0)
+			to.y += cardHeight;
+		else
+			to.x += cardHeight * dir;
+
+		dealQueue.push(DealRequest{
+			.playerIndex = activePlayer,
+			.isDealer = false,
+			.showCard = true,
+			.doubleHand = true,
+			.from = shoePosition,
+			.to = to,
+			.card = getNextCard()
+		});
+
+		// The hand doesn't actually end until this card lands -- see
+		// checkBreak(forceStandIfNotBust) in update()'s resolve step, which
+		// stands (or, on a bust, discards) once the card is really dealt.
+		// Standing here instead advanced activeHand before the card was
+		// ever added to the hand, so it landed on an already-out-of-range
+		// index when addCard() finally ran ("subscript out of range").
+	}
+
+	void onSurrender(){
+		std::cout << "Surrender. ActivePlayer: " << activePlayer << '\n';
+
+		// Surrendering forfeits the hand same as busting does -- give it the
+		// same tilted "broken" look, even though its total never went over
+		// 21. Has to happen before busted() below advances past this hand.
+		players[activePlayer].bustActiveHand();
+
+		std::vector<Card> forfeited = players[activePlayer].busted();
+
+		// Don't also insert into discard directly here -- these cards get
+		// added to discard once each already-queued discard animation below
+		// actually lands (see update()'s resolve step). Doing both meant
+		// every surrendered card showed up twice: once instantly, face-up,
+		// at its old spot in the hand, and again later, correctly, once it
+		// finished animating to the discard pile.
+		for(Card c : forfeited){
+			dealQueue.push(DealRequest{
+				.playerIndex = activePlayer,
+				.isDealer = false,
+				.discard = true,
+				.showCard = false,
+				.from = c.getPosition(),
+				.to = discardPosition,
+				.card = c,
+			});
+		}
+
+		// Not stand() here -- busted() above already advanced activeHand
+		// past this hand (same as stand() would), so calling stand() too
+		// double-advances it. Harmless-looking on a single hand (it still
+		// lands on the next player, just via a corrupted activeHand that
+		// gets reset before it's ever read again), but on a split hand it
+		// skips the second hand entirely, exactly like the double-down bug
+		// above -- a stand-equivalent fired a second time on top of one
+		// that already ran. Mirrors checkBreak()'s own bust-resolution check.
+		if(players[activePlayer].getActiveHand() > players[activePlayer].hands.size() - 1)
+			activePlayer++;
+		skipZeroBetPlayers();
+	}
+
+
+	// add animation object to the queue
+	void startDeal(){
+		if(cardAnimation.has_value() || dealQueue.empty())
+			return;
+
+		DealRequest request = dealQueue.front();
+		dealQueue.pop();
+
+		Card card = request.card;
+
+		if(request.removeFromHand){
+			if(request.isDealer)
+				dealer.discardOneCard(request.handIndex);
+			else
+				players[request.playerIndex].discardOneCard(request.handIndex);
+		}
+
+		int angle = 0;
+		int dir = request.isDealer ? dealer.getDirection() : players[request.playerIndex].getDirection();
+		if(dir < 5)
+			angle = -90 * dir;
+		else
+			angle = 180;
+
+		angle -= (request.doubleHand) ? 90 : 0;
+
+		cardAnimation.emplace(CardAnimation{
+			.card = card,
+			.start = request.from,
+			.end = request.to,
+			.destination = SDL_FRect{
+				.x = shoePosition.x,
+				.y = shoePosition.y,
+				.w = cardWidth,
+				.h = cardHeight
+			},
+			.startAngle = request.split || request.discard ? angle : 0,
+			.currentAngle = request.split || request.discard ? angle : 0,
+			.finalAngle =  request.discard ? 0 : angle,
+			.duration = request.discard ? DISCARD_DURATION : DEAL_DURATION,
+			.playerIndex = request.playerIndex,
+			.handIndex = request.handIndex,
+			.split = request.split,
+			.showCard = request.showCard,
+			.isDealer = request.isDealer,
+			.discard = request.discard,
+			.doubleHand = request.doubleHand
+			});
+	}
+
+
+	// restart the table
+	void clearTable(){
+		for(int i = 0; i < numberOfPlayers; i++){
+			for(int h = 0; h < players[i].hands.size(); h++){
+				std::vector<Card>& cards = players[i].hands[h].cards;
+
+				for(int c = cards.size() - 1; c >= 0; c--){
+					dealQueue.push(DealRequest{
+						.playerIndex = i,
+						.handIndex = h,
+						.isDealer = false,
+						.discard = true,
+						.showCard = false,
+						.removeFromHand = true,
+						.from = cards[c].getPosition(),
+						.to = discardPosition,
+						.card = cards[c],
+					});
+				}
+			}
+		}
+
+		std::vector<Card>& dealerCards = dealer.hands[0].cards;
+		for(int c = dealerCards.size() - 1; c >= 0; c--){
+			dealQueue.push(DealRequest{
+				.playerIndex = -1,
+				.handIndex = 0,
+				.isDealer = true,
+				.discard = true,
+				.showCard = false,
+				.removeFromHand = true,
+				.from = dealerCards[c].getPosition(),
+				.to = discardPosition,
+				.card = dealerCards[c],
+			});
+		}
+
+		activePlayer = 0;
+	}
+
+	void firstDeal() {
+		// Burn the first card
+		dealQueue.push(DealRequest{
+			.playerIndex = activePlayer,
+			.isDealer = false,
+			.discard = true,
+			.showCard = false,
+			.from = shoePosition,
+			.to = discardPosition,
+			.card = getNextCard(),
+		});
+
+		for(int loop = 0; loop < 2; loop++) {
+			for(int i = 0; i < numberOfPlayers; i++) {
+				// A player who bet 0 sits this round out -- no cards.
+				if(players[i].getBet() <= 0)
+					continue;
+
+				dealQueue.push(DealRequest{
+					.playerIndex = i,
+					.isDealer = false,
+					.showCard = true,
+					.from = shoePosition,
+					.to = players[i].getNextCardPosition(loop),
+					.card = getNextCard()
+				});
+			}
+
+			dealQueue.push(DealRequest{
+				.playerIndex = -1,
+				.isDealer = true,
+				.showCard = (loop == 0),
+				.from = shoePosition,
+				.to = dealer.getNextCardPosition(loop),
+				.card = getNextCard()
+			});
+		}
+	}
+
+
+	// initialize shoe and cards
+	void makeShoe(){
+		// Safe to call again (configureGameMode() does, once the game-mode
+		// screen picks a real mode) -- without this, a second call
+		// appended onto whatever cards were already here from the
+		// constructor's own initial makeShoe() instead of replacing them.
+		shoe.clear();
+
+		std::random_device rd;
+		std::mt19937 gen(rd());
+
+		struct c{
+			int suit;
+			int value;
+		};
+
+		std::vector<c> values;
+
+		// Spanish decks (Player's Edge) drop all four 10s per suit, keeping
+		// J/Q/K -- the defining difference from a standard 52-card deck.
+		bool spanishDeck = isPlayersEdge(gameMode);
+		for(int deck = 1; deck <= numberOfDecks; deck++){
+			for(int suit = 0; suit < 4; suit++){
+				for(int value = 1; value <= 13; value++){
+					if(spanishDeck && value == 10)
+						continue;
+					values.push_back(c(suit,value));
+				}
+			}
+		}
+		std::shuffle(values.begin(),values.end(),gen);
+
+		std::random_device rdn; // Seed from hardware
+		std::mt19937 genn(rdn()); // Mersenne Twister engine
+		std::uniform_int_distribution<> dist(values.size() / 2,values.size() - values.size() / 8); // Inclusive range
+
+		int randomValue = dist(genn);
+		values.insert(values.begin() + randomValue,c(0,14));
+
+		// The on-table stack's total width is capped at MAX_SHOE_STACK_WIDTH
+		// regardless of deck count, instead of a fixed 3px-per-card step --
+		// at a fixed step, a 6+ deck shoe's far end (computed below so the
+		// *near* end always lands back at shoePosition, see spacing math)
+		// would start hundreds of pixels past the 1440-wide canvas's right
+		// edge and render mostly off-screen. 315 is exactly this game's old
+		// 2-deck width (105 cards * 3px), so a 2-deck shoe looks pixel-
+		// identical to before; anything bigger just packs its cards tighter
+		// instead of running off the edge.
+		constexpr float MAX_SHOE_STACK_WIDTH = 315.f;
+		shoeCardSpacing = std::min(3.f, MAX_SHOE_STACK_WIDTH / std::max<size_t>(1, values.size()));
+
+		// shoe[0] (the first card dealt -- see getNextCard(), which pops
+		// shoe.front()) sits at shoePosition itself, the near/left end of
+		// the stack; later indices step rightward, deeper into the shoe.
+		// Each card's own stored position doesn't actually matter for
+		// rendering (draw() computes it live from the card's *current*
+		// index * shoeCardSpacing, so the stack visibly shifts left as
+		// cards are dealt instead of a stale baked-in position just
+		// revealing progressively-further-right cards as the front of the
+		// vector empties) -- shoePosition itself is a fine placeholder.
+		for(int i = 0; i < values.size(); i++){
+			c card = values[i];
+			shoe.push_back(Card(card.suit,card.value,false,shoePosition,0));
+		}
+	}
+
+
+	// helpers
+
+	// A player who bet 0 got no cards this round (see firstDeal()) and has
+	// no turn to take -- called after every activePlayer advance (stand,
+	// bust, surrender, double-resolution) so play skips straight past them
+	// to the next player who's actually in the hand. Safe to call even
+	// when activePlayer didn't just change: it only loops while the
+	// *current* player has no bet, which is never true for whoever was
+	// already mid-turn (they have cards, so they bet something).
+	void skipZeroBetPlayers(){
+		while(activePlayer < numberOfPlayers && players[activePlayer].getBet() <= 0)
+			activePlayer++;
+	}
+
+	// Table.png has a dedicated white rectangle for this at (892,69) to
+	// (1145,212) -- measured directly from the art, not a guess -- distinct
+	// from the big dark-green rounded box in the middle (which is a
+	// separate, unrelated placeholder) and from DEAL's canvas-center spot
+	// (the two never show at once, but they were never meant to be the
+	// same place regardless).
+	// Rough middle of the 7-column tray (see drawChipTray()) -- the
+	// middle column's X (706, the columns are evenly spaced 40 apart) and
+	// the average column top plus half the filled stack's height. Only
+	// used as where a payout chip animation starts from; the tray's own
+	// columns don't reference this.
+	// Where a payout chip animation starts from: the bottom of whichever
+	// tray column matches its denomination -- a tray dispenses from the
+	// bottom of the stack, not by lifting one out of the middle. Falls
+	// back to the first column (the 1s) if denomIndex somehow doesn't
+	// match any column, which shouldn't happen since every BET_DENOMS
+	// entry has at least one column.
+	SDL_FPoint trayColumnBottom(int col){
+		return SDL_FPoint{ TRAY_COLUMN_X[col] + CHIP_SRC_SIZE / 2.0f, TRAY_BOTTOM_Y };
+	}
+
+	// Settles every hand still holding a bet against the dealer's final
+	// total -- standard blackjack rules: a bust hand loses outright
+	// regardless of the dealer; a natural (2-card) 21 pays 3:2 unless the
+	// dealer also has one (push); otherwise the dealer busting or a higher
+	// total wins 1:1, equal totals push (bet back, no gain), anything else
+	// loses. Applies per hand, not per player, so a split's two hands
+	// resolve independently. Doesn't distinguish a post-split 21 from a
+	// true natural -- a reasonable simplification, not the standard
+	// casino rule (which usually excludes split hands from the 3:2 bonus).
+	// Surrendered hands never reach here at all: onSurrender() already
+	// zeroes their bet via busted()'s discard path.
+	void resolveRound(){
+		int dealerTotal = dealer.getHandTotal();
+		bool dealerBust = dealerTotal > 21;
+		bool dealerBlackjack = dealer.hands[0].getHandSize() == 2 && dealerTotal == 21;
+
+		// Match Down can't be judged until the dealer's hole card is
+		// actually revealed (dealer.showCards(), called from dealDealer()
+		// before this ever runs) -- unlike Match Up/Lucky Ladies, which
+		// resolve right after the initial deal in resolveSideBets(), this
+		// one piggybacks on resolveRound()'s own timing instead.
+		if(isPlayersEdge(gameMode) && dealer.hands[0].getHandSize() >= 2){
+			Card& dealerDown = dealer.hands[0].cards[1];
+			for(int i = 0; i < numberOfPlayers; i++){
+				if(players[i].getBet() <= 0)
+					continue;
+
+				int wager = players[i].getMatchDownBet();
+				if(wager <= 0)
+					continue;
+
+				int payout = evaluateMatchBet(i, dealerDown, wager);
+				if(payout > 0){
+					queueChipPayout(i, payout);
+					matchDownResult[i] = HandResult::Win;
+				} else{
+					queueChipCollection(i, wager);
+					matchDownResult[i] = HandResult::Loss;
+				}
+			}
+		}
+
+		for(int i = 0; i < numberOfPlayers; i++){
+			for(Hand& hand : players[i].hands){
+				int bet = hand.getBet();
+				if(bet <= 0)
+					continue;
+
+				int total = hand.getHandTotal();
+				bool bust = total > 21;
+				bool blackjack = hand.getHandSize() == 2 && total == 21;
+
+				int credit = 0;
+				if(isPlayersEdge(gameMode)){
+					credit = spanish21Credit(hand, dealerTotal, dealerBust, dealerBlackjack);
+				} else if(isFreeBet(gameMode)){
+					credit = freeBetCredit(hand, dealerTotal, dealerBust, dealerBlackjack);
+				} else if(bust){
+					credit = 0;
+				} else if(dealerBlackjack && blackjack){
+					credit = bet;
+				} else if(dealerBlackjack){
+					credit = 0;
+				} else if(blackjack){
+					credit = bet + bet * 3 / 2;
+				} else if(dealerBust || total > dealerTotal){
+					credit = bet * 2;
+				} else if(total == dealerTotal){
+					credit = bet;
+				} else{
+					credit = 0;
+				}
+
+				// credit==0 is a clean loss; credit==bet is a push (bet
+				// just comes back, no gain); anything more is a win --
+				// covers both the plain 1:1 (bet*2) and blackjack (bet*2.5)
+				// cases without re-deriving them here. credit itself is
+				// always computed on the *full* bet (see freeBetCredit()),
+				// so this classification logic doesn't need to know
+				// anything about free-bet money -- only the actual
+				// payout/collection amount below does: getRealBet() is
+				// just bet for every other mode (freeBetAmount is always
+				// 0), so this is a no-op everywhere except Free Bet
+				// Blackjack, where a loss or push only costs/returns
+				// whatever part of the bet was actually real money.
+				if(credit == 0){
+					hand.setResult(HandResult::Loss);
+					queueChipCollection(i, hand.getRealBet());
+				} else{
+					// A push still needs its bet credited back -- just
+					// with no gain (credit == bet). Only the label differs
+					// from an outright win; the payout mechanics are the same.
+					// isPush is passed through so the bankroll-change
+					// readout can say "PUSH +$X" instead of styling it
+					// exactly like a real win.
+					bool isPush = credit == bet;
+					hand.setResult(isPush ? HandResult::Push : HandResult::Win);
+					queueChipPayout(i, isPush ? hand.getRealBet() : credit, isPush);
+				}
+
+				hand.setBet(0);
+			}
+		}
+
+		// A pending Lucky Stiff bet (unpaired hard 12-16 -- see
+		// evaluateLuckyStiffImmediate()) rides along with the main hand:
+		// it can't split (it's explicitly not a pair) so hands[0] is
+		// always the one and only hand to check, and by now the loop just
+		// above has already set its result.
+		if(hasLuckyStiff(gameMode)){
+			for(int i = 0; i < numberOfPlayers; i++){
+				if(!luckyStiffPending[i])
+					continue;
+
+				luckyStiffPending[i] = false;
+
+				int wager = players[i].getSideBet();
+				if(wager <= 0)
+					continue;
+
+				HandResult mainResult = players[i].hands[0].getResult();
+				if(mainResult == HandResult::Win){
+					queueChipPayout(i, wager + wager * 5);
+					sideBetResult[i] = HandResult::Win;
+				} else if(mainResult == HandResult::Push){
+					queueChipPayout(i, wager, true);
+					sideBetResult[i] = HandResult::Push;
+				} else{
+					queueChipCollection(i, wager);
+					sideBetResult[i] = HandResult::Loss;
+				}
+			}
+		}
+	}
+
+	// Spanish 21's payout rules, used by resolveRound() in place of the
+	// standard branch above whenever isPlayersEdge(gameMode). The one
+	// defining difference: a player 21 always wins outright, no matter what
+	// the dealer has (including another 21) -- standard blackjack's "equal
+	// totals push" never applies to a made 21 here. On top of that, a 21
+	// pays a bonus scaled by how it was made: 5/6/7+-card 21s pay
+	// progressively more, and a 6-7-8 or 7-7-7 (of any rank order) pays
+	// 3:2/2:1/3:1 by suit (mixed/same-suit/all-spades). Below 21, resolution
+	// is identical to standard blackjack (bust loses, better total or a
+	// dealer bust wins 1:1, tied totals push).
+	//
+	// Not implemented: the Super Bonus (suited 7-7-7 specifically against a
+	// dealer up-card of 7) pays a flat cash amount tiered by original bet
+	// size, not a documented single table -- left out rather than guessed;
+	// and double-down rescue (surrendering just a bad double for the
+	// original bet back) has no player action in this game at all yet, so
+	// there's nothing here to hook it into.
+	int spanish21Credit(Hand& hand, int dealerTotal, bool dealerBust, bool dealerBlackjack){
+		int bet = hand.getBet();
+		int total = hand.getHandTotal();
+		if(total > 21)
+			return 0;
+
+		if(total == 21){
+			int cardCount = hand.getHandSize();
+
+			std::vector<int> values, suits;
+			for(Card& c : hand.cards){
+				values.push_back(c.getValue());
+				suits.push_back(c.getSuit());
+			}
+			std::vector<int> sortedValues = values;
+			std::sort(sortedValues.begin(), sortedValues.end());
+
+			bool is678 = cardCount == 3 && sortedValues[0] == 6 && sortedValues[1] == 7 && sortedValues[2] == 8;
+			bool is777 = cardCount == 3 && sortedValues[0] == 7 && sortedValues[1] == 7 && sortedValues[2] == 7;
+
+			if(is678 || is777){
+				bool allSameSuit = suits[0] == suits[1] && suits[1] == suits[2];
+				bool allSpades = allSameSuit && suits[0] == 0; // 0 = spade, Card.h
+				if(allSpades)
+					return bet + bet * 3;
+				if(allSameSuit)
+					return bet + bet * 2;
+				return bet + bet * 3 / 2;
+			}
+
+			if(cardCount >= 7)
+				return bet + bet * 3;
+			if(cardCount == 6)
+				return bet + bet * 2;
+			if(cardCount == 5)
+				return bet + bet * 3 / 2;
+			if(cardCount == 2)
+				return bet + bet * 3 / 2; // natural
+			return bet * 2; // an unremarkable 3-4 card 21
+		}
+
+		if(dealerBlackjack)
+			return 0;
+		if(dealerBust || total > dealerTotal)
+			return bet * 2;
+		if(total == dealerTotal)
+			return bet;
+		return 0;
+	}
+
+	// Free Bet Blackjack's one rule difference from standard blackjack:
+	// "Push 22" -- a dealer bust with a total of *exactly* 22 pushes every
+	// surviving player hand (any total 21 or under) instead of paying it,
+	// which is what funds the free doubles/splits (see
+	// isFreeDoubleEligible()/isFreeSplitEligible(), onDouble()/onSplit()).
+	// A dealer bust at 23+ still pays normally. Player blackjack is exempt
+	// from Push 22 entirely -- it pays 3:2 (or pushes a true dealer
+	// blackjack) regardless of the dealer's eventual total, verified
+	// against wizardofodds.com's Free Bet Blackjack page rather than
+	// guessed. Returned credit is always computed on the hand's *full*
+	// bet, same as every other mode's credit function -- the caller
+	// (resolveRound()) is what adjusts the actual paid/collected amount
+	// down to just the real (non-free) portion on a loss or push, via
+	// Hand::getRealBet().
+	int freeBetCredit(Hand& hand, int dealerTotal, bool dealerBust, bool dealerBlackjack){
+		int bet = hand.getBet();
+		int total = hand.getHandTotal();
+		if(total > 21)
+			return 0;
+
+		bool blackjack = hand.getHandSize() == 2 && total == 21;
+		if(dealerBlackjack && blackjack)
+			return bet;
+		if(dealerBlackjack)
+			return 0;
+		if(blackjack)
+			return bet + bet * 3 / 2;
+
+		if(dealerBust){
+			if(dealerTotal == 22)
+				return bet; // Push 22
+			return bet * 2;
+		}
+
+		if(total > dealerTotal)
+			return bet * 2;
+		if(total == dealerTotal)
+			return bet;
+		return 0;
+	}
+
+	// Lucky Ladies Pay Table B: a same-rank, same-suit pair of 10-value
+	// cards (10/J/Q/K) pays 200:1; any other suited 20 pays 25:1; any other
+	// 20 pays 10:1. Only the best-qualifying tier pays (checked highest to
+	// lowest), matching the "only the highest payout is paid" convention
+	// this bet is published under. Returns the total credit (wager +
+	// winnings), or 0 if the hand doesn't qualify at all.
+	int evaluateLuckyLadies(int playerIndex, int wager){
+		const InitialTwoCards& c = initialTwoCards[playerIndex];
+		if(!c.valid)
+			return 0;
+
+		auto isTenValue = [](int v){ return v >= 10 && v <= 13; };
+		if(!isTenValue(c.value1) || !isTenValue(c.value2))
+			return 0;
+
+		bool suited = c.suit1 == c.suit2;
+		bool sameRank = c.value1 == c.value2;
+
+		if(sameRank && suited)
+			return wager + wager * 200;
+		if(suited)
+			return wager + wager * 25;
+		return wager + wager * 10;
+	}
+
+	// Shared by Match Up (vs. the dealer's up-card) and Match Down (vs. the
+	// dealer's hole card, once revealed) -- checks each of the player's
+	// first two cards against one dealer card, tallies rank matches (split
+	// into suited vs. unsuited), and looks up the payout. Tiers are one
+	// specific point picked from the approved range in 58 Pa. Code Sec
+	// 635c.2 (that regulation gives the win condition exactly, but only a
+	// range for the payout -- no single universal paytable is published
+	// the way Lucky Ladies has one): 20:1 two suited matches, 14:1 one
+	// suited + one unsuited, 11:1 one suited match alone, 7:1 two unsuited
+	// matches, 4:1 one unsuited match alone. Returns 0 (a clean loss) if
+	// neither card matches at all.
+	int evaluateMatchBet(int playerIndex, Card& dealerCard, int wager){
+		const InitialTwoCards& ic = initialTwoCards[playerIndex];
+		if(!ic.valid)
+			return 0;
+
+		int cardValues[2] = { ic.value1, ic.value2 };
+		int cardSuits[2] = { ic.suit1, ic.suit2 };
+
+		int suitedMatches = 0;
+		int unsuitedMatches = 0;
+		for(int k = 0; k < 2; k++){
+			if(cardValues[k] != dealerCard.getValue())
+				continue;
+			if(cardSuits[k] == dealerCard.getSuit())
+				suitedMatches++;
+			else
+				unsuitedMatches++;
+		}
+
+		int multiplier = 0;
+		if(suitedMatches == 2)
+			multiplier = 20;
+		else if(suitedMatches == 1 && unsuitedMatches == 1)
+			multiplier = 14;
+		else if(suitedMatches == 1)
+			multiplier = 11;
+		else if(unsuitedMatches == 2)
+			multiplier = 7;
+		else if(unsuitedMatches == 1)
+			multiplier = 4;
+
+		if(multiplier == 0)
+			return 0;
+		return wager + wager * multiplier;
+	}
+
+	// Lucky Stiff, verified against wizardofodds.com's Lucky Stiff page
+	// rather than guessed: a starting blackjack pays 1:1; a "stiff pair"
+	// (two 6s, two 7s, or two 8s) pays 10:1, regardless of what the dealer
+	// has -- both resolve immediately. An unpaired hard 12-16 (ace counted
+	// as 1, so e.g. A-5 is a hard 6, not a hard 16, and doesn't qualify)
+	// stays live and pays 5:1 if the main hand goes on to beat the dealer,
+	// pushes if it ties, loses if it doesn't -- pending is set true for
+	// this case so resolveSideBets() knows to leave it for resolveRound()
+	// instead of resolving it here. Everything else (any other made hand
+	// under 12 or over 16 that isn't a blackjack) loses immediately.
+	int evaluateLuckyStiffImmediate(int playerIndex, int wager, bool& pending){
+		pending = false;
+
+		const InitialTwoCards& c = initialTwoCards[playerIndex];
+		if(!c.valid)
+			return 0;
+
+		// Face cards collapse to 10; an Ace deliberately stays 1 here (not
+		// 11) so this sum is the hand's true *hard* total, matching what
+		// "hard 12-16" means.
+		auto tier = [](int v){ return v > 10 ? 10 : v; };
+		int t1 = tier(c.value1);
+		int t2 = tier(c.value2);
+
+		bool isBlackjack = (c.value1 == 1 && t2 == 10) || (c.value2 == 1 && t1 == 10);
+		if(isBlackjack)
+			return wager + wager * 1;
+
+		bool sameRank = c.value1 == c.value2;
+		bool isStiffPair = sameRank && (c.value1 == 6 || c.value1 == 7 || c.value1 == 8);
+		if(isStiffPair)
+			return wager + wager * 10;
+
+		int hardTotal = t1 + t2;
+		if(!sameRank && hardTotal >= 12 && hardTotal <= 16){
+			pending = true;
+			return 0;
+		}
+
+		return 0;
+	}
+
+	// Fires right after the initial deal lands (see awaitingInitialDeal in
+	// update()) -- Lucky Ladies and Match Up both only need the player's
+	// own first two cards plus the dealer's already-shown up-card, so both
+	// can pay out immediately instead of waiting for the round to finish.
+	// Match Down is the odd one out (needs the hole card revealed) and is
+	// resolved separately, from resolveRound() itself.
+	void resolveSideBets(){
+		// Snapshot every seated player's original first two cards up front
+		// -- taken unconditionally (cheap), used by both this function and
+		// resolveRound()'s later Match Down check. See InitialTwoCards.
+		for(int i = 0; i < numberOfPlayers; i++){
+			initialTwoCards[i] = InitialTwoCards{};
+			if(players[i].getBet() <= 0)
+				continue;
+
+			std::vector<Card>& cards = players[i].hands[0].cards;
+			if(cards.size() < 2)
+				continue;
+
+			initialTwoCards[i] = InitialTwoCards{
+				.valid = true,
+				.suit1 = cards[0].getSuit(),
+				.value1 = cards[0].getValue(),
+				.suit2 = cards[1].getSuit(),
+				.value2 = cards[1].getValue()
+			};
+		}
+
+		for(int i = 0; i < numberOfPlayers; i++){
+			if(players[i].getBet() <= 0)
+				continue;
+
+			if(hasLuckyLadies(gameMode)){
+				int wager = players[i].getSideBet();
+				if(wager <= 0)
+					continue;
+
+				int payout = evaluateLuckyLadies(i, wager);
+				if(payout > 0){
+					queueChipPayout(i, payout);
+					sideBetResult[i] = HandResult::Win;
+				} else{
+					queueChipCollection(i, wager);
+					sideBetResult[i] = HandResult::Loss;
+				}
+			} else if(isPlayersEdge(gameMode)){
+				int wager = players[i].getMatchUpBet();
+				if(wager <= 0 || dealer.hands[0].getHandSize() < 1)
+					continue;
+
+				Card& dealerUp = dealer.hands[0].cards[0];
+				int payout = evaluateMatchBet(i, dealerUp, wager);
+				if(payout > 0){
+					queueChipPayout(i, payout);
+					matchUpResult[i] = HandResult::Win;
+				} else{
+					queueChipCollection(i, wager);
+					matchUpResult[i] = HandResult::Loss;
+				}
+			} else if(hasLuckyStiff(gameMode)){
+				int wager = players[i].getSideBet();
+				if(wager <= 0)
+					continue;
+
+				bool pending = false;
+				int payout = evaluateLuckyStiffImmediate(i, wager, pending);
+				if(pending){
+					luckyStiffPending[i] = true;
+				} else if(payout > 0){
+					queueChipPayout(i, payout);
+					sideBetResult[i] = HandResult::Win;
+				} else{
+					queueChipCollection(i, wager);
+					sideBetResult[i] = HandResult::Loss;
+				}
+			}
+		}
+	}
+
+	// Largest BET_DENOMS entry that fits under an amount -- purely for
+	// visual variety in which chip icon flies, the amount itself isn't
+	// broken down into real chip counts the way the active-bet display is.
+	int denomIndexFor(int amount){
+		for(int d = 4; d >= 0; d--){
+			if(amount >= BET_DENOMS[d])
+				return d;
+		}
+		return 0;
+	}
+
+	// Fires one flying chip per paid-out (win or push) hand from the tray
+	// to that player's seat. The tray column it came from drops a layer
+	// immediately -- that chip is visibly leaving right now, not once it
+	// lands on the other end.
+	void queueChipPayout(int playerIndex, int credit, bool isPush = false){
+		int denomIndex = denomIndexFor(credit);
+		int col = firstColumnForDenom(denomIndex);
+		trayFillCount[col] = std::max(0, trayFillCount[col] - 1);
+
+		Point seat = players[playerIndex].getSeatAnchor();
+
+		chipAnimations.push_back(ChipAnimation{
+			.start = trayColumnBottom(col),
+			.end = SDL_FPoint{ seatCenterX(playerIndex), seat.y },
+			.denomIndex = denomIndex,
+			.columnIndex = col,
+			.playerIndex = playerIndex,
+			.creditAmount = credit,
+			.isPush = isPush
+		});
+	}
+
+	// The mirror image of queueChipPayout(): a lost bet flies from the
+	// player's seat back to the tray instead. creditAmount is 0 -- the
+	// bet already left the bankroll up front at deal time (deductBet()),
+	// so nothing more happens to bankroll when this one lands; it's purely
+	// the "house collects the loss" visual. Unlike a payout, the tray
+	// column only gains its layer back once the chip actually arrives
+	// (see update()) -- it hasn't reached the tray yet when it leaves the
+	// player's seat.
+	void queueChipCollection(int playerIndex, int amount){
+		int denomIndex = denomIndexFor(amount);
+		int col = firstColumnForDenom(denomIndex);
+
+		Point seat = players[playerIndex].getSeatAnchor();
+
+		chipAnimations.push_back(ChipAnimation{
+			.start = SDL_FPoint{ seatCenterX(playerIndex), seat.y },
+			.end = trayColumnBottom(col),
+			.denomIndex = denomIndex,
+			.columnIndex = col,
+			.playerIndex = playerIndex,
+			.creditAmount = 0
+		});
+	}
+
+	void checkBreak(bool forceStandIfNotBust = false){
+		if(players[activePlayer].checkBreak()){
+			// Give the player a moment to see the busted hand before its
+			// cards get pulled off to the discard pile.
+			pauseTimer = BUST_PAUSE_DURATION;
+			onPauseComplete = [this](){
+				busted();
+				if(players[activePlayer].getActiveHand() > players[activePlayer].hands.size() - 1)
+					activePlayer++;
+				skipZeroBetPlayers();
+			};
+		} else {
+			// A 21 -- natural or built up to over a few hits -- auto-stands
+			// instead of waiting on a hit/stand gesture: no legal move ever
+			// improves it and hitting again can only bust, so there's
+			// nothing for the player to decide. This is what actually pays
+			// out a Player's Edge 21 promptly instead of leaving it sitting
+			// in "your turn" limbo (resolveRound() already handles the
+			// payout math correctly; it just never used to get reached
+			// until the player manually stood).
+			int handIdx = players[activePlayer].getActiveHand();
+			bool reachedTwentyOne = handIdx < players[activePlayer].hands.size()
+				&& players[activePlayer].hands[handIdx].getHandTotal() == 21;
+
+			// Player's Edge pays a 21 out right now, not once the whole
+			// round resolves -- its payout for a made 21 never actually
+			// depends on the dealer's hand (see spanish21Credit()'s
+			// total==21 branch), so there's no reason to make the player
+			// wait for the dealer to play out just to see money they've
+			// already won. Zeroing the hand's bet here is what keeps
+			// resolveRound() from paying it a second time later (it skips
+			// any hand with bet<=0, same as a surrendered one).
+			if(reachedTwentyOne && isPlayersEdge(gameMode)){
+				Hand& hand = players[activePlayer].hands[handIdx];
+				int credit = spanish21Credit(hand, 0, false, false);
+				hand.setResult(HandResult::Win);
+				queueChipPayout(activePlayer, credit);
+				hand.setBet(0);
+			}
+
+			// Standard blackjack only allows one double per hand, which is
+			// why a double has always force-stood here -- Player's Edge
+			// (Spanish 21) specifically allows "double, double, double"
+			// (redoubling as many times as the player likes), so a double
+			// there just deals the card and leaves the hand active for
+			// another hit/double/stand, same as any other card. A 21 still
+			// always auto-stands regardless of mode (see above).
+			bool forceStand = reachedTwentyOne || (forceStandIfNotBust && !isPlayersEdge(gameMode));
+
+			if(forceStand){
+				activePlayer += players[activePlayer].stand();
+				skipZeroBetPlayers();
+			}
+		}
+	}
+
+	// The yellow cut card (value 14, see makeShoe()) is a shoe marker, not
+	// a real card -- it should never end up in anyone's hand. If it comes
+	// up, quietly burn it straight to the discard pile (no flight
+	// animation; a real cut card isn't shown to players either) and return
+	// the actual next card instead. Reaching it also means "reshuffle once
+	// this hand is over" -- see shoeNeedsReshuffle, consumed in update()
+	// once the round actually finishes.
+	Card getNextCard(){
+		Card c = shoe.front();
+		shoe.erase(shoe.begin());
+
+		if(c.getValue() == 14){
+			shoeNeedsReshuffle = true;
+			c.showCard(false);
+			c.setRotation(0);
+			c.setPostion(discardPosition);
+			discard.push_back(c);
+			return getNextCard();
+		}
+
+		return c;
+	}
+
+	void busted(){
+		std::vector<Card> busted = players[activePlayer].busted();
+
+		for(Card c : busted){
+			dealQueue.push(DealRequest{
+				.playerIndex = activePlayer,
+				.isDealer = false,
+				.discard = true,
+				.showCard = false,
+				.from = c.getPosition(),
+				.to = discardPosition,
+				.card = c,
+			});
+		}
+	}
+};

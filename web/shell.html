@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="en-us">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+    <!-- Lets "Add to Home Screen" launch with no browser chrome at all on iOS,
+         since iOS Safari has no real Fullscreen API to request one with. -->
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Blackjack">
+    <meta name="theme-color" content="#1a4a22">
+    <!-- iOS ignores manifest.json's icons for "Add to Home Screen" and
+         needs this link tag specifically. -->
+    <link rel="apple-touch-icon" href="icon-192.png">
+    <link rel="icon" href="icon-192.png">
+    <link rel="manifest" href="manifest.json">
+    <title>Underway Blackjack</title>
+
+    <!-- Rich link previews when this URL is shared in iMessage/Slack/Discord/etc,
+         instead of a bare link with no title or image. Image URL has to be
+         absolute -- link-preview crawlers generally don't reliably resolve
+         relative ones -- so it's tied to this specific deployment URL. -->
+    <meta property="og:title" content="Underway Blackjack">
+    <meta property="og:description" content="Play blackjack in your browser.">
+    <meta property="og:image" content="https://homelab.taileb5ffb.ts.net:8443/social-card.png">
+    <meta property="og:url" content="https://homelab.taileb5ffb.ts.net:8443">
+    <meta property="og:type" content="website">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="Underway Blackjack">
+    <meta name="twitter:description" content="Play blackjack in your browser.">
+    <meta name="twitter:image" content="https://homelab.taileb5ffb.ts.net:8443/social-card.png">
+    <style>
+        html, body {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            background: #000;
+            overflow: hidden;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            /* Stop the browser's own swipe/scroll/pinch gestures from
+               competing with the game's own touch gesture recognizer. */
+            touch-action: none;
+            -webkit-user-select: none;
+            user-select: none;
+        }
+
+        #status {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-family: arial, sans-serif;
+            color: #ccc;
+        }
+
+        /* No CSS sizing rules for the canvas on purpose: SDL writes an
+           inline width/height style onto it directly at window-creation
+           time, which always overrides anything set here anyway. The
+           correct (viewport-fit, 1440:720-letterboxed) size is computed on
+           the C++ side in main() instead, from the actual browser viewport,
+           before the window is even created -- see mina.cpp. */
+        canvas {
+            display: block;
+        }
+
+        /* Touch-primary devices (phones/tablets) held in portrait get the
+           whole canvas visually rotated 90deg so the (still internally
+           landscape) game fills the screen instead of asking the user to
+           physically turn their phone. Desktop windows that happen to be
+           narrower than they are tall are untouched -- pointer:coarse
+           excludes mouse/trackpad. mina.cpp applies the matching inverse
+           rotation to touch coordinates (see g_rotatedForPortrait), and
+           sizes the canvas, pre-rotation, against the swapped viewport
+           dimensions so the rotated result actually fills the screen.
+
+           Centered via position:fixed + translate rather than the parent's
+           flex centering -- observed on iOS specifically (not Android):
+           flex-centering a transformed child left it off-center (flush
+           left) while still rotated, only correcting once physically
+           rotated back out of this code path. position:fixed centers the
+           canvas directly against the viewport, independent of the parent's
+           flex layout, so there's no flex+transform interaction to go wrong. */
+        @media (pointer: coarse) and (orientation: portrait) {
+            canvas {
+                position: fixed;
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%) rotate(90deg);
+            }
+
+            #status {
+                display: none;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div id="status">Loading...</div>
+    <canvas id="canvas" oncontextmenu="event.preventDefault()" tabindex="-1"></canvas>
+    <script>
+        // Registers the service worker that caches the whole game, so once
+        // it's loaded once, it keeps working with no network connection at
+        // all. Requires a secure context (HTTPS, or localhost for testing)
+        // -- browsers refuse to register service workers over plain HTTP
+        // on any other origin.
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('sw.js').catch((err) => {
+                    console.warn('Service worker registration failed (offline play will not work):', err);
+                });
+            });
+        }
+
+        var statusElement = document.getElementById('status');
+        var canvasElement = document.getElementById('canvas');
+
+        canvasElement.addEventListener('webglcontextlost', (e) => {
+            alert('WebGL context lost. You will need to reload the page.');
+            e.preventDefault();
+        }, false);
+
+        var Module = {
+            print(...args) {
+                console.log(...args);
+            },
+            canvas: canvasElement,
+            setStatus(text) {
+                statusElement.textContent = text;
+                statusElement.style.display = text ? 'block' : 'none';
+            },
+            totalDependencies: 0,
+            monitorRunDependencies(left) {
+                this.totalDependencies = Math.max(this.totalDependencies, left);
+                Module.setStatus(left ? 'Preparing... (' + (this.totalDependencies - left) + '/' + this.totalDependencies + ')' : '');
+            }
+        };
+
+        Module.setStatus('Downloading...');
+        window.onerror = window.onunhandledrejection = () => {
+            Module.setStatus('Exception thrown, see JavaScript console');
+        };
+
+        // The initial window size is computed once in C++ (mina.cpp's
+        // main(), from the real viewport, before the window is created).
+        // For every resize/rotation *after* that, call back into C++ so it
+        // can recompute and explicitly apply the new letterboxed size --
+        // SDL doesn't reliably pick this up on its own from genuine
+        // browser-driven size changes here.
+        var runtimeReady = false;
+        Module.onRuntimeInitialized = () => {
+            runtimeReady = true;
+            notifyBrowserResize();
+        };
+
+        function notifyBrowserResize() {
+            if (runtimeReady) {
+                Module.ccall('onBrowserResize', null, [], []);
+            }
+        }
+
+        window.addEventListener('resize', notifyBrowserResize);
+        window.addEventListener('orientationchange', notifyBrowserResize);
+
+        // Safety net for the CSS-rotated portrait path: the very first size
+        // computation happens in C++ before the runtime (and this script's
+        // own onRuntimeInitialized hook) is even fully up, and on iOS that
+        // can race matchMedia's orientation/pointer state before it's
+        // settled -- observed as the canvas coming out sized as if it
+        // *weren't* rotated, then still getting rotated by CSS on top of
+        // that wrong shape (flush to one side instead of centered). Re-check
+        // a couple of times shortly after load; harmless no-op wherever the
+        // first computation was already correct (e.g. Android).
+        setTimeout(notifyBrowserResize, 200);
+        setTimeout(notifyBrowserResize, 800);
+    </script>
+    {{{ SCRIPT }}}
+</body>
+</html>
