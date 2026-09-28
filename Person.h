@@ -45,18 +45,27 @@ public:
 		offSets adj = calcOffset();
 		bool forceHidden = hideIfInactive && !activePlayer;
 
-		float arrowRotaion = 0;
+		// Was the same dir-bucket-only cardinal math as calcOffset()'s own
+		// stacking offsets used to be (and, same as there, verified to be
+		// exactly this local (dir==0) template rotated by the bucket's own
+		// cardinal angle) -- rotating by the seat's actual stored angle
+		// instead generalizes it to the 2 new 5-player seats' non-cardinal
+		// tilt the same way. Without this, the arrow's own rotation was
+		// already correct (adj.rotation, not a bucket angle) but its
+		// position wasn't, off in a spot that no longer reads as "pointing
+		// at this hand" once the two disagree.
+		constexpr float PI = 3.14159265358979323846f;
+		float rad = adj.rotation * PI / 180.0f;
+		float cosT = std::cos(rad), sinT = std::sin(rad);
+		float localX = -(arrowWidth + 15.0f);
+		float localY = (cardHeight - arrowHeight) / 2.0f;
+
 		SDL_FRect arrow{
-			.x = bettingSquare.firstPoint().x,
-			.y = bettingSquare.firstPoint().y,
+			.x = bettingSquare.firstPoint().x + (localX * cosT - localY * sinT),
+			.y = bettingSquare.firstPoint().y + (localX * sinT + localY * cosT),
 			.w = arrowWidth,
 			.h = arrowHeight
 		};
-
-		int dir = bettingSquare.getDirection();
-
-		arrow.x += (dir == 0) ? -(arrowWidth + 15) : dir * ((cardHeight - arrowHeight) / 2);
-		arrow.y += (dir == 0) ? (cardHeight - arrowHeight) / 2 : dir * (arrowWidth + 15);
 
 		for(int hand = 0; hand < hands.size(); hand++){
 			hands[hand].draw(state,res,forceHidden);

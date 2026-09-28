@@ -41,7 +41,8 @@ enum class PauseState {
     Menu,
     Strategy,
     About,
-    Gestures
+    Gestures,
+    Options
 };
 
 // Which small HUD button (if any) currently owns AppContext::uiClaimedFinger.
@@ -179,6 +180,7 @@ static void applyGameModeChoice(AppContext& ctx, GameMode mode){
 
     ctx.chosenMode = mode;
     ctx.setupMenu.setGameMode(mode);
+    ctx.gameOptionsMenu.setGameMode(mode);
     ctx.screen = AppScreen::GameOptions;
 }
 
@@ -198,9 +200,9 @@ static void applySetupComplete(AppContext& ctx){
     int bankrolls[5] = {0, 0, 0, 0, 0};
     int initialBets[5] = {0, 0, 0, 0, 0};
     int sideBetSizes[5] = {0, 0, 0, 0, 0};
-    bool sideBetApplies = hasAnySideBet(ctx.chosenMode);
+    int sideBetCount = sideBetCountFor(ctx.chosenMode);
     for(int i = 0; i < ctx.setupMenu.numberOfPlayers; i++){
-        bankrolls[i] = ctx.setupMenu.playerConfigs[i].effectiveBankroll(sideBetApplies);
+        bankrolls[i] = ctx.setupMenu.playerConfigs[i].effectiveBankroll(sideBetCount);
         initialBets[i] = ctx.setupMenu.playerConfigs[i].minBet;
         sideBetSizes[i] = ctx.setupMenu.playerConfigs[i].sideBetSize;
     }
@@ -245,9 +247,30 @@ static void applyPauseChoice(AppContext& ctx, PauseChoice choice){
             ctx.pauseState = PauseState::Gestures;
         break;
 
+        case PauseChoice::Options:
+            // The pre-game flow calls this via applyGameModeChoice()
+            // instead, right as the mode's picked -- reopening mid-game
+            // needs its own call since GameOptionsMenu can't just read
+            // ctx.chosenMode/ctx.setupMenu itself.
+            ctx.gameOptionsMenu.setGameMode(ctx.table.getGameMode());
+            ctx.pauseState = PauseState::Options;
+        break;
+
         case PauseChoice::None:
         break;
     }
+}
+
+// GameOptionsMenu's GO was tapped/clicked while reached from the pause
+// menu mid-game, not the pre-game GameMode->GameOptions->Setup flow --
+// applies the (possibly just-changed) settings to the already-running
+// Table directly and drops back to the pause menu itself, instead of
+// applyGameOptionsComplete()'s own move on to Setup.
+static void applyGameOptionsFromPause(AppContext& ctx){
+    ctx.table.setDealerSpeedFactor(ctx.gameOptionsMenu.dealerSpeedFactor());
+    ctx.table.setFaceDownDoubles(ctx.gameOptionsMenu.faceDownDoubles);
+    ctx.table.setHideInactiveHands(ctx.gameOptionsMenu.hideInactiveHands);
+    ctx.pauseState = PauseState::Menu;
 }
 
 #ifdef __EMSCRIPTEN__
@@ -462,6 +485,11 @@ static void mainLoopIteration(void *arg) {
                         event.tfinger.x * ctx.state.width,
                         event.tfinger.y * ctx.state.height))
                     ctx.pauseState = PauseState::Menu;
+            } else if(ctx.screen == AppScreen::Playing && ctx.pauseState == PauseState::Options){
+                if(event.type == SDL_EVENT_FINGER_UP && ctx.gameOptionsMenu.handlePoint(ctx.state,
+                        event.tfinger.x * ctx.state.width,
+                        event.tfinger.y * ctx.state.height))
+                    applyGameOptionsFromPause(ctx);
             } else if(ctx.screen == AppScreen::Playing && ctx.table.isAwaitingBets()){
                 // Betting phase: raise/lower/DEAL, not gameplay gestures.
                 if(event.type == SDL_EVENT_FINGER_UP)
@@ -522,6 +550,9 @@ static void mainLoopIteration(void *arg) {
                 } else if(ctx.screen == AppScreen::Playing && ctx.pauseState == PauseState::Gestures){
                     if(ctx.gesturesMenu.handlePoint(ctx.state, event.button.x, event.button.y))
                         ctx.pauseState = PauseState::Menu;
+                } else if(ctx.screen == AppScreen::Playing && ctx.pauseState == PauseState::Options){
+                    if(ctx.gameOptionsMenu.handlePoint(ctx.state, event.button.x, event.button.y))
+                        applyGameOptionsFromPause(ctx);
                 } else if(ctx.screen == AppScreen::Playing && isPauseButtonHit(ctx, event.button.x, event.button.y))
                     ctx.pauseState = PauseState::Menu;
                 else if(ctx.screen == AppScreen::Playing && ctx.table.isQuickTipButtonHit(ctx.state, event.button.x, event.button.y))
@@ -544,6 +575,9 @@ static void mainLoopIteration(void *arg) {
         ctx.table.update(deltaTime);
         ctx.table.dealDealer();
     }
+    else if(ctx.screen == AppScreen::GameOptions
+            || (ctx.screen == AppScreen::Playing && ctx.pauseState == PauseState::Options))
+        ctx.gameOptionsMenu.update(deltaTime);
 
     // perform drawing commands
     SDL_RenderClear(ctx.state.renderer);
@@ -577,6 +611,8 @@ static void mainLoopIteration(void *arg) {
             ctx.aboutMenu.draw(ctx.state, ctx.res, ctx.table.getGameMode());
         else if(ctx.pauseState == PauseState::Gestures)
             ctx.gesturesMenu.draw(ctx.state, ctx.res);
+        else if(ctx.pauseState == PauseState::Options)
+            ctx.gameOptionsMenu.draw(ctx.state, ctx.res);
     }
 
     // swap buffer and present

@@ -328,7 +328,7 @@ public:
 	// (drawCardCountStats()) to actually test their own counting instead
 	// of just reading the answer off the discard pile the whole time.
 	SDL_FRect cardCountToggleButton(){
-		return SDL_FRect{ .x = discardPosition.x, .y = discardPosition.y - 24.0f - 6.0f, .w = cardWidth, .h = 24 };
+		return SDL_FRect{ .x = discardPosition.x, .y = discardPosition.y + cardHeight + 6.0f, .w = cardWidth, .h = 24 };
 	}
 
 	bool isCardCountToggleHit(SDLState& state, float windowX, float windowY){
@@ -577,7 +577,16 @@ public:
 		if(cardAnimation.has_value()) {
 			CardAnimation& animation = cardAnimation.value();
 
-			SDL_FRect source = animation.showCard ? animation.card.getSrc() : backOFCard;
+			// hideInactiveHands (GameOptionsMenu): the same render-only
+			// override Person::draw() applies to an already-landed hand
+			// has to apply to a card still mid-flight too -- otherwise a
+			// hidden player's own initial cards flew in plainly visible,
+			// only actually disappearing once they landed. Doesn't touch
+			// animation.showCard itself (that's still the card's real
+			// shown/hidden state, read at landing for counting).
+			bool forceHidden = hideInactiveHands && !awaitingBets && !awaitingNewRound
+				&& !animation.isDealer && animation.playerIndex != activePlayer;
+			SDL_FRect source = (animation.showCard && !forceHidden) ? animation.card.getSrc() : backOFCard;
 
 			SDL_RenderTextureRotated(state.renderer,res.allCards,&source,&animation.destination,animation.currentAngle,&rotationTopLeft,SDL_FLIP_NONE);
 		}
@@ -867,12 +876,20 @@ public:
 			// final dealer total before their cards get swept away.
 			resolveRound();
 
+			// hideInactiveHands (GameOptionsMenu) stops force-hiding a
+			// seat's cards once awaitingNewRound is true (see draw()) --
+			// set here, not in onPauseComplete below, so every hand is
+			// already showing for the WIN/PUSH/LOSE reveal and payout that
+			// just happened above, not still hidden until the pause (and
+			// the discard sweep after it) finishes playing out. Real
+			// casinos turn every hand up before paying anyone, not after.
+			awaitingNewRound = true;
+
 			// Let the finished dealer hand sit on screen for a beat before
 			// sweeping every hand into the discard pile.
 			pauseTimer = DEALER_FINISH_PAUSE_DURATION * dealerSpeedFactor;
 			onPauseComplete = [this](){
 				clearTable();
-				awaitingNewRound = true;
 			};
 		}
 	}
@@ -952,6 +969,11 @@ private:
 	// deals a fresh shoe before the next round's bets open, same as a real
 	// table cutting to a new shoe once the cut card's reached.
 	bool shoeNeedsReshuffle = false;
+
+	// A real table burns one card only when a fresh shoe goes into play,
+	// not before every single hand -- makeShoe() sets this true, firstDeal()
+	// clears it once it's actually burned the card.
+	bool needsBurnCard = true;
 
 	// Hi-Lo running count -- persists across every hand dealt from the
 	// current shoe, reset only when the shoe itself is (a fresh
@@ -2379,7 +2401,12 @@ private:
 			.startAngle = request.split || request.discard ? angle : 0,
 			.currentAngle = request.split || request.discard ? angle : 0,
 			.finalAngle =  request.discard ? 0 : angle,
-			.duration = request.discard ? DISCARD_DURATION : DEAL_DURATION,
+			// Was pause-timers-only -- barely perceptible, since those only
+			// fire once or twice a round. Scaling every card's own flight
+			// too makes the setting actually visible on every single deal,
+			// which is also what GameOptionsMenu's own live demo card
+			// needs to be demonstrating in the first place.
+			.duration = (request.discard ? DISCARD_DURATION : DEAL_DURATION) * dealerSpeedFactor,
 			.playerIndex = request.playerIndex,
 			.handIndex = request.handIndex,
 			.split = request.split,
@@ -2454,6 +2481,19 @@ public:
 		for(int i = 0; i < numberOfPlayers; i++)
 			players[i].resetHands();
 
+		// Discard pile and shoe both empty -- configureGameMode() rebuilds
+		// a fresh shoe once the next game's mode is actually picked, but
+		// clearing them now (rather than leaving the previous game's
+		// half-depleted shoe/discard sitting there in the meantime) is
+		// what "like a fresh game" actually means for these two.
+		discard.clear();
+		shoe.clear();
+
+		// Chip tray: each seat's selected bet denomination back to its
+		// original default (index 2 -- see chipIndex's own declaration).
+		for(int i = 0; i < 5; i++)
+			chipIndex[i] = 2;
+
 		activePlayer = 0;
 		awaitingBets = false;
 		awaitingNewRound = false;
@@ -2471,16 +2511,22 @@ public:
 
 private:
 	void firstDeal() {
-		// Burn the first card
-		dealQueue.push(DealRequest{
-			.playerIndex = activePlayer,
-			.isDealer = false,
-			.discard = true,
-			.showCard = false,
-			.from = shoePosition,
-			.to = discardPosition,
-			.card = getNextCard(),
-		});
+		// Burn the first card -- only when this shoe hasn't had one yet
+		// (see needsBurnCard's own declaration). Used to run every single
+		// hand, burning a fresh card each time instead of just once per
+		// shoe like a real table does.
+		if(needsBurnCard){
+			needsBurnCard = false;
+			dealQueue.push(DealRequest{
+				.playerIndex = activePlayer,
+				.isDealer = false,
+				.discard = true,
+				.showCard = false,
+				.from = shoePosition,
+				.to = discardPosition,
+				.card = getNextCard(),
+			});
+		}
 
 		for(int loop = 0; loop < 2; loop++) {
 			for(int i = 0; i < numberOfPlayers; i++) {
@@ -2517,6 +2563,11 @@ private:
 		// appended onto whatever cards were already here from the
 		// constructor's own initial makeShoe() instead of replacing them.
 		shoe.clear();
+
+		// A fresh shoe needs burning once, not every hand dealt from it --
+		// firstDeal() reads this and clears it once the actual burn
+		// happens (see there).
+		needsBurnCard = true;
 
 		std::random_device rd;
 		std::mt19937 gen(rd());

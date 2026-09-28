@@ -9,7 +9,8 @@ enum class PauseChoice{
 	Restart,
 	StrategyTable,
 	About,
-	Gestures
+	Gestures,
+	Options
 };
 
 // Drawn as a dim overlay on top of the (frozen, still-visible) table --
@@ -29,6 +30,7 @@ public:
 		drawButton(state, strategyButton, SDL_Color{60, 90, 150, 255}, "STRATEGY TABLE");
 		drawButton(state, aboutButton, SDL_Color{110, 90, 60, 255}, "ABOUT");
 		drawButton(state, gesturesButton, SDL_Color{90, 70, 130, 255}, "GESTURES");
+		drawButton(state, optionsButton, SDL_Color{70, 110, 110, 255}, "GAME OPTIONS");
 	}
 
 	// windowX/windowY: raw event coordinates in window space, same
@@ -50,18 +52,21 @@ public:
 			return PauseChoice::About;
 		if(SDL_PointInRectFloat(&p, &gesturesButton))
 			return PauseChoice::Gestures;
+		if(SDL_PointInRectFloat(&p, &optionsButton))
+			return PauseChoice::Options;
 
 		return PauseChoice::None;
 	}
 
 private:
-	// Spacing tightened to fit a 5th button in the same vertical span the
-	// original 3 used.
+	// Spacing tightened to fit a 5th (then 6th) button in the same
+	// vertical span the original 3 used.
 	SDL_FRect resumeButton{ .x = 530, .y = 210, .w = 380, .h = 66 };
 	SDL_FRect restartButton{ .x = 530, .y = 288, .w = 380, .h = 66 };
 	SDL_FRect strategyButton{ .x = 530, .y = 366, .w = 380, .h = 66 };
 	SDL_FRect aboutButton{ .x = 530, .y = 444, .w = 380, .h = 66 };
 	SDL_FRect gesturesButton{ .x = 530, .y = 522, .w = 380, .h = 66 };
+	SDL_FRect optionsButton{ .x = 530, .y = 600, .w = 380, .h = 66 };
 
 	void drawButton(SDLState& state, const SDL_FRect& rect, SDL_Color color, const std::string& label){
 		SDL_SetRenderDrawColor(state.renderer, color.r, color.g, color.b, color.a);

@@ -31,13 +31,17 @@ public:
 		// of its Match bets to this same amount (Person::setInitialMatchBets()).
 		int sideBetSize = 5;
 
-		// BET (+ side bet, if this mode has one) x CNT (how many rounds to
-		// plan for) -- becomes the actual bankroll while the calculator's
-		// toggled on. includeSideBet lets the caller decide based on the
-		// active GameMode without this struct needing to know about modes
-		// itself.
-		int effectiveBankroll(bool includeSideBet) const{
-			int perRoundStake = minBet + (includeSideBet ? sideBetSize : 0);
+		// BET (+ side bet(s), if this mode has any) x CNT (how many rounds
+		// to plan for) -- becomes the actual bankroll while the
+		// calculator's toggled on. sideBetCount lets the caller decide
+		// based on the active GameMode without this struct needing to
+		// know about modes itself: 0 for a mode with none, 1 for a single
+		// side bet (Lucky Ladies/Lucky Stiff), 2 for Player's Edge, whose
+		// Match Up and Match Down are both wagered every round at this
+		// same sideBetSize (Person::setInitialMatchBets()) -- a 1x
+		// multiplier there under-counted the second bet entirely.
+		int effectiveBankroll(int sideBetCount) const{
+			int perRoundStake = minBet + sideBetSize * sideBetCount;
 			return useCalculator ? perRoundStake * minBetCount : bankroll;
 		}
 	};
@@ -303,9 +307,9 @@ private:
 		// BANK shows the calculated total (and turns green) once the
 		// calculator's driving it -- bankroll *is* the total in that mode,
 		// so there's no separate number worth showing on its own anymore.
-		bool sideBetApplies = hasAnySideBet(gameMode);
+		int sideBetCount = sideBetCountFor(gameMode);
 		SDL_Color bankColor = cfg.useCalculator ? SDL_Color{40, 140, 60, 255} : SDL_Color{10, 40, 20, 230};
-		drawStepper(state, bankStepper(row), "", cfg.effectiveBankroll(sideBetApplies), bankColor);
+		drawStepper(state, bankStepper(row), "", cfg.effectiveBankroll(sideBetCount), bankColor);
 		drawStepper(state, betStepper(row), cfg.minBet);
 
 		SDL_FRect calc = calcToggle(row);
@@ -322,7 +326,7 @@ private:
 		// A distinct purple value box (not the neutral dark-green every
 		// other stepper uses) so it doesn't read as just another BANK/BET/
 		// CNT field -- it's a different kind of number.
-		if(sideBetApplies)
+		if(sideBetCount > 0)
 			drawStepper(state, sideBetStepper(row), "", cfg.sideBetSize, SDL_Color{90, 50, 110, 230});
 	}
 

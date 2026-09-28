@@ -218,3 +218,16 @@ inline bool isFreeBet(GameMode mode){
 inline bool hasAnySideBet(GameMode mode){
 	return hasLuckyLadies(mode) || isPlayersEdge(mode) || hasLuckyStiff(mode);
 }
+
+// How many side bets SetupMenu's bankroll calculator needs to stake for
+// per round, at the same PlayerConfig::sideBetSize each -- 0 for a mode
+// with none, 1 for Lucky Ladies/Lucky Stiff's single bet, 2 for Player's
+// Edge, whose Match Up and Match Down are both wagered every round
+// (Person::setInitialMatchBets() seeds them equally).
+inline int sideBetCountFor(GameMode mode){
+	if(isPlayersEdge(mode))
+		return 2;
+	if(hasLuckyLadies(mode) || hasLuckyStiff(mode))
+		return 1;
+	return 0;
+}
