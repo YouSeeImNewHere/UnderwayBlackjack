@@ -3,6 +3,7 @@
 
 #include <vector>
 #include <algorithm>
+#include <cmath>
 
 const float arrowWidth = 40;
 const float arrowHeight = 28;
@@ -138,6 +139,10 @@ public:
 
 	int getDirection(){
 		return bettingSquare.getDirection();
+	}
+
+	float getSeatRotation(){
+		return bettingSquare.getRotationDegrees();
 	}
 
 	int getActiveHand(){
@@ -312,19 +317,37 @@ public:
 		float yMoveCard = 0;
 
 		int dir = bettingSquare.getDirection();
+		float rotation = bettingSquare.getRotationDegrees();
 
-		float rotation = (dir > 1) ? 180 : dir * -90;
 		if(dir < 5){
-			xMoveHand = -dir * (cardHeight + 5);
-			yMoveHand = (abs(dir) - 1) * (cardHeight + 5);
+			// Every stacking/fan offset below used to be a set of values
+			// hand-picked per direction bucket (0/1/-1) -- but each of
+			// those turns out to be exactly the seat's *own* local,
+			// unrotated (dir==0) template rotated by that bucket's own
+			// cardinal angle (-90/0/90), same top-left-pivot/clockwise
+			// convention as everywhere else rotation is done (see
+			// Table.h's drawResultBanner()). Rotating by the seat's
+			// actual stored angle instead of just its bucket's cardinal
+			// one generalizes cleanly to the 2 new 5-player seats' 70/300
+			// degree tilts -- without this, their cards fanned out along
+			// the old cardinal axis while each card sprite itself drew
+			// rotated to the new angle, crossing over each other instead
+			// of fanning cleanly.
+			constexpr float PI = 3.14159265358979323846f;
+			float rad = rotation * PI / 180.0f;
+			float cosT = std::cos(rad), sinT = std::sin(rad);
+			auto rotateLocal = [&](float lx, float ly, float& wx, float& wy){
+				wx = lx * cosT - ly * sinT;
+				wy = lx * sinT + ly * cosT;
+			};
+
+			rotateLocal(0.0f, -(cardHeight + 5.0f), xMoveHand, yMoveHand);
 
 			int offset = 3 * cardWidth / 10;
 			if(hands.size() > 1){
-				xMoveCard = (dir == 0 ? offset : 0);
-				yMoveCard = (dir == 0 ? 0 : -dir * offset);
+				rotateLocal((float)offset, 0.0f, xMoveCard, yMoveCard);
 			} else{
-				xMoveCard = (dir == 1 ? -offset : offset);
-				yMoveCard = (dir == -1 ? offset : -offset);
+				rotateLocal((float)offset, -(float)offset, xMoveCard, yMoveCard);
 			}
 		} else {
 			xMoveCard = -110;

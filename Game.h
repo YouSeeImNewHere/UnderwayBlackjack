@@ -63,7 +63,13 @@ struct Resources{
 
     void load(SDLState &state){
         allCards = loadTexture(state.renderer,"Cards.png");
-        tableCloth = loadTexture(state.renderer,"Table.png");
+        // Table5Player.png keeps the original 3 seats in the same spots as
+        // Table.png and just adds 2 more along the bottom, so it works
+        // fine as the felt for every player count (1-3 players just leave
+        // the extra seat outlines empty, same as any other unused seat
+        // already does today) -- no need to switch textures per player
+        // count.
+        tableCloth = loadTexture(state.renderer,"Table5Player.png");
         arrow = loadTexture(state.renderer,"Arrow.png");
         chips = loadTexture(state.renderer,"Chips.png");
     }

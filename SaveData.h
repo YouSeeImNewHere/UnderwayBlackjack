@@ -28,10 +28,10 @@ struct SaveData
 	// data file; callers cast at the boundary (see mina.cpp).
 	int gameModeIndex = 0;
 	int numberOfPlayers = 1;
-	int bankrolls[3] = {500, 500, 500};
-	int initialBets[3] = {25, 25, 25};
+	int bankrolls[5] = {500, 500, 500, 500, 500};
+	int initialBets[5] = {25, 25, 25, 25, 25};
 	// Only meaningful for a GameMode with a side bet -- 0 otherwise.
-	int sideBetSizes[3] = {0, 0, 0};
+	int sideBetSizes[5] = {0, 0, 0, 0, 0};
 
 	void load(){
 #ifdef __EMSCRIPTEN__
@@ -50,7 +50,7 @@ struct SaveData
 			var v = localStorage.getItem('underwayBlackjackPlayers');
 			return v ? parseInt(v) : 1;
 		});
-		for(int i = 0; i < 3; i++){
+		for(int i = 0; i < 5; i++){
 			bankrolls[i] = EM_ASM_INT({
 				var v = localStorage.getItem('underwayBlackjackBankroll' + $0);
 				return v ? parseInt(v) : 500;
@@ -82,15 +82,9 @@ struct SaveData
 
 			if(key == "gameModeIndex") gameModeIndex = std::stoi(value);
 			else if(key == "numberOfPlayers") numberOfPlayers = std::stoi(value);
-			else if(key == "bankroll0") bankrolls[0] = std::stoi(value);
-			else if(key == "bankroll1") bankrolls[1] = std::stoi(value);
-			else if(key == "bankroll2") bankrolls[2] = std::stoi(value);
-			else if(key == "bet0") initialBets[0] = std::stoi(value);
-			else if(key == "bet1") initialBets[1] = std::stoi(value);
-			else if(key == "bet2") initialBets[2] = std::stoi(value);
-			else if(key == "sideBet0") sideBetSizes[0] = std::stoi(value);
-			else if(key == "sideBet1") sideBetSizes[1] = std::stoi(value);
-			else if(key == "sideBet2") sideBetSizes[2] = std::stoi(value);
+			else if(key.rfind("bankroll", 0) == 0) bankrolls[std::stoi(key.substr(8))] = std::stoi(value);
+			else if(key.rfind("bet", 0) == 0) initialBets[std::stoi(key.substr(3))] = std::stoi(value);
+			else if(key.rfind("sideBet", 0) == 0) sideBetSizes[std::stoi(key.substr(7))] = std::stoi(value);
 		}
 #endif
 	}
@@ -99,11 +93,11 @@ struct SaveData
 	// player configured (game mode from GameModeMenu, players/bankrolls/
 	// side-bet size from SetupMenu) so Resume can reconstruct it on a
 	// future launch.
-	void saveGameConfig(int modeIndex, int players, const int bankrollValues[3], const int betValues[3], const int sideBetValues[3]){
+	void saveGameConfig(int modeIndex, int players, const int bankrollValues[5], const int betValues[5], const int sideBetValues[5]){
 		gameStarted = true;
 		gameModeIndex = modeIndex;
 		numberOfPlayers = players;
-		for(int i = 0; i < 3; i++){
+		for(int i = 0; i < 5; i++){
 			bankrolls[i] = bankrollValues[i];
 			initialBets[i] = betValues[i];
 			sideBetSizes[i] = sideBetValues[i];
@@ -114,30 +108,24 @@ struct SaveData
 			localStorage.setItem('underwayBlackjackSave', '1');
 			localStorage.setItem('underwayBlackjackMode', $0);
 			localStorage.setItem('underwayBlackjackPlayers', $1);
-			localStorage.setItem('underwayBlackjackBankroll0', $2);
-			localStorage.setItem('underwayBlackjackBankroll1', $3);
-			localStorage.setItem('underwayBlackjackBankroll2', $4);
-			localStorage.setItem('underwayBlackjackBet0', $5);
-			localStorage.setItem('underwayBlackjackBet1', $6);
-			localStorage.setItem('underwayBlackjackBet2', $7);
-			localStorage.setItem('underwayBlackjackSideBet0', $8);
-			localStorage.setItem('underwayBlackjackSideBet1', $9);
-			localStorage.setItem('underwayBlackjackSideBet2', $10);
-		}, gameModeIndex, numberOfPlayers, bankrolls[0], bankrolls[1], bankrolls[2], initialBets[0], initialBets[1], initialBets[2], sideBetSizes[0], sideBetSizes[1], sideBetSizes[2]);
+		}, gameModeIndex, numberOfPlayers);
+		for(int i = 0; i < 5; i++){
+			EM_ASM({
+				localStorage.setItem('underwayBlackjackBankroll' + $0, $1);
+				localStorage.setItem('underwayBlackjackBet' + $0, $2);
+				localStorage.setItem('underwayBlackjackSideBet' + $0, $3);
+			}, i, bankrolls[i], initialBets[i], sideBetSizes[i]);
+		}
 #else
 		std::ofstream out(path());
 		out << "gameStarted=1\n";
 		out << "gameModeIndex=" << gameModeIndex << "\n";
 		out << "numberOfPlayers=" << numberOfPlayers << "\n";
-		out << "bankroll0=" << bankrolls[0] << "\n";
-		out << "bankroll1=" << bankrolls[1] << "\n";
-		out << "bankroll2=" << bankrolls[2] << "\n";
-		out << "bet0=" << initialBets[0] << "\n";
-		out << "bet1=" << initialBets[1] << "\n";
-		out << "bet2=" << initialBets[2] << "\n";
-		out << "sideBet0=" << sideBetSizes[0] << "\n";
-		out << "sideBet1=" << sideBetSizes[1] << "\n";
-		out << "sideBet2=" << sideBetSizes[2] << "\n";
+		for(int i = 0; i < 5; i++){
+			out << "bankroll" << i << "=" << bankrolls[i] << "\n";
+			out << "bet" << i << "=" << initialBets[i] << "\n";
+			out << "sideBet" << i << "=" << sideBetSizes[i] << "\n";
+		}
 #endif
 	}
 

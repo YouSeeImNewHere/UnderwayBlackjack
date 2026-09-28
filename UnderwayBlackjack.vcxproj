@@ -150,6 +150,7 @@
     <Image Include="Cards.png" />
     <Image Include="Chips.png" />
     <Image Include="Table.png" />
+    <Image Include="Table5Player.png" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="BettingSquare.h" />

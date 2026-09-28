@@ -8,7 +8,7 @@
 // The vertical setup screen shown before a fresh game (Start or Restart off
 // the main menu -- Resume skips this entirely and reuses whatever was saved
 // last time, see SaveData). Lets the player pick how many are playing
-// (1-3, capped by the table's fixed 3-seat layout -- see Table.h's
+// (1-5, capped by the table's fixed 5-seat layout -- see Table.h's
 // xs[]/ys[]/direction[]) and each player's starting bankroll, either
 // directly or via a per-player "count of min bets x min bet size"
 // calculator. This only decides the *starting* number -- actually wagering
@@ -43,7 +43,16 @@ public:
 	};
 
 	int numberOfPlayers = 1;
-	PlayerConfig playerConfigs[3];
+	PlayerConfig playerConfigs[5];
+
+	// Which group of (at most) 3 players' rows is currently showing -- see
+	// maxPage()/pagePrevButton()/pageNextButton(). 5 stacked player blocks
+	// don't fit in the 720-tall canvas at the established 48px thumb-sized
+	// button floor (even with zero gap between rows, 5 * 130px of content
+	// alone is already 650px, before the PLAYERS stepper header or the GO
+	// button), so 4-5 players page between two screens of up to 3 rows
+	// each instead of scrolling or shrinking anything.
+	int playerPage = 0;
 
 	// Set by mina.cpp right after GameModeMenu picks a mode, before this
 	// screen is ever shown -- drives whether the side-bet stepper (and its
@@ -58,10 +67,30 @@ public:
 
 		drawStepper(state, playersStepper(), "PLAYERS", numberOfPlayers);
 
-		for(int i = 0; i < numberOfPlayers; i++)
-			drawPlayerRow(state, i);
+		playerPage = clampedPage();
+		int startIdx = playerPage * 3;
+		int endIdx = std::min(numberOfPlayers, startIdx + 3);
 
-		SDL_FRect go = confirmButton();
+		if(maxPage() > 0){
+			SDL_FRect prev = pagePrevButton();
+			drawButton(state, prev, SDL_Color{80, 80, 80, 255});
+			float symPixel = 8.0f;
+			DigitFont::drawText(state, "<", prev.x + (PAGE_BTN - 5 * symPixel) / 2.0f, prev.y + (PAGE_BTN - 5 * symPixel) / 2.0f, symPixel, WHITE);
+
+			std::string label = "PAGE " + std::to_string(playerPage + 1) + "/" + std::to_string(maxPage() + 1);
+			float labelPixel = 4.0f;
+			float labelW = DigitFont::textWidth(label, labelPixel);
+			DigitFont::drawText(state, label, prev.x + PAGE_BTN + (PAGE_LABEL_W - labelW) / 2.0f, prev.y + (PAGE_BTN - 5 * labelPixel) / 2.0f, labelPixel, WHITE);
+
+			SDL_FRect next = pageNextButton();
+			drawButton(state, next, SDL_Color{80, 80, 80, 255});
+			DigitFont::drawText(state, ">", next.x + (PAGE_BTN - 5 * symPixel) / 2.0f, next.y + (PAGE_BTN - 5 * symPixel) / 2.0f, symPixel, WHITE);
+		}
+
+		for(int i = startIdx; i < endIdx; i++)
+			drawPlayerRow(state, i, i - startIdx);
+
+		SDL_FRect go = confirmButton(endIdx - startIdx);
 		drawButton(state, go, SDL_Color{60, 130, 70, 255});
 		float goW = DigitFont::textWidth("GO", 8.0f);
 		DigitFont::drawText(state, "GO", go.x + (go.w - goW) / 2.0f, go.y + (go.h - 5 * 8.0f) / 2.0f, 8.0f, WHITE);
@@ -84,12 +113,24 @@ public:
 		if(SDL_PointInRectFloat(&p, &players.minus))
 			numberOfPlayers = std::max(1, numberOfPlayers - 1);
 		else if(SDL_PointInRectFloat(&p, &players.plus))
-			numberOfPlayers = std::min(3, numberOfPlayers + 1);
+			numberOfPlayers = std::min(5, numberOfPlayers + 1);
 
-		for(int i = 0; i < numberOfPlayers; i++)
-			handlePlayerRowPoint(i, p);
+		playerPage = clampedPage();
+		if(maxPage() > 0){
+			SDL_FRect prev = pagePrevButton();
+			SDL_FRect next = pageNextButton();
+			if(SDL_PointInRectFloat(&p, &prev))
+				playerPage = std::max(0, playerPage - 1);
+			else if(SDL_PointInRectFloat(&p, &next))
+				playerPage = std::min(maxPage(), playerPage + 1);
+		}
 
-		SDL_FRect confirm = confirmButton();
+		int startIdx = playerPage * 3;
+		int endIdx = std::min(numberOfPlayers, startIdx + 3);
+		for(int i = startIdx; i < endIdx; i++)
+			handlePlayerRowPoint(i, i - startIdx, p);
+
+		SDL_FRect confirm = confirmButton(endIdx - startIdx);
 		if(SDL_PointInRectFloat(&p, &confirm))
 			return true;
 
@@ -141,6 +182,27 @@ private:
 
 	Stepper playersStepper(){ return stepperAt(colX(0), 30, "PLAYERS"); }
 
+	// 0 when everything fits on one page (numberOfPlayers <= 3), 1 once a
+	// 4th/5th player needs a second page of up to 3 rows.
+	int maxPage(){ return (numberOfPlayers - 1) / 3; }
+	int clampedPage(){ return std::min(playerPage, maxPage()); }
+
+	static constexpr float PAGE_BTN = 48;
+	static constexpr float PAGE_LABEL_W = 130;
+
+	// Sits on the same y=30 row as the PLAYERS stepper, just to its right
+	// -- there's always room there since the block is at least 2 field-
+	// columns wide (788px) but the PLAYERS stepper itself only spans one
+	// (374px).
+	SDL_FRect pagePrevButton(){
+		Stepper p = playersStepper();
+		return SDL_FRect{ p.plus.x + STEP_BTN_W + 30, 30, PAGE_BTN, PAGE_BTN };
+	}
+	SDL_FRect pageNextButton(){
+		SDL_FRect prev = pagePrevButton();
+		return SDL_FRect{ prev.x + PAGE_BTN + PAGE_LABEL_W, 30, PAGE_BTN, PAGE_BTN };
+	}
+
 	GameMode gameMode = GameMode::TwoDeck;
 
 	// Fixed per-player row height again now that the side bet lives in a
@@ -161,8 +223,12 @@ private:
 	SDL_FRect calcToggle(int i){ return SDL_FRect{ colX(0), playerRowTop(i) + 26 + STEP_BTN_H + ROW_GAP, COL_W, STEP_BTN_H }; }
 	Stepper cntStepper(int i){ return stepperAt(colX(1), playerRowTop(i) + 26 + STEP_BTN_H + ROW_GAP, "CNT"); }
 
-	SDL_FRect confirmButton(){
-		float y = playerRowTop(numberOfPlayers) + 8.0f;
+	// rowsOnPage: how many player rows are actually showing on the current
+	// page (at most 3) -- so GO sits directly under whatever's on screen,
+	// same as it always positioned itself under numberOfPlayers rows
+	// before paging existed.
+	SDL_FRect confirmButton(int rowsOnPage){
+		float y = playerRowTop(rowsOnPage) + 8.0f;
 		float w = 260.0f;
 		return SDL_FRect{ colX(0) + (blockWidth() - w) / 2.0f, y, w, 56 };
 	}
@@ -223,28 +289,33 @@ private:
 		drawStepper(state, s, "", value);
 	}
 
-	void drawPlayerRow(SDLState& state, int i){
-		float top = playerRowTop(i);
-		PlayerConfig& cfg = playerConfigs[i];
+	// playerIndex: which PlayerConfig this is (drives the "Pn" label and
+	// data). row: which of the (at most 3) on-screen slots to draw it in
+	// (drives every position -- see bankStepper()/betStepper()/etc, all of
+	// which take a row slot, not a player index). The two differ once
+	// paging is active: page 1 draws playerIndex 3/4 at row slots 0/1.
+	void drawPlayerRow(SDLState& state, int playerIndex, int row){
+		float top = playerRowTop(row);
+		PlayerConfig& cfg = playerConfigs[playerIndex];
 
-		DigitFont::drawText(state, "P" + std::to_string(i + 1), colX(0), top, 6.0f, WHITE);
+		DigitFont::drawText(state, "P" + std::to_string(playerIndex + 1), colX(0), top, 6.0f, WHITE);
 
 		// BANK shows the calculated total (and turns green) once the
 		// calculator's driving it -- bankroll *is* the total in that mode,
 		// so there's no separate number worth showing on its own anymore.
 		bool sideBetApplies = hasAnySideBet(gameMode);
 		SDL_Color bankColor = cfg.useCalculator ? SDL_Color{40, 140, 60, 255} : SDL_Color{10, 40, 20, 230};
-		drawStepper(state, bankStepper(i), "", cfg.effectiveBankroll(sideBetApplies), bankColor);
-		drawStepper(state, betStepper(i), cfg.minBet);
+		drawStepper(state, bankStepper(row), "", cfg.effectiveBankroll(sideBetApplies), bankColor);
+		drawStepper(state, betStepper(row), cfg.minBet);
 
-		SDL_FRect calc = calcToggle(i);
+		SDL_FRect calc = calcToggle(row);
 		drawButton(state, calc, cfg.useCalculator ? SDL_Color{60, 130, 70, 255} : SDL_Color{80, 80, 80, 255});
 		std::string calcLabel = cfg.useCalculator ? "CALC ON" : "CALC OFF";
 		float calcPixel = 7.0f;
 		float calcW = DigitFont::textWidth(calcLabel, calcPixel);
 		DigitFont::drawText(state, calcLabel, calc.x + (calc.w - calcW) / 2.0f, calc.y + (calc.h - 5 * calcPixel) / 2.0f, calcPixel, WHITE);
 
-		drawStepper(state, cntStepper(i), cfg.minBetCount);
+		drawStepper(state, cntStepper(row), cfg.minBetCount);
 
 		// Player's Edge has two side bets, but they always start equal (see
 		// Person::setInitialMatchBets()), so one stepper covers both here.
@@ -252,42 +323,42 @@ private:
 		// other stepper uses) so it doesn't read as just another BANK/BET/
 		// CNT field -- it's a different kind of number.
 		if(sideBetApplies)
-			drawStepper(state, sideBetStepper(i), "", cfg.sideBetSize, SDL_Color{90, 50, 110, 230});
+			drawStepper(state, sideBetStepper(row), "", cfg.sideBetSize, SDL_Color{90, 50, 110, 230});
 	}
 
-	void handlePlayerRowPoint(int i, const SDL_FPoint& p){
-		PlayerConfig& cfg = playerConfigs[i];
+	void handlePlayerRowPoint(int playerIndex, int row, const SDL_FPoint& p){
+		PlayerConfig& cfg = playerConfigs[playerIndex];
 
 		// BANK's +/- only matter when the calculator's off -- while it's
 		// on, the displayed number is the calculated total (see
 		// drawPlayerRow), and editing the stored bankroll behind it
 		// wouldn't visibly do anything, which would just be confusing.
 		if(!cfg.useCalculator){
-			Stepper bank = bankStepper(i);
+			Stepper bank = bankStepper(row);
 			if(SDL_PointInRectFloat(&p, &bank.minus))
 				cfg.bankroll = std::max(50, cfg.bankroll - 50);
 			else if(SDL_PointInRectFloat(&p, &bank.plus))
 				cfg.bankroll = std::min(5000, cfg.bankroll + 50);
 		}
 
-		Stepper bet = betStepper(i);
+		Stepper bet = betStepper(row);
 		if(SDL_PointInRectFloat(&p, &bet.minus))
 			cfg.minBet = std::max(5, cfg.minBet - 5);
 		else if(SDL_PointInRectFloat(&p, &bet.plus))
 			cfg.minBet = std::min(500, cfg.minBet + 5);
 
-		SDL_FRect calc = calcToggle(i);
+		SDL_FRect calc = calcToggle(row);
 		if(SDL_PointInRectFloat(&p, &calc))
 			cfg.useCalculator = !cfg.useCalculator;
 
-		Stepper cnt = cntStepper(i);
+		Stepper cnt = cntStepper(row);
 		if(SDL_PointInRectFloat(&p, &cnt.minus))
 			cfg.minBetCount = std::max(1, cfg.minBetCount - 1);
 		else if(SDL_PointInRectFloat(&p, &cnt.plus))
 			cfg.minBetCount = std::min(200, cfg.minBetCount + 1);
 
 		if(hasAnySideBet(gameMode)){
-			Stepper sideBet = sideBetStepper(i);
+			Stepper sideBet = sideBetStepper(row);
 			if(SDL_PointInRectFloat(&p, &sideBet.minus))
 				cfg.sideBetSize = std::max(0, cfg.sideBetSize - 5);
 			else if(SDL_PointInRectFloat(&p, &sideBet.plus))

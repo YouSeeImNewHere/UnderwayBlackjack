@@ -83,37 +83,69 @@ public:
 		this->H17 = H17;
 		this->numberOfDecks = numberOfDecks;
 
-		float xs[4] = {1229,670,211, 1058};
-		float ys[4] = {391,507,92, 423};
-
-		int direction[4] = {1,0,-1, 5};
-		for(int i = 0; i < 4; i++){
-			bettingSquares[i] = BettingSquare(xs[i], ys[i], direction[i]);
+		// Seats 0-2 and the dealer (index 5) are the original 3-player
+		// layout, positions/rotations unchanged. Seats 3-4 are the two new
+		// 5-player seats added along the bottom of Table5Player.png, at
+		// their own measured tilt -- see BettingSquare.h for why the
+		// direction bucket (last column) and rotation (5th arg) are
+		// separate: seat 3 sits on the table's right half so it reuses
+		// seat 0's (dir=1) stacking/betting-control math, seat 4 sits on
+		// the left half so it reuses seat 2's (dir=-1).
+		//
+		// Seat 4's rotation was given as 300 but measured directly off
+		// Table5Player.png's own seat outline (fit a line through its
+		// actual border pixels, same clockwise-from-upright convention as
+		// every other seat here): the seat is really tilted 30, not 300 --
+		// reads like a stray extra 0. Seat 3 started as seat 4's angle
+		// mirrored (rather than its own raw measured tilt, ~70) per direct
+		// request, then nudged to taste: -5 to -35, +10 to -25, +5 to -20.
+		// The seat's own drawn outline is no longer the reference point for
+		// this one -- it's fully covered by the betting row on screen now,
+		// so from here it's by-eye tuning against seat 4, not a measurement.
+		float xs[6] = {1229,670,211, 978,235, 1058};
+		float ys[6] = {391,507,92, 500,400, 423};
+		int direction[6] = {1,0,-1, 1,-1, 5};
+		float rotationDeg[6] = {-90,0,90, -20,30, 180};
+		for(int i = 0; i < 6; i++){
+			bettingSquares[i] = BettingSquare(xs[i], ys[i], direction[i], rotationDeg[i]);
 		}
 
 		makeShoe();
 
-		dealer = Person(false, bettingSquares[3]);
+		dealer = Person(false, bettingSquares[5]);
 		for(int i = 0; i < numberOfPlayers; i++){
 			players[i] = Person(true, bettingSquares[seatIndexFor(i, numberOfPlayers)]);
 		}
 	}
 
 	// bettingSquares[0..2] are right/bottom-center/left (see xs[]/ys[] just
-	// above). With 2-3 players seated, that's the natural order -- but a
-	// single player landing in seat 0 put them off in the far-right seat
-	// instead of facing the dealer head-on, which reads as an odd default
-	// for the one-player case specifically. Only that case gets remapped;
-	// 2 and 3 players keep the existing seats/order.
+	// above), dealt/seated in that index order -- P1 at the right seat,
+	// P2 center, P3 left, i.e. right-to-left, clockwise around the table
+	// (the dealer deals to their own left first, which is the viewer's
+	// right). A single player landing in seat 0 put them off in the
+	// far-right seat instead of facing the dealer head-on though, which
+	// reads as an odd default for the one-player case specifically --
+	// only that case gets remapped; 2 and 3 players keep the existing
+	// seats/order.
+	//
+	// 4-5 players extends the same right-to-left/clockwise sweep across
+	// the 2 new seats too: P1 right, P2 new-bottom-right, P3 center, P4
+	// new-bottom-left, P5 left -- RIGHT_TO_LEFT walks the whole arc by
+	// actual on-screen position so dealing order keeps reading the same
+	// way (right to left) it always has, just over 5 seats instead of 3.
 	int seatIndexFor(int playerIndex, int totalPlayers){
 		if(totalPlayers == 1)
 			return 1;
-		return playerIndex;
+		if(totalPlayers <= 3)
+			return playerIndex;
+
+		static const int RIGHT_TO_LEFT[5] = {0, 3, 1, 4, 2};
+		return RIGHT_TO_LEFT[playerIndex];
 	}
 
 	// Called from mina.cpp once the setup screen (or a loaded save, for
 	// Resume) knows the real player count/bankrolls/starting bets -- the
-	// constructor above just seeds a default 3-seat table since the actual
+	// constructor above just seeds a default 5-seat table since the actual
 	// choice isn't made until after AppContext exists. Re-seats every
 	// active player fresh, so this is only meant to run before startGame()
 	// deals anything.
@@ -123,7 +155,7 @@ public:
 	// first: Lucky Ladies gets one side bet, Player's Edge gets both of its
 	// Match bets seeded to the same starting amount (see
 	// Person::setInitialMatchBets()).
-	void configurePlayers(int newNumberOfPlayers, const int bankrolls[3], const int initialBets[3], const int* sideBetSizes = nullptr){
+	void configurePlayers(int newNumberOfPlayers, const int bankrolls[5], const int initialBets[5], const int* sideBetSizes = nullptr){
 		numberOfPlayers = newNumberOfPlayers;
 		for(int i = 0; i < numberOfPlayers; i++){
 			players[i] = Person(true, bettingSquares[seatIndexFor(i, numberOfPlayers)]);
@@ -834,8 +866,8 @@ private:
 	};
 
 	Person dealer;
-	Person players[3];
-	BettingSquare bettingSquares[4];
+	Person players[5];
+	BettingSquare bettingSquares[6];
 
 	int numberOfPlayers;
 	bool H17;
@@ -933,7 +965,7 @@ private:
 	// silently match against a card the player was never dealt as part of
 	// their original two.
 	struct InitialTwoCards{ bool valid = false; int suit1 = 0, value1 = 0, suit2 = 0, value2 = 0; };
-	InitialTwoCards initialTwoCards[3];
+	InitialTwoCards initialTwoCards[5];
 
 	// Per-seat side-bet outcomes, so drawSideBetRows() can show a WIN/LOSE
 	// readout next to each selector instead of the payout/collection chip
@@ -942,16 +974,16 @@ private:
 	// actually resolves (resolveSideBets() for Lucky Ladies/Match Up/most
 	// Lucky Stiff hands, resolveRound() for Match Down and a pending Lucky
 	// Stiff hand, since those resolve later -- see their own comments).
-	HandResult sideBetResult[3] = { HandResult::None, HandResult::None, HandResult::None };
-	HandResult matchUpResult[3] = { HandResult::None, HandResult::None, HandResult::None };
-	HandResult matchDownResult[3] = { HandResult::None, HandResult::None, HandResult::None };
+	HandResult sideBetResult[5] = { HandResult::None, HandResult::None, HandResult::None, HandResult::None, HandResult::None };
+	HandResult matchUpResult[5] = { HandResult::None, HandResult::None, HandResult::None, HandResult::None, HandResult::None };
+	HandResult matchDownResult[5] = { HandResult::None, HandResult::None, HandResult::None, HandResult::None, HandResult::None };
 
 	// Lucky Stiff only: set by evaluateLuckyStiffImmediate() when the
 	// starting hand is an unpaired hard 12-16 -- neither an immediate win
 	// nor an immediate loss, it rides along with the main hand and pays
 	// (or doesn't) based on whether that hand ends up beating the dealer.
 	// Consumed in resolveRound(), reset false at the start of every round.
-	bool luckyStiffPending[3] = { false, false, false };
+	bool luckyStiffPending[5] = { false, false, false, false, false };
 
 	// True between rounds (including before the very first one) while the
 	// table's waiting on bets -- see startGame()/beginRound(). Drives both
@@ -961,7 +993,7 @@ private:
 
 	// Which BET_DENOMS entry each player's raise/lower buttons currently
 	// use, set via their own chip-size selector. Defaults to index 2 (25).
-	int chipIndex[3] = {2, 2, 2};
+	int chipIndex[5] = {2, 2, 2, 2, 2};
 
 	// In-game "quick view" -- unlike the pause menu's full StrategyChart,
 	// this just pops up the one relevant row (see getStrategySituation())
@@ -1345,14 +1377,33 @@ private:
 	// Both axes are clamped to the screen bounds -- the bottom seat's
 	// natural "just below the hand" position ran the row off the bottom
 	// of the 720-tall canvas entirely before this.
+	// The 2 new 5-player seats reuse dir=1/dir=-1's bucket verbatim here,
+	// same as the original seat that bucket belongs to -- tried moving
+	// them (twice: once relative to their own anchor, once to hand-placed
+	// absolute spots), and both attempts were reverted at request, back to
+	// this simpler shared behavior. The one exception is a small nudge (up
+	// and right, the right nudged further still on request: +20px total)
+	// for P4 specifically (dir=-1's own new seat, picked out by its
+	// non-cardinal rotation) -- P2 (dir=1's new seat) stays on the
+	// untouched shared formula per explicit request.
+	bool isP4Seat(int i, int dir){
+		return dir == -1 && players[i].getSeatRotation() != 90.0f;
+	}
+
 	float seatCenterX(int i){
 		Point anchor = players[i].getSeatAnchor();
 		int dir = players[i].getDirection();
+		float x;
 		if(dir == 0)
-			return anchor.x + cardWidth / 2.0f;
-		if(dir == 1)
-			return anchor.x + cardHeight / 2.0f;
-		return anchor.x - cardHeight / 2.0f;
+			x = anchor.x + cardWidth / 2.0f;
+		else if(dir == 1)
+			x = anchor.x + cardHeight / 2.0f;
+		else
+			x = anchor.x - cardHeight / 2.0f;
+
+		if(isP4Seat(i, dir))
+			x += 20.0f;
+		return x;
 	}
 
 	BetRow betRow(int i){
@@ -1367,6 +1418,8 @@ private:
 			belowY = anchor.y;
 		} else{
 			belowY = anchor.y + cardWidth;
+			if(isP4Seat(i, dir))
+				belowY -= 10.0f;
 		}
 
 		float rowX = centerX - BET_ROW_W / 2.0f;
@@ -1423,8 +1476,8 @@ private:
 		return r;
 	}
 
-	// Centered on the table itself -- the dealer's own seat (xs[3]=1058,
-	// ys[3]=423) isn't actually at the table's visual center, so anchoring
+	// Centered on the table itself -- the dealer's own seat (xs[5]=1058,
+	// ys[5]=423) isn't actually at the table's visual center, so anchoring
 	// on it instead of the true canvas center kept landing off to one
 	// side. 1440x720 is the fixed logical canvas size (see main()'s
 	// SDL_SetRenderLogicalPresentation call), so its center never moves.
@@ -1624,6 +1677,15 @@ private:
 	// into one centered string -- so it's legible at a glance whose
 	// number is whose instead of a single "P1 500  P2 500  P3 500" line.
 	void drawBankrolls(SDLState& state){
+		// Was 5.0f, clamped only to the canvas edge -- the right seat's
+		// bankroll sits close enough to the pause button (x 1364+) that
+		// at the new font's width it ran under/past it instead of just
+		// the canvas edge, hence the smaller size and the tighter
+		// right-side clamp (1350, not 1440) below.
+		float pixel = 3.5f;
+
+		struct Label{ int playerIndex; float centerX, width, x; std::string text; SDL_Color color; };
+		std::vector<Label> labels;
 		for(int i = 0; i < numberOfPlayers; i++){
 			int bankroll = players[i].getBankroll();
 			int buyIn = players[i].getInitialBankroll();
@@ -1638,29 +1700,46 @@ private:
 				color = SDL_Color{90, 220, 110, 255};
 
 			std::string text = "P" + std::to_string(i + 1) + " " + std::to_string(bankroll);
-			// Was 5.0f, clamped only to the canvas edge -- the right seat's
-			// bankroll sits close enough to the pause button (x 1364+) that
-			// at the new font's width it ran under/past it instead of just
-			// the canvas edge, hence the smaller size and the tighter
-			// right-side clamp (1350, not 1440) below.
-			float pixel = 3.5f;
 			float w = DigitFont::textWidth(text, pixel);
-			float x = std::max(10.0f, std::min(seatCenterX(i) - w / 2.0f, 1350.0f - w));
-			DigitFont::drawText(state, text, x, 15.0f, pixel, color);
+			labels.push_back(Label{i, seatCenterX(i), w, 0.0f, text, color});
+		}
+
+		// Sorted left-to-right, then swept the same way so no two labels
+		// can land on top of each other -- with the 2 new 5-player seats,
+		// the old "left" seat and the new bottom-left seat sit only ~24px
+		// apart at their natural centers, well inside each other's ~120px-
+		// wide label, which without this rendered as one garbled overlapped
+		// mess instead of 2 readable labels.
+		std::sort(labels.begin(), labels.end(), [](const Label& a, const Label& b){ return a.centerX < b.centerX; });
+		float GAP = 10.0f;
+		float prevRight = -1e9f;
+		for(Label& label : labels){
+			float x = std::max(10.0f, std::min(label.centerX - label.width / 2.0f, 1350.0f - label.width));
+			if(x < prevRight + GAP)
+				x = prevRight + GAP;
+			label.x = x;
+			prevRight = x + label.width;
+		}
+
+		float labelX[5]{};
+		for(const Label& label : labels){
+			labelX[label.playerIndex] = label.x;
+			DigitFont::drawText(state, label.text, label.x, 15.0f, pixel, label.color);
 		}
 
 		// -$/+$ readouts, one line each, stacked directly under whichever
-		// seat's bankroll they belong to -- see queueBankrollChange().
+		// seat's bankroll they belong to -- reuses that seat's already
+		// de-overlapped label x (not a fresh seatCenterX() computation) so
+		// a readout never drifts out from under, or overlaps, its own
+		// bankroll number. See queueBankrollChange().
 		float changePixel = 3.0f;
-		float changeY[3] = {15.0f + 5 * 3.5f + 4.0f, 15.0f + 5 * 3.5f + 4.0f, 15.0f + 5 * 3.5f + 4.0f};
+		float changeY[5] = {15.0f + 5 * 3.5f + 4.0f, 15.0f + 5 * 3.5f + 4.0f, 15.0f + 5 * 3.5f + 4.0f, 15.0f + 5 * 3.5f + 4.0f, 15.0f + 5 * 3.5f + 4.0f};
 		for(const BankrollChange& change : bankrollChanges){
 			int i = change.playerIndex;
 			if(i < 0 || i >= numberOfPlayers)
 				continue;
 
-			float w = DigitFont::textWidth(change.text, changePixel);
-			float x = std::max(10.0f, std::min(seatCenterX(i) - w / 2.0f, 1350.0f - w));
-			DigitFont::drawText(state, change.text, x, changeY[i], changePixel, change.color);
+			DigitFont::drawText(state, change.text, labelX[i], changeY[i], changePixel, change.color);
 			changeY[i] += 5 * changePixel + 4.0f;
 		}
 	}

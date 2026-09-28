@@ -174,9 +174,9 @@ static void applyGameModeChoice(AppContext& ctx, GameMode mode){
 // SetupMenu's GO was tapped/clicked: bake its config into the table, save
 // it so Resume can restore it on a future launch, then start dealing.
 static void applySetupComplete(AppContext& ctx){
-    int bankrolls[3] = {0, 0, 0};
-    int initialBets[3] = {0, 0, 0};
-    int sideBetSizes[3] = {0, 0, 0};
+    int bankrolls[5] = {0, 0, 0, 0, 0};
+    int initialBets[5] = {0, 0, 0, 0, 0};
+    int sideBetSizes[5] = {0, 0, 0, 0, 0};
     bool sideBetApplies = hasAnySideBet(ctx.chosenMode);
     for(int i = 0; i < ctx.setupMenu.numberOfPlayers; i++){
         bankrolls[i] = ctx.setupMenu.playerConfigs[i].effectiveBankroll(sideBetApplies);
