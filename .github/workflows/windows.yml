@@ -1,0 +1,46 @@
+# Builds the standalone Windows game (UnderwayBlackjack.exe + its images)
+# and uploads it as a zip. Download it from the run's "Artifacts" section
+# on the Actions tab. Pushing a tag like v1.0 also attaches the zip to a
+# GitHub Release. See BUILDING.md.
+name: Windows build
+
+on:
+  push:
+    branches: ["**"]
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Configure
+        run: cmake -S . -B build -A x64
+
+      - name: Build
+        run: cmake --build build --config Release --parallel
+
+      - name: Package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist/UnderwayBlackjack | Out-Null
+          Copy-Item build/Release/UnderwayBlackjack.exe dist/UnderwayBlackjack/
+          Copy-Item Cards.png, Table5Player.png, Arrow.png, Chips.png dist/UnderwayBlackjack/
+          Compress-Archive -Path dist/UnderwayBlackjack -DestinationPath dist/UnderwayBlackjack-windows.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: UnderwayBlackjack-windows
+          path: dist/UnderwayBlackjack
+
+      - name: Attach to release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/UnderwayBlackjack-windows.zip

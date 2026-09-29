@@ -1,14 +1,21 @@
-# CMake build, used for the iOS (TestFlight) app. Also builds a plain
-# desktop executable on macOS/Linux. Windows keeps using the Visual Studio
-# solution and the web build keeps using web/build.sh -- neither reads this.
+# CMake build for the shipped apps: iOS (TestFlight), Android (built by
+# android/'s Gradle project, which points here), and a standalone Windows
+# .exe (plus plain macOS/Linux desktop builds). The Visual Studio solution
+# is still there for day-to-day Windows development, and the web build
+# keeps using web/build.sh -- neither reads this.
 #
 # iOS (on a Mac with Xcode):
 #   cmake -S . -B build-ios -G Xcode -DCMAKE_SYSTEM_NAME=iOS \
 #         -DIOS_BUNDLE_ID=com.example.underwayblackjack -DIOS_TEAM_ID=ABCDE12345
 #   open build-ios/UnderwayBlackjack.xcodeproj
 #
-# See ios/README.md for the TestFlight upload (done by GitHub Actions).
-cmake_minimum_required(VERSION 3.24)
+# Windows (Visual Studio 2022 installed):
+#   cmake -S . -B build-win
+#   cmake --build build-win --config Release
+#   -> build-win/Release/UnderwayBlackjack.exe (+ the PNGs next to it)
+#
+# See ios/README.md and BUILDING.md for the CI builds.
+cmake_minimum_required(VERSION 3.22)
 
 if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
     set(CMAKE_OSX_DEPLOYMENT_TARGET "15.0" CACHE STRING "")
@@ -34,12 +41,21 @@ include(FetchContent)
 set(SDL_SHARED OFF CACHE BOOL "" FORCE)
 set(SDL_STATIC ON CACHE BOOL "" FORCE)
 set(SDL_TEST_LIBRARY OFF CACHE BOOL "" FORCE)
-# The game never uses a camera or game controllers. Leaving these out keeps
-# SDL's camera (AVFoundation) and Bluetooth controller (CoreBluetooth) code
-# out of the iOS binary -- App Store Connect rejects builds that reference
-# those APIs without an Info.plist purpose string (ITMS-90683).
-set(SDL_CAMERA OFF CACHE BOOL "" FORCE)
-set(SDL_HIDAPI OFF CACHE BOOL "" FORCE)
+if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
+    # The game never uses a camera or game controllers. Leaving these out
+    # keeps SDL's camera (AVFoundation) and Bluetooth controller
+    # (CoreBluetooth) code out of the iOS binary -- App Store Connect
+    # rejects builds that reference those APIs without an Info.plist
+    # purpose string (ITMS-90683). iOS only: SDL's Android Java side calls
+    # into the HIDAPI native code unconditionally, so turning it off there
+    # would crash on launch.
+    set(SDL_CAMERA OFF CACHE BOOL "" FORCE)
+    set(SDL_HIDAPI OFF CACHE BOOL "" FORCE)
+endif()
+
+# Windows: link the C/C++ runtime statically (SDL included), so the .exe
+# runs on a PC without the Visual C++ Redistributable installed.
+set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 FetchContent_Declare(SDL3
     GIT_REPOSITORY https://github.com/libsdl-org/SDL.git
     GIT_TAG release-3.4.16
@@ -110,8 +126,20 @@ if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
         XCODE_ATTRIBUTE_INSTALL_PATH "$(LOCAL_APPS_DIR)"
         XCODE_ATTRIBUTE_DEBUG_INFORMATION_FORMAT "dwarf-with-dsym"
         XCODE_ATTRIBUTE_GENERATE_INFOPLIST_FILE "NO")
+elseif(ANDROID)
+    # SDL's Java activity (android/) loads the game as libmain.so and calls
+    # its SDL_main. The PNGs are packed into the APK's assets by Gradle,
+    # where SDL's file loading finds relative paths on its own.
+    add_library(UnderwayBlackjack SHARED ${GAME_SOURCES})
+    set_target_properties(UnderwayBlackjack PROPERTIES OUTPUT_NAME main)
 else()
-    add_executable(UnderwayBlackjack ${GAME_SOURCES})
+    if(WIN32)
+        # WIN32: a normal windowed app, no console window behind it. The .rc
+        # gives the .exe its icon in Explorer and the taskbar.
+        add_executable(UnderwayBlackjack WIN32 ${GAME_SOURCES} ${CMAKE_CURRENT_SOURCE_DIR}/windows/UnderwayBlackjack.rc)
+    else()
+        add_executable(UnderwayBlackjack ${GAME_SOURCES})
+    endif()
 
     # Desktop: copy the PNGs next to the executable and run from there.
     foreach(asset ${GAME_ASSETS})

@@ -789,7 +789,8 @@ static void mainLoopIteration(void *arg) {
             if(event.key.repeat && !isArrow)
                 break;
 
-            if(key == SDL_SCANCODE_ESCAPE){
+            // Android's system Back arrives as AC_BACK -- same as Esc.
+            if(key == SDL_SCANCODE_ESCAPE || key == SDL_SCANCODE_AC_BACK){
                 goBack(ctx);
                 break;
             }
@@ -956,15 +957,29 @@ bool initialize(SDLState &state){
     // correct size is computed from the real viewport and requested here
     // directly (see main()), and kept in sync afterward by onBrowserResize().
     SDL_WindowFlags windowFlags = SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY;
-#ifdef SDL_PLATFORM_IOS
+#if defined(SDL_PLATFORM_IOS) || defined(SDL_PLATFORM_ANDROID)
     // Fullscreen hides the status bar; landscape-only matches the fixed
-    // 1440x720 canvas (the Info.plist says the same). Deferring system
-    // gestures means a swipe near the bottom edge -- which the game uses
-    // for its own gestures -- needs a second swipe before iOS treats it as
-    // "go home".
+    // 1440x720 canvas (the Info.plist/AndroidManifest say the same).
     windowFlags |= SDL_WINDOW_FULLSCREEN;
     SDL_SetHint(SDL_HINT_ORIENTATIONS, "LandscapeLeft LandscapeRight");
+#endif
+#ifdef SDL_PLATFORM_IOS
+    // Deferring system gestures means a swipe near the bottom edge --
+    // which the game uses for its own gestures -- needs a second swipe
+    // before iOS treats it as "go home".
     SDL_SetHint(SDL_HINT_IOS_HIDE_HOME_INDICATOR, "2");
+#endif
+#ifdef SDL_PLATFORM_ANDROID
+    // Deliver the system Back button/gesture to the game (as
+    // SDL_SCANCODE_AC_BACK, handled like Esc) instead of letting it close
+    // the app from any screen.
+    SDL_SetHint(SDL_HINT_ANDROID_TRAP_BACK_BUTTON, "1");
+#endif
+#ifdef SDL_PLATFORM_WINDOWS
+    // Title bar/taskbar icon from the .exe's own icon resource
+    // (windows/UnderwayBlackjack.rc).
+    SDL_SetHint(SDL_HINT_WINDOWS_INTRESOURCE_ICON, "1");
+    SDL_SetHint(SDL_HINT_WINDOWS_INTRESOURCE_ICON_SMALL, "1");
 #endif
     state.window = SDL_CreateWindow("Underway Blackjack",state.width,state.height,windowFlags);
     if(!state.window){
