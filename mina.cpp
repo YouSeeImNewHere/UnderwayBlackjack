@@ -18,6 +18,9 @@
 #include "AboutMenu.h"
 #include "GesturesMenu.h"
 #include "KeyboardMenu.h"
+#include "StatsMenu.h"
+#include "TutorialMenu.h"
+#include "Stats.h"
 #include "SaveData.h"
 
 enum class AppScreen {
@@ -28,6 +31,8 @@ enum class AppScreen {
     Setup,
     Gestures,
     Keyboard,
+    Stats,
+    Tutorial,
     Playing
 };
 
@@ -45,6 +50,7 @@ enum class PauseState {
     About,
     Gestures,
     Keyboard,
+    Stats,
     Options
 };
 
@@ -74,6 +80,9 @@ struct AppContext {
     // as Strategy/About).
     GesturesMenu gesturesMenu;
     KeyboardMenu keyboardMenu;
+    StatsMenu statsMenu;
+    TutorialMenu tutorialMenu;
+    Stats stats;
     SaveData save;
     AppScreen screen = AppScreen::Menu;
     // Remembered between GameModeMenu and applySetupComplete().
@@ -206,6 +215,15 @@ static void applyMenuChoice(AppContext& ctx, MenuChoice choice){
             ctx.screen = AppScreen::Keyboard;
         break;
 
+        case MenuChoice::Stats:
+            ctx.screen = AppScreen::Stats;
+        break;
+
+        case MenuChoice::Tutorial:
+            ctx.tutorialMenu.open();
+            ctx.screen = AppScreen::Tutorial;
+        break;
+
         case MenuChoice::None:
         break;
     }
@@ -289,6 +307,10 @@ static void applyPauseChoice(AppContext& ctx, PauseChoice choice){
 
         case PauseChoice::Keyboard:
             ctx.pauseState = PauseState::Keyboard;
+        break;
+
+        case PauseChoice::Stats:
+            ctx.pauseState = PauseState::Stats;
         break;
 
         case PauseChoice::Options:
@@ -402,9 +424,16 @@ static void goBack(AppContext& ctx){
     switch(ctx.screen){
     case AppScreen::Menu:
         return;
+    case AppScreen::Tutorial:
+        // Closing it any way counts as seen -- it won't open by itself again.
+        ctx.save.saveTutorialSeen();
+        ctx.screen = AppScreen::Menu;
+        return;
     case AppScreen::GameMode:
     case AppScreen::Gestures:
     case AppScreen::Keyboard:
+    case AppScreen::Stats:
+        ctx.statsMenu.onLeave();
         // A Restart on the way here already cleared the save, so Resume
         // would have nothing to resume.
         ctx.menu.hasSavedGame = ctx.save.gameStarted;
@@ -436,6 +465,8 @@ static void goBack(AppContext& ctx){
     case PauseState::About:
     case PauseState::Gestures:
     case PauseState::Keyboard:
+    case PauseState::Stats:
+        ctx.statsMenu.onLeave();
         ctx.pauseState = PauseState::Menu;
         return;
     }
@@ -488,6 +519,18 @@ static void handleMenuClick(AppContext& ctx, float wx, float wy){
         if(ctx.keyboardMenu.handlePoint(ctx.state, wx, wy))
             goBack(ctx);
         return;
+    case AppScreen::Stats: {
+        bool changed = false;
+        if(ctx.statsMenu.handlePoint(ctx.state, wx, wy, ctx.stats, changed))
+            goBack(ctx);
+        if(changed)
+            ctx.stats.save();
+        return;
+    }
+    case AppScreen::Tutorial:
+        if(ctx.tutorialMenu.handlePoint(ctx.state, wx, wy))
+            goBack(ctx);
+        return;
     case AppScreen::Playing:
         break;
     }
@@ -514,6 +557,14 @@ static void handleMenuClick(AppContext& ctx, float wx, float wy){
         if(ctx.keyboardMenu.handlePoint(ctx.state, wx, wy))
             goBack(ctx);
         return;
+    case PauseState::Stats: {
+        bool changed = false;
+        if(ctx.statsMenu.handlePoint(ctx.state, wx, wy, ctx.stats, changed))
+            goBack(ctx);
+        if(changed)
+            ctx.stats.save();
+        return;
+    }
     case PauseState::Options:
         if(ctx.gameOptionsMenu.handleBackPoint(ctx.state, wx, wy))
             goBack(ctx);
@@ -538,6 +589,8 @@ static std::vector<SDL_FRect> currentFocusRects(AppContext& ctx){
     case AppScreen::Setup:         return ctx.setupMenu.focusRects();
     case AppScreen::Gestures:      return ctx.gesturesMenu.focusRects();
     case AppScreen::Keyboard:      return ctx.keyboardMenu.focusRects();
+    case AppScreen::Stats:         return ctx.statsMenu.focusRects();
+    case AppScreen::Tutorial:      return ctx.tutorialMenu.focusRects();
     case AppScreen::Playing:       break;
     }
     switch(ctx.pauseState){
@@ -546,6 +599,7 @@ static std::vector<SDL_FRect> currentFocusRects(AppContext& ctx){
     case PauseState::About:    return ctx.aboutMenu.focusRects();
     case PauseState::Gestures: return ctx.gesturesMenu.focusRects();
     case PauseState::Keyboard: return ctx.keyboardMenu.focusRects();
+    case PauseState::Stats:    return ctx.statsMenu.focusRects();
     case PauseState::Options:  return ctx.gameOptionsMenu.focusRects();
     case PauseState::None:     break;
     }
@@ -653,6 +707,8 @@ static SDL_Color letterboxColor(const AppContext &ctx) {
     case AppScreen::GameModeAbout:
     case AppScreen::Gestures:
     case AppScreen::Keyboard:
+    case AppScreen::Stats:
+    case AppScreen::Tutorial:
         return darkGreen;
     case AppScreen::Playing:
         break;
@@ -669,6 +725,7 @@ static SDL_Color letterboxColor(const AppContext &ctx) {
     case PauseState::About:
     case PauseState::Gestures:
     case PauseState::Keyboard:
+    case PauseState::Stats:
         return darkGreen;
     }
     return SDL_Color{0, 0, 0, 255};
@@ -861,6 +918,7 @@ static void mainLoopIteration(void *arg) {
                 sideBets[i] = ctx.table.getPlayerSideBet(i);
             }
             ctx.save.saveProgress(current, buyIns, bets, sideBets);
+            ctx.stats.save();
             ctx.progressSavedThisBetting = true;
         }
     }
@@ -892,6 +950,10 @@ static void mainLoopIteration(void *arg) {
         ctx.gesturesMenu.draw(ctx.state, ctx.res);
     else if(ctx.screen == AppScreen::Keyboard)
         ctx.keyboardMenu.draw(ctx.state, ctx.res);
+    else if(ctx.screen == AppScreen::Stats)
+        ctx.statsMenu.draw(ctx.state, ctx.res, ctx.stats);
+    else if(ctx.screen == AppScreen::Tutorial)
+        ctx.tutorialMenu.draw(ctx.state, ctx.res);
     else{
         // The table's still drawn even while paused -- frozen underneath
         // the overlay -- rather than swapped out for a blank screen.
@@ -912,6 +974,8 @@ static void mainLoopIteration(void *arg) {
             ctx.gesturesMenu.draw(ctx.state, ctx.res);
         else if(ctx.pauseState == PauseState::Keyboard)
             ctx.keyboardMenu.draw(ctx.state, ctx.res);
+        else if(ctx.pauseState == PauseState::Stats)
+            ctx.statsMenu.draw(ctx.state, ctx.res, ctx.stats);
         else if(ctx.pauseState == PauseState::Options)
             ctx.gameOptionsMenu.draw(ctx.state, ctx.res);
     }
@@ -942,6 +1006,13 @@ int main(int argc,char *argv[]) {
 
     ctx->save.load();
     ctx->menu.hasSavedGame = ctx->save.gameStarted;
+    ctx->stats.load();
+    ctx->table.setStats(&ctx->stats);
+    // First launch: open HOW TO PLAY before anything else.
+    if(!ctx->save.tutorialSeen){
+        ctx->tutorialMenu.open();
+        ctx->screen = AppScreen::Tutorial;
+    }
     // Last-used Game Options, for Resume and for the next new game alike.
     if(ctx->save.hasOptions){
         ctx->gameOptionsMenu.dealerSpeed = static_cast<GameOptionsMenu::DealerSpeed>(ctx->save.dealerSpeed);

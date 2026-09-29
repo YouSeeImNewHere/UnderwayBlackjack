@@ -57,6 +57,9 @@ struct SaveData
 	bool faceDownDoubles = false;
 	bool hideInactiveHands = false;
 
+	// HOW TO PLAY opens by itself until it's been closed once.
+	bool tutorialSeen = false;
+
 	void load(){
 #ifdef __EMSCRIPTEN__
 		gameStarted = EM_ASM_INT({
@@ -70,6 +73,7 @@ struct SaveData
 		dealerSpeed = webGet(4, 1);
 		faceDownDoubles = webGet(5, 0) != 0;
 		hideInactiveHands = webGet(6, 0) != 0;
+		tutorialSeen = webGet(7, 0) != 0;
 		for(int i = 0; i < 5; i++){
 			bankrolls[i] = webGetSeat(0, i, 500);
 			initialBets[i] = webGetSeat(1, i, 25);
@@ -114,6 +118,7 @@ struct SaveData
 			else if(key == "dealerSpeed") dealerSpeed = value;
 			else if(key == "faceDownDoubles") faceDownDoubles = value != 0;
 			else if(key == "hideInactiveHands") hideInactiveHands = value != 0;
+			else if(key == "tutorialSeen") tutorialSeen = value != 0;
 			else if(seat >= 0 && base == "bankroll") bankrolls[seat] = value;
 			else if(seat >= 0 && base == "bet") initialBets[seat] = value;
 			else if(seat >= 0 && base == "sideBet") sideBetSizes[seat] = value;
@@ -178,6 +183,11 @@ struct SaveData
 		write();
 	}
 
+	void saveTutorialSeen(){
+		tutorialSeen = true;
+		write();
+	}
+
 	// Wipes the game (Restart) so a future launch that never reaches
 	// SetupMenu's GO (app closed mid-setup) starts from Start again,
 	// instead of silently resuming the pre-restart game. Game Options are
@@ -201,8 +211,10 @@ private:
 			localStorage.setItem('underwayBlackjackDealerSpeed', $5);
 			localStorage.setItem('underwayBlackjackFaceDownDoubles', $6);
 			localStorage.setItem('underwayBlackjackHideHands', $7);
+			localStorage.setItem('underwayBlackjackTutorialSeen', $8);
 		}, gameStarted ? 1 : 0, gameModeIndex, numberOfPlayers, hasProgress ? 1 : 0,
-		   hasOptions ? 1 : 0, dealerSpeed, faceDownDoubles ? 1 : 0, hideInactiveHands ? 1 : 0);
+		   hasOptions ? 1 : 0, dealerSpeed, faceDownDoubles ? 1 : 0, hideInactiveHands ? 1 : 0,
+		   tutorialSeen ? 1 : 0);
 		for(int i = 0; i < 5; i++){
 			EM_ASM({
 				localStorage.setItem('underwayBlackjackBankroll' + $0, $1);
@@ -223,6 +235,7 @@ private:
 		out << "dealerSpeed=" << dealerSpeed << "\n";
 		out << "faceDownDoubles=" << (faceDownDoubles ? 1 : 0) << "\n";
 		out << "hideInactiveHands=" << (hideInactiveHands ? 1 : 0) << "\n";
+		out << "tutorialSeen=" << (tutorialSeen ? 1 : 0) << "\n";
 		for(int i = 0; i < 5; i++){
 			out << "bankroll" << i << "=" << bankrolls[i] << "\n";
 			out << "bet" << i << "=" << initialBets[i] << "\n";
@@ -240,7 +253,7 @@ private:
 		return EM_ASM_INT({
 			var keys = ['underwayBlackjackMode', 'underwayBlackjackPlayers', 'underwayBlackjackHasProgress',
 				'underwayBlackjackHasOptions', 'underwayBlackjackDealerSpeed',
-				'underwayBlackjackFaceDownDoubles', 'underwayBlackjackHideHands'];
+				'underwayBlackjackFaceDownDoubles', 'underwayBlackjackHideHands', 'underwayBlackjackTutorialSeen'];
 			var v = localStorage.getItem(keys[$0]);
 			return v === null ? $1 : parseInt(v);
 		}, which, def);
