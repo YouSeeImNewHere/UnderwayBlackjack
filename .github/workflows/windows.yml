@@ -20,8 +20,14 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      # A release tag (v1.1) becomes the version the game compares against
+      # GitHub's latest release to offer updates; other builds are "dev".
       - name: Configure
-        run: cmake -S . -B build -A x64
+        shell: bash
+        run: |
+          VERSION=dev
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then VERSION="${GITHUB_REF_NAME#v}"; fi
+          cmake -S . -B build -A x64 -DGAME_VERSION="$VERSION"
 
       - name: Build
         run: cmake --build build --config Release --parallel
