@@ -1,6 +1,7 @@
 #pragma once
 #include "Game.h"
 #include "DigitFont.h"
+#include "Platform.h"
 #include <string>
 #include <vector>
 
@@ -12,7 +13,8 @@ enum class MenuChoice{
 	Gestures,
 	Keyboard,
 	Stats,
-	Tutorial
+	Tutorial,
+	Update
 };
 
 // The very first thing the player sees.
@@ -23,6 +25,11 @@ public:
 	// has started a game before (this launch or a previous one), which
 	// swaps the single Start button for Resume + Restart instead.
 	bool hasSavedGame = false;
+
+	// Set by mina.cpp each frame from UpdateCheck: the newer version to
+	// offer ("" = none), and this build's own version ("" for dev builds).
+	std::string updateVersion;
+	std::string currentVersion;
 
 	void draw(SDLState& state, Resources& res){
 		SDL_SetRenderDrawColor(state.renderer, 20, 70, 35, 255);
@@ -42,8 +49,14 @@ public:
 
 		drawButton(state, tutorialButton, SDL_Color{50, 120, 130, 255}, "HOW TO PLAY");
 		drawButton(state, statsButton, SDL_Color{120, 70, 130, 255}, "STATS");
-		drawButton(state, gesturesButton, SDL_Color{60, 90, 150, 255}, "GESTURES");
-		drawButton(state, keyboardButton, SDL_Color{110, 90, 60, 255}, "KEYBOARD");
+		drawButton(state, controlsButton, SDL_Color{60, 90, 150, 255}, "CONTROLS");
+
+		if(!updateVersion.empty())
+			drawButton(state, updateButton, SDL_Color{190, 140, 30, 255}, "UPDATE TO V" + updateVersion);
+		if(!currentVersion.empty()){
+			std::string v = "V" + currentVersion;
+			DigitFont::drawText(state, v, 1440.0f - DigitFont::textWidth(v, 3.0f) - 16.0f, 690.0f, 3.0f, SDL_Color{150, 190, 150, 255});
+		}
 	}
 
 	// windowX/windowY: raw event coordinates in window space (SDL_EVENT_
@@ -68,12 +81,14 @@ public:
 			return MenuChoice::Start;
 		}
 
-		if(SDL_PointInRectFloat(&p, &gesturesButton))
-			return MenuChoice::Gestures;
-		if(SDL_PointInRectFloat(&p, &keyboardButton))
-			return MenuChoice::Keyboard;
+		// One CONTROLS button: the gestures page on a touch device, the
+		// keyboard page on a desktop (see Platform.h).
+		if(SDL_PointInRectFloat(&p, &controlsButton))
+			return usesTouchControls() ? MenuChoice::Gestures : MenuChoice::Keyboard;
 		if(SDL_PointInRectFloat(&p, &statsButton))
 			return MenuChoice::Stats;
+		if(!updateVersion.empty() && SDL_PointInRectFloat(&p, &updateButton))
+			return MenuChoice::Update;
 		if(SDL_PointInRectFloat(&p, &tutorialButton))
 			return MenuChoice::Tutorial;
 
@@ -83,21 +98,24 @@ public:
 	// Every button currently on screen, for mina.cpp's arrow-key
 	// navigation (it "clicks" the highlighted one via handlePoint()).
 	std::vector<SDL_FRect> focusRects(){
-		if(hasSavedGame)
-			return { resumeButton, restartButton, tutorialButton, statsButton, gesturesButton, keyboardButton };
-		return { startButton, tutorialButton, statsButton, gesturesButton, keyboardButton };
+		std::vector<SDL_FRect> rects = hasSavedGame
+			? std::vector<SDL_FRect>{ resumeButton, restartButton, tutorialButton, statsButton, controlsButton }
+			: std::vector<SDL_FRect>{ startButton, tutorialButton, statsButton, controlsButton };
+		if(!updateVersion.empty())
+			rects.push_back(updateButton);
+		return rects;
 	}
 
 private:
-	// Title, then the big play button(s), then a 2x2 grid of the
-	// reference pages underneath.
+	// Title, then the big play button(s), then HOW TO PLAY/STATS and
+	// CONTROLS underneath.
 	SDL_FRect startButton{ .x = 570, .y = 190, .w = 300, .h = 110 };
 	SDL_FRect resumeButton{ .x = 570, .y = 170, .w = 300, .h = 80 };
 	SDL_FRect restartButton{ .x = 570, .y = 262, .w = 300, .h = 70 };
 	SDL_FRect tutorialButton{ .x = 410, .y = 400, .w = 300, .h = 70 };
 	SDL_FRect statsButton{ .x = 730, .y = 400, .w = 300, .h = 70 };
-	SDL_FRect gesturesButton{ .x = 410, .y = 490, .w = 300, .h = 70 };
-	SDL_FRect keyboardButton{ .x = 730, .y = 490, .w = 300, .h = 70 };
+	SDL_FRect controlsButton{ .x = 570, .y = 490, .w = 300, .h = 70 };
+	SDL_FRect updateButton{ .x = 520, .y = 600, .w = 400, .h = 64 };
 
 	void drawButton(SDLState& state, const SDL_FRect& rect, SDL_Color color, const std::string& label){
 		SDL_SetRenderDrawColor(state.renderer, color.r, color.g, color.b, color.a);

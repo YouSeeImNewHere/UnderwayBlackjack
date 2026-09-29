@@ -135,6 +135,23 @@ Share the link <https://github.com/YouSeeImNewHere/UnderwayBlackjack/releases/la
 It always points to the newest release. For the next version, repeat with
 `v1.1`, `v1.2` and so on.
 
+### How Windows players get updates
+
+The Windows game checks for updates by itself. Each time it starts, it asks
+GitHub what the latest release is. If that's newer than the copy they're
+running, the main menu shows a gold **UPDATE TO V1.1** button. It opens the
+release page, where they download the new zip and unzip it over the old
+folder. Saved games and stats live elsewhere (in `%APPDATA%`), so they carry
+over.
+
+For this to work:
+
+- **Tag releases as `vX.Y`**, for example `v1.1` or `v1.2`. The Windows build
+  uses the tag as its own version number (shown in the menu's bottom-right
+  corner), and the check compares against it.
+- **Publish a release for every Windows update.** Builds from ordinary pushes
+  and from Visual Studio count as "dev" and never check or nag.
+
 If the repository is private, only people with access to it can see
 releases. To let anyone download, make it public under **Settings →
 General → Danger Zone → Change visibility**. That also makes the source

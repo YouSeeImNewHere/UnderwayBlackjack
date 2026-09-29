@@ -1,6 +1,7 @@
 #pragma once
 #include "Game.h"
 #include "DigitFont.h"
+#include "Platform.h"
 #include <string>
 #include <vector>
 
@@ -32,8 +33,7 @@ public:
 		drawButton(state, restartButton, SDL_Color{150, 60, 60, 255}, "RESTART");
 		drawButton(state, strategyButton, SDL_Color{60, 90, 150, 255}, "STRATEGY TABLE");
 		drawButton(state, aboutButton, SDL_Color{110, 90, 60, 255}, "ABOUT");
-		drawButton(state, gesturesButton, SDL_Color{90, 70, 130, 255}, "GESTURES");
-		drawButton(state, keyboardButton, SDL_Color{110, 90, 60, 255}, "KEYBOARD");
+		drawButton(state, controlsButton, SDL_Color{90, 70, 130, 255}, "CONTROLS");
 		drawButton(state, statsButton, SDL_Color{120, 70, 130, 255}, "STATS");
 		drawButton(state, optionsButton, SDL_Color{70, 110, 110, 255}, "GAME OPTIONS");
 	}
@@ -55,10 +55,9 @@ public:
 			return PauseChoice::StrategyTable;
 		if(SDL_PointInRectFloat(&p, &aboutButton))
 			return PauseChoice::About;
-		if(SDL_PointInRectFloat(&p, &gesturesButton))
-			return PauseChoice::Gestures;
-		if(SDL_PointInRectFloat(&p, &keyboardButton))
-			return PauseChoice::Keyboard;
+		// Gestures page on touch devices, keyboard page on desktops.
+		if(SDL_PointInRectFloat(&p, &controlsButton))
+			return usesTouchControls() ? PauseChoice::Gestures : PauseChoice::Keyboard;
 		if(SDL_PointInRectFloat(&p, &statsButton))
 			return PauseChoice::Stats;
 		if(SDL_PointInRectFloat(&p, &optionsButton))
@@ -69,20 +68,19 @@ public:
 
 	// For mina.cpp's arrow-key navigation, top to bottom.
 	std::vector<SDL_FRect> focusRects(){
-		return { resumeButton, restartButton, strategyButton, aboutButton, gesturesButton, keyboardButton, statsButton, optionsButton };
+		return { resumeButton, restartButton, strategyButton, aboutButton, controlsButton, statsButton, optionsButton };
 	}
 
 private:
-	// 8 buttons: RESUME full width on top, then a 2-column grid so each
-	// stays thumb-sized (56+ tall) within the 720-tall canvas.
+	// RESUME full width on top, then a 2-column grid so each stays
+	// thumb-sized (56+ tall) within the 720-tall canvas.
 	SDL_FRect resumeButton{ .x = 440, .y = 150, .w = 560, .h = 70 };
 	SDL_FRect restartButton{ .x = 440, .y = 240, .w = 270, .h = 64 };
 	SDL_FRect optionsButton{ .x = 730, .y = 240, .w = 270, .h = 64 };
 	SDL_FRect strategyButton{ .x = 440, .y = 322, .w = 270, .h = 64 };
 	SDL_FRect aboutButton{ .x = 730, .y = 322, .w = 270, .h = 64 };
-	SDL_FRect gesturesButton{ .x = 440, .y = 404, .w = 270, .h = 64 };
-	SDL_FRect keyboardButton{ .x = 730, .y = 404, .w = 270, .h = 64 };
-	SDL_FRect statsButton{ .x = 440, .y = 486, .w = 560, .h = 64 };
+	SDL_FRect controlsButton{ .x = 440, .y = 404, .w = 270, .h = 64 };
+	SDL_FRect statsButton{ .x = 730, .y = 404, .w = 270, .h = 64 };
 
 	void drawButton(SDLState& state, const SDL_FRect& rect, SDL_Color color, const std::string& label){
 		SDL_SetRenderDrawColor(state.renderer, color.r, color.g, color.b, color.a);

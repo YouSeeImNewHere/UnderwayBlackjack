@@ -33,6 +33,10 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(APP_VERSION "1.0" CACHE STRING "User-facing version (CFBundleShortVersionString)")
 set(APP_BUILD_NUMBER "1" CACHE STRING "Build number (CFBundleVersion)")
 set(IOS_BUNDLE_ID "com.youseeimnewhere.underwayblackjack" CACHE STRING "iOS bundle identifier")
+# The version the game reports for its update check (UpdateCheck.h). The
+# Windows release workflow sets it from the tag (v1.1 -> 1.1); "dev" (the
+# default) never checks.
+set(GAME_VERSION "dev" CACHE STRING "Game version for the in-game update check")
 set(IOS_TEAM_ID "" CACHE STRING "Apple Developer Team ID used for signing")
 
 # ---- SDL3 + SDL3_image, same versions as the Windows build ----------------
@@ -149,3 +153,7 @@ else()
 endif()
 
 target_link_libraries(UnderwayBlackjack PRIVATE SDL3_image::SDL3_image SDL3::SDL3)
+target_compile_definitions(UnderwayBlackjack PRIVATE GAME_VERSION_STRING="${GAME_VERSION}")
+if(WIN32)
+    target_link_libraries(UnderwayBlackjack PRIVATE winhttp)
+endif()

@@ -21,6 +21,7 @@
 #include "StatsMenu.h"
 #include "TutorialMenu.h"
 #include "Stats.h"
+#include "UpdateCheck.h"
 #include "SaveData.h"
 
 enum class AppScreen {
@@ -83,6 +84,7 @@ struct AppContext {
     StatsMenu statsMenu;
     TutorialMenu tutorialMenu;
     Stats stats;
+    UpdateCheck update;
     SaveData save;
     AppScreen screen = AppScreen::Menu;
     // Remembered between GameModeMenu and applySetupComplete().
@@ -217,6 +219,12 @@ static void applyMenuChoice(AppContext& ctx, MenuChoice choice){
 
         case MenuChoice::Stats:
             ctx.screen = AppScreen::Stats;
+        break;
+
+        case MenuChoice::Update:
+            // The release page, in the player's browser -- they download
+            // the new zip from there.
+            SDL_OpenURL(UpdateCheck::RELEASES_PAGE);
         break;
 
         case MenuChoice::Tutorial:
@@ -926,6 +934,11 @@ static void mainLoopIteration(void *arg) {
             || (ctx.screen == AppScreen::Playing && ctx.pauseState == PauseState::Options))
         ctx.gameOptionsMenu.update(deltaTime);
 
+    if(ctx.screen == AppScreen::Menu){
+        ctx.menu.updateVersion = ctx.update.updateAvailable() ? ctx.update.latestVersion() : "";
+        ctx.menu.currentVersion = UpdateCheck::isDevBuild() ? "" : UpdateCheck::currentVersion();
+    }
+
     int screenKey = static_cast<int>(ctx.screen) * 16 + static_cast<int>(ctx.pauseState);
     if(screenKey != ctx.focusScreenKey){
         ctx.focusScreenKey = screenKey;
@@ -1008,6 +1021,8 @@ int main(int argc,char *argv[]) {
     ctx->menu.hasSavedGame = ctx->save.gameStarted;
     ctx->stats.load();
     ctx->table.setStats(&ctx->stats);
+    // Windows release builds only (see UpdateCheck.h); a no-op elsewhere.
+    ctx->update.start();
     // First launch: open HOW TO PLAY before anything else.
     if(!ctx->save.tutorialSeen){
         ctx->tutorialMenu.open();
