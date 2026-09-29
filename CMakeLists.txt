@@ -34,6 +34,12 @@ include(FetchContent)
 set(SDL_SHARED OFF CACHE BOOL "" FORCE)
 set(SDL_STATIC ON CACHE BOOL "" FORCE)
 set(SDL_TEST_LIBRARY OFF CACHE BOOL "" FORCE)
+# The game never uses a camera or game controllers. Leaving these out keeps
+# SDL's camera (AVFoundation) and Bluetooth controller (CoreBluetooth) code
+# out of the iOS binary -- App Store Connect rejects builds that reference
+# those APIs without an Info.plist purpose string (ITMS-90683).
+set(SDL_CAMERA OFF CACHE BOOL "" FORCE)
+set(SDL_HIDAPI OFF CACHE BOOL "" FORCE)
 FetchContent_Declare(SDL3
     GIT_REPOSITORY https://github.com/libsdl-org/SDL.git
     GIT_TAG release-3.4.16
