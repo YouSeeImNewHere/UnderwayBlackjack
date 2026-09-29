@@ -758,6 +758,12 @@ static void mainLoopIteration(void *arg) {
                     ctx.focusIndex = -1;
                     handleMenuClick(ctx, event.tfinger.x * ctx.state.width, event.tfinger.y * ctx.state.height);
                 }
+            } else if(ctx.screen == AppScreen::Playing && ctx.table.isAwaitingInsurance()){
+                // Insurance/even money prompt: YES/NO buttons, not gestures.
+                if(event.type == SDL_EVENT_FINGER_UP)
+                    ctx.table.handleInsurancePoint(ctx.state,
+                        event.tfinger.x * ctx.state.width,
+                        event.tfinger.y * ctx.state.height);
             } else if(ctx.screen == AppScreen::Playing && ctx.table.isAwaitingBets()){
                 // Betting phase: raise/lower/DEAL, not gameplay gestures.
                 if(event.type == SDL_EVENT_FINGER_UP)
@@ -793,6 +799,8 @@ static void mainLoopIteration(void *arg) {
                     ctx.table.toggleQuickTip();
                 else if(ctx.screen == AppScreen::Playing && ctx.table.isCardCountToggleHit(ctx.state, event.button.x, event.button.y))
                     ctx.table.toggleCardCount();
+                else if(ctx.screen == AppScreen::Playing && ctx.table.isAwaitingInsurance())
+                    ctx.table.handleInsurancePoint(ctx.state, event.button.x, event.button.y);
                 else if(ctx.screen == AppScreen::Playing && ctx.table.isAwaitingBets())
                     ctx.table.handleBettingPoint(ctx.state, event.button.x, event.button.y);
             }

@@ -18,11 +18,11 @@ public:
 		float titleW = DigitFont::textWidth(title, titlePixel);
 		DigitFont::drawText(state, title, (1440.0f - titleW) / 2.0f, 40.0f, titlePixel, SDL_Color{255, 255, 255, 255});
 
-		float y = 120.0f;
+		float y = 110.0f;
 		for(const auto& [action, key] : KEYS){
 			DigitFont::drawText(state, action, 360.0f, y, 4.5f, SDL_Color{200, 180, 100, 255});
 			DigitFont::drawText(state, key, 760.0f, y, 4.5f, SDL_Color{220, 220, 220, 255});
-			y += 52.0f;
+			y += 49.0f;
 		}
 
 		drawButton(state, backButton, SDL_Color{80, 80, 80, 255}, "BACK");
@@ -53,6 +53,7 @@ private:
 		{"SPLIT",        "P"},
 		{"SURRENDER",    "R"},
 		{"DEAL",         "SPACE"},
+		{"INSURANCE",    "Y / N"},
 		{"PAUSE / BACK", "ESC"},
 		{"MENU SELECT",  "ARROW KEYS"},
 		{"MENU CONFIRM", "ENTER OR SPACE"}
