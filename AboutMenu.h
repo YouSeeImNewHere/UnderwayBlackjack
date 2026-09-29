@@ -79,9 +79,9 @@ private:
 		return "GAME RULES";
 	}
 
-	// Standard blackjack rules -- this engine's actual behavior, not
-	// aspirational text (e.g. surrender here forfeits the whole bet, not
-	// the standard casino half-back).
+	// Standard blackjack rules -- this engine's actual behavior (see
+	// Table.h: canDoubleActiveHand(), canSurrenderActiveHand(),
+	// allowsHitSplitAces(), dealerPeek()), not aspirational text.
 	const std::vector<std::string>& standardRules(){
 		static const std::vector<std::string> lines{
 			"STANDARD BLACKJACK, NO SIDE BETS",
@@ -89,9 +89,12 @@ private:
 			"BLACKJACK PAYS 3:2",
 			"DOUBLE ON ANY 2 CARDS, EVEN AFTER SPLIT",
 			"SPLIT PAIRS, SPLIT AGAIN ALLOWED",
+			"SPLIT ACES GET ONE CARD EACH",
+			"DEALER CHECKS FOR BLACKJACK FIRST",
 			"A 21 STANDS AT ONCE, PAID OUT WHEN",
 			" THE DEALER FINISHES",
-			"SURRENDER FORFEITS THE BET",
+			"SURRENDER ON YOUR FIRST 2 CARDS",
+			" GETS HALF YOUR BET BACK",
 			"WIN PAYS EVEN MONEY",
 			"PUSH RETURNS YOUR BET"
 		};
@@ -112,11 +115,10 @@ private:
 			"7 OR MORE CARD 21 PAYS 3:1",
 			"678 OR 777 PAYS 3:2 MIXED SUITS",
 			" 2:1 SAME SUIT, 3:1 ALL SPADES",
-			"DOUBLE ON ANY 2 CARDS, EVEN AFTER SPLIT",
-			"DOUBLE, DOUBLE, DOUBLE AGAIN",
-			" REDOUBLE AS MANY TIMES AS YOU LIKE",
-			"SPLIT PAIRS, SPLIT AGAIN ALLOWED",
-			"SURRENDER FORFEITS THE BET"
+			"DOUBLE ON ANY NUMBER OF CARDS",
+			" AND REDOUBLE AS MANY TIMES AS YOU LIKE",
+			"SPLIT AGAIN, HIT AND DOUBLE SPLIT ACES",
+			"SURRENDER FIRST 2 CARDS, HALF BACK"
 		};
 		return lines;
 	}
@@ -132,9 +134,12 @@ private:
 			"BLACKJACK PAYS 3:2",
 			"DOUBLE ON ANY 2 CARDS, EVEN AFTER SPLIT",
 			"SPLIT PAIRS, SPLIT AGAIN ALLOWED",
+			"SPLIT ACES GET ONE CARD EACH",
+			"DEALER CHECKS FOR BLACKJACK FIRST",
 			"A 21 STANDS AT ONCE, PAID OUT WHEN",
 			" THE DEALER FINISHES",
-			"SURRENDER FORFEITS THE BET",
+			"SURRENDER ON YOUR FIRST 2 CARDS",
+			" GETS HALF YOUR BET BACK",
 			"WIN PAYS EVEN MONEY",
 			"PUSH RETURNS YOUR BET"
 		};
@@ -152,7 +157,7 @@ private:
 			"DOUBLE YOUR INITIAL HARD 9, 10 OR 11",
 			" FOR FREE, NO EXTRA MONEY DOWN",
 			"SPLIT ANY PAIR EXCEPT 10S FOR FREE",
-			" SPLIT AGAIN UP TO 4 HANDS, ACES TOO",
+			" UP TO 4 HANDS, SPLIT ACES GET 1 CARD",
 			"OTHER DOUBLES AND SPLITS OF 10S",
 			" STILL COST THE USUAL EXTRA BET",
 			"DEALER BUST OF 22 EXACTLY PUSHES",
@@ -160,7 +165,7 @@ private:
 			"A BUST OF 23 OR MORE STILL PAYS",
 			"YOUR BLACKJACK ALWAYS PAYS 3:2",
 			" NEVER AFFECTED BY THE PUSH ON 22",
-			"SURRENDER FORFEITS THE BET"
+			"NO SURRENDER IN FREE BET"
 		};
 		return lines;
 	}
