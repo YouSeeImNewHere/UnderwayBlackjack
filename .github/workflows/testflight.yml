@@ -20,7 +20,7 @@ jobs:
       # Has to go up on every upload; run_attempt keeps re-runs unique too.
       BUILD_NUMBER: ${{ github.run_number }}.${{ github.run_attempt }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Check secrets are set
         env:
@@ -59,12 +59,14 @@ jobs:
       # -allowProvisioningUpdates + the API key lets Xcode create/download
       # the signing certificate and provisioning profile itself, so no
       # certificates have to be exported from a Mac and stored as secrets.
+      # RelWithDebInfo (optimized + debug info) rather than Release, so the
+      # archive has a dSYM and TestFlight crash reports get symbol names.
       - name: Archive
         run: |
           xcodebuild archive \
             -project build-ios/UnderwayBlackjack.xcodeproj \
             -scheme UnderwayBlackjack \
-            -configuration Release \
+            -configuration RelWithDebInfo \
             -destination 'generic/platform=iOS' \
             -archivePath "$RUNNER_TEMP/UnderwayBlackjack.xcarchive" \
             -allowProvisioningUpdates \

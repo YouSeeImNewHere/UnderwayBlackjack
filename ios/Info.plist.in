@@ -22,6 +22,14 @@
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<!-- Never requested at runtime (SDL is built without camera/controller
+	     support, see CMakeLists.txt); here only so App Store Connect's
+	     static check (ITMS-90683) passes if a framework still references
+	     these APIs. -->
+	<key>NSCameraUsageDescription</key>
+	<string>Underway Blackjack does not use the camera.</string>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>Underway Blackjack does not use Bluetooth.</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 	<key>UILaunchStoryboardName</key>
