@@ -413,6 +413,7 @@ public:
 
 		firstDeal();
 		awaitingInitialDeal = hasAnySideBet(gameMode);
+		awaitingPeek = true;
 	}
 
 	// Keeps a seat's main bet + side bet(s) from ever adding up to more
@@ -620,7 +621,45 @@ public:
 	// last discard landing and betting opening would act on player 1's
 	// already-empty hand.
 	bool acceptingPlayerInput(){
-		return !cardAnimation.has_value() && pauseTimer <= 0.0f && !awaitingBets && !awaitingNewRound;
+		// dealQueue too, not just the flying card: a card queued this
+		// frame (say by H) hasn't started moving yet, and a second key in
+		// the same frame would otherwise act on the hand as if it weren't
+		// coming -- e.g. surrendering or doubling a hand that's already
+		// been hit.
+		return tableIdle() && !activeHandNeedsSecondCard();
+	}
+
+	// Nothing moving, queued, paused or pending between rounds.
+	bool tableIdle(){
+		return !cardAnimation.has_value() && dealQueue.empty() && pauseTimer <= 0.0f && !awaitingBets
+			&& !awaitingNewRound && !awaitingInitialDeal && !awaitingPeek;
+	}
+
+	// A split hand starts with just the one card it was split off with;
+	// update() deals its second card as soon as play reaches it, and no
+	// input is taken until it has.
+	bool activeHandNeedsSecondCard(){
+		if(activePlayer >= numberOfPlayers)
+			return false;
+		Person& p = players[activePlayer];
+		int h = p.getActiveHand();
+		return h < p.hands.size() && p.hands[h].isFromSplit() && p.hands[h].getHandSize() == 1;
+	}
+
+	// For mina.cpp's save-after-every-round: true once a betting phase is
+	// open and every payout chip has actually landed (bankrolls are only
+	// credited on arrival), so the saved numbers are final.
+	bool isSettledForSave(){
+		return awaitingBets && chipAnimations.empty();
+	}
+
+	int getNumberOfPlayers(){ return numberOfPlayers; }
+	int getPlayerBankroll(int i){ return players[i].getBankroll(); }
+	int getPlayerBet(int i){ return players[i].getBet(); }
+	// The per-seat side-bet size, in the same terms configurePlayers()
+	// takes it (Player's Edge's two Match bets are seeded equal).
+	int getPlayerSideBet(int i){
+		return isPlayersEdge(gameMode) ? players[i].getMatchUpBet() : players[i].getSideBet();
 	}
 
 	void handleEvent(const SDL_Event& event)
@@ -787,6 +826,16 @@ public:
 					awaitingInitialDeal = false;
 					resolveSideBets();
 				}
+				if(awaitingPeek){
+					awaitingPeek = false;
+					if(dealerPeek())
+						return;
+				}
+
+				if(tableIdle() && activeHandNeedsSecondCard()){
+					onHit();
+					return;
+				}
 				if(awaitingNewRound){
 					awaitingNewRound = false;
 
@@ -870,6 +919,12 @@ public:
 		if(activePlayer < numberOfPlayers)
 			return;
 
+		// Every player can be done before the deal even finishes (all
+		// naturals, or nobody betting) -- the dealer still has to peek
+		// first (update()), or a dealer blackjack would be settled twice.
+		if(awaitingInitialDeal || awaitingPeek || awaitingNewRound)
+			return;
+
 		if(cardAnimation.has_value() || !dealQueue.empty() || pauseTimer > 0.0f)
 			return;
 
@@ -894,6 +949,48 @@ public:
 		}
 
 		continueDealerPlay();
+	}
+
+	// Hitting (and doubling) split aces: only Player's Edge (Spanish 21)
+	// allows it -- standard blackjack, Lucky Ladies/Lucky Stiff (standard
+	// rules plus a side bet) and Free Bet Blackjack all deal split aces
+	// one card each, the common Vegas rule.
+	bool allowsHitSplitAces(){
+		return isPlayersEdge(gameMode);
+	}
+
+	// Runs once the initial deal has landed. With an Ace or 10-value
+	// up-card the dealer checks the hole card; on a blackjack it's turned
+	// over and the round settles immediately -- before anyone can double
+	// or split into it. Returns true if the round just ended that way.
+	bool dealerPeek(){
+		Hand& dealerHand = dealer.hands[0];
+		if(dealerHand.getHandSize() < 2)
+			return false;
+
+		int up = dealerHand.cards[0].getValue();
+		if(up != 1 && up < 10)
+			return false;
+		if(dealerHand.getHandTotal() != 21)
+			return false;
+
+		if(!dealerHand.cards[1].getShown()){
+			addToRunningCount(dealerHand.cards[1].getValue());
+			dealer.showCards();
+		}
+
+		jackpotCallouts.push_back(JackpotCallout{ .title = "DEALER BLACKJACK", .detail = "" });
+
+		resolveRound();
+		awaitingNewRound = true;
+		// Nobody's turn anymore (hides the turn arrow); clearTable() puts
+		// it back to 0 for the sweep, same as a normal round end.
+		activePlayer = numberOfPlayers;
+		pauseTimer = DEALER_FINISH_PAUSE_DURATION * dealerSpeedFactor;
+		onPauseComplete = [this](){
+			clearTable();
+		};
+		return true;
 	}
 
 	// The rest of dealDealer() -- hit again if under 17, otherwise resolve
@@ -1047,6 +1144,12 @@ private:
 	// as soon as each seat's first two cards are known, before anyone's
 	// first decision.
 	bool awaitingInitialDeal = false;
+
+	// Set when a round is dealt; once the initial cards have all landed
+	// the dealer checks for blackjack (see dealerPeek()) before anyone
+	// can act -- US rules, so a dealer blackjack only ever takes the
+	// original bets, never doubles or splits made against it.
+	bool awaitingPeek = false;
 
 	// Snapshot of each seat's original first two cards, taken the moment
 	// resolveSideBets() runs and kept for the rest of the round -- side
@@ -2268,10 +2371,20 @@ private:
 		if(handIdx >= p.hands.size())
 			return false;
 
+		Hand& hand = p.hands[handIdx];
+
+		// Player's Edge is Spanish 21, which allows doubling on any
+		// number of cards (and redoubling, see checkBreak()) -- every
+		// other mode only doubles a hand's first two cards.
+		if(!isPlayersEdge(gameMode) && hand.getHandSize() != 2)
+			return false;
+		if(hand.isSplitAces() && !allowsHitSplitAces())
+			return false;
+
 		if(isFreeBet(gameMode) && isFreeDoubleEligible())
 			return true;
 
-		return p.getBankroll() >= p.hands[handIdx].getBet();
+		return p.getBankroll() >= hand.getBet();
 	}
 
 	void onSplit(){
@@ -2293,7 +2406,14 @@ private:
 			queueBankrollChange(activePlayer, -betAmount);
 		}
 
+		bool aces = players[activePlayer].hands[players[activePlayer].getActiveHand()].cards[0].getValue() == 1;
 		Card c = players[activePlayer].split();
+		{
+			Person& p = players[activePlayer];
+			int h = p.getActiveHand();
+			p.hands[h].markSplit(aces);
+			p.hands[h + 1].markSplit(aces);
+		}
 
 		if(free){
 			int newHandIdx = players[activePlayer].getActiveHand() + 1;
@@ -2375,8 +2495,35 @@ private:
 		// index when addCard() finally ran ("subscript out of range").
 	}
 
+	// Late surrender: only on the hand's first two cards, never after a
+	// split, and not at all in Free Bet Blackjack (its rules don't offer
+	// it -- the free doubles/splits are the trade).
+	bool canSurrenderActiveHand(){
+		if(isFreeBet(gameMode))
+			return false;
+		Person& p = players[activePlayer];
+		int handIdx = p.getActiveHand();
+		if(handIdx >= p.hands.size() || p.hands.size() != 1)
+			return false;
+		return p.hands[handIdx].getHandSize() == 2;
+	}
+
 	void onSurrender(){
+		if(!canSurrenderActiveHand())
+			return;
+
 		std::cout << "Surrender. ActivePlayer: " << activePlayer << '\n';
+
+		// Half the bet comes back (rounded down, like a casino keeping the
+		// odd chip); zeroing the bet keeps resolveRound() from settling
+		// the hand again.
+		{
+			Hand& hand = players[activePlayer].hands[players[activePlayer].getActiveHand()];
+			int refund = hand.getBet() / 2;
+			hand.setBet(0);
+			if(refund > 0)
+				queueChipPayout(activePlayer, refund, true);
+		}
 
 		// Surrendering forfeits the hand same as busting does -- give it the
 		// same tilted "broken" look, even though its total never went over
@@ -2567,6 +2714,7 @@ public:
 		awaitingBets = false;
 		awaitingNewRound = false;
 		awaitingInitialDeal = false;
+		awaitingPeek = false;
 		shoeNeedsReshuffle = false;
 		runningCount = 0;
 
@@ -3430,7 +3578,14 @@ private:
 			// there just deals the card and leaves the hand active for
 			// another hit/double/stand, same as any other card. A 21 still
 			// always auto-stands regardless of mode (see above).
-			bool forceStand = reachedTwentyOne || (forceStandIfNotBust && !isPlayersEdge(gameMode));
+			// Split aces get one card each (except Player's Edge -- see
+			// allowsHitSplitAces()), so the second card ends the hand.
+			bool splitAceDone = handIdx < players[activePlayer].hands.size()
+				&& players[activePlayer].hands[handIdx].isSplitAces()
+				&& players[activePlayer].hands[handIdx].getHandSize() >= 2
+				&& !allowsHitSplitAces();
+
+			bool forceStand = reachedTwentyOne || splitAceDone || (forceStandIfNotBust && !isPlayersEdge(gameMode));
 
 			if(forceStand){
 				activePlayer += players[activePlayer].stand();

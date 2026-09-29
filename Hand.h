@@ -139,6 +139,17 @@ public:
 		}
 	}
 
+	// Set on both hands when a pair is split (Table::onSplit()). fromSplit
+	// drives the automatic second card when play reaches a split hand;
+	// splitAces drives the one-card-per-ace rule (see
+	// Table::allowsHitSplitAces()).
+	bool isFromSplit() const{ return fromSplit; }
+	bool isSplitAces() const{ return splitAces; }
+	void markSplit(bool aces){
+		fromSplit = true;
+		splitAces = aces;
+	}
+
 	// Stays true once the hand has busted (or been surrendered, see
 	// forceBust()), even after Table's bust handling sweeps every card past
 	// the first two into the discard pile -- at that point getHandTotal()
@@ -250,6 +261,8 @@ public:
 
 private:
 	bool bust = false;
+	bool fromSplit = false;
+	bool splitAces = false;
 	std::set<int> aceLocations;
 	float baseRotation = 0;
 	int bet = 0;
