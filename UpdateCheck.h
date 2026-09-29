@@ -63,10 +63,13 @@ public:
 			std::string json;
 			httpGet(L"https://api.github.com/repos/YouSeeImNewHere/UnderwayBlackjack/releases/latest", json, 512 * 1024);
 			std::string tag = parseTagName(json);
-			if(!tag.empty() && isNewer(tag, currentVersion())){
+			// A release shows up a few minutes before the workflow attaches
+			// its zip; until then there's nothing to install, so no button.
+			std::string zipUrl = parseAssetUrl(json, ZIP_NAME);
+			if(!tag.empty() && !zipUrl.empty() && isNewer(tag, currentVersion())){
 				std::lock_guard<std::mutex> lock(r->mutex);
 				r->latest = stripV(tag);
-				r->zipUrl = parseAssetUrl(json, ZIP_NAME);
+				r->zipUrl = zipUrl;
 				r->available = true;
 			}
 		}).detach();
