@@ -1,4 +1,5 @@
 // Temporary: exercises UpdateCheck's download-and-install on a real Windows runner.
+#define GAME_VERSION_STRING "1.0"
 #include "UpdateCheck.h"
 #include <cstdio>
 int main(){

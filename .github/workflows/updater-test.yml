@@ -13,7 +13,7 @@ jobs:
         run: |
           mkdir game
           Set-Content game/Cards.png "old"
-          cl /nologo /std:c++20 /EHsc /O2 /DGAME_VERSION_STRING=\"1.0\" /Itools/updater-test /I. tools/updater-test/test.cpp /Fe:game/UnderwayBlackjack.exe winhttp.lib
+          cl /nologo /std:c++20 /EHsc /O2 /Itools/updater-test /I. tools/updater-test/test.cpp /Fe:game/UnderwayBlackjack.exe winhttp.lib
           (Get-FileHash game/UnderwayBlackjack.exe).Hash
       - name: Run it
         shell: pwsh
