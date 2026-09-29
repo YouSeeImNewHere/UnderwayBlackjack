@@ -29,16 +29,8 @@ The `.exe` is fully standalone: the Visual C++ runtime and SDL are built into it
 
 ### Publish a download page
 
-Push a tag starting with `v` from your PC:
-
-```
-git tag v1.0
-git push origin v1.0
-```
-
-The workflow then attaches `UnderwayBlackjack-windows.zip` to a GitHub
-Release at <https://github.com/YouSeeImNewHere/UnderwayBlackjack/releases>.
-Anyone with that link can download it, as long as the repository is public.
+See [Releases](#releases-a-download-page-for-everyone) below. A release
+gets the Windows zip and the Android APK attached automatically.
 
 ### Build it yourself
 
@@ -114,3 +106,36 @@ Google Play takes a signed **App Bundle** (`.aab`), not the debug APK.
 
 The version code goes up automatically with each workflow run. Change
 `versionName` in `android/app/build.gradle` for a new user-facing version.
+
+## Releases: a download page for everyone
+
+A GitHub Release is a page like
+<https://github.com/YouSeeImNewHere/UnderwayBlackjack/releases/latest> where
+anyone can download the game without an account. Creating one runs the
+Windows and Android workflows, which attach:
+
+- `UnderwayBlackjack-windows.zip`: unzip it and run `UnderwayBlackjack.exe`
+- `UnderwayBlackjack-android.apk`: open it on an Android phone to install
+
+To publish one:
+
+1. Make sure the code you want is merged into `master`.
+2. Go to <https://github.com/YouSeeImNewHere/UnderwayBlackjack/releases/new>.
+3. Click **Choose a tag**, type a new version like `v1.0`, and click
+   **Create new tag: v1.0 on publish**. It must start with `v`. **Target**
+   stays `master`.
+4. Give it a title such as `Underway Blackjack 1.0` and, optionally, a few
+   lines on what's new.
+5. Click **Publish release**.
+6. Wait about 5 minutes and refresh the release page. The two files appear
+   under **Assets** once the Windows and Android builds finish. You can watch
+   them on the Actions tab.
+
+Share the link <https://github.com/YouSeeImNewHere/UnderwayBlackjack/releases/latest>.
+It always points to the newest release. For the next version, repeat with
+`v1.1`, `v1.2` and so on.
+
+If the repository is private, only people with access to it can see
+releases. To let anyone download, make it public under **Settings →
+General → Danger Zone → Change visibility**. That also makes the source
+code public.

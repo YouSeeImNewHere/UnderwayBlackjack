@@ -34,7 +34,7 @@ jobs:
           Copy-Item Cards.png, Table5Player.png, Arrow.png, Chips.png dist/UnderwayBlackjack/
           Compress-Archive -Path dist/UnderwayBlackjack -DestinationPath dist/UnderwayBlackjack-windows.zip
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: UnderwayBlackjack-windows
           path: dist/UnderwayBlackjack
