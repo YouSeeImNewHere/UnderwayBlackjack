@@ -607,12 +607,23 @@ public:
 		drawChipAnimations(state, res);
 	}
 
+	// Hit/stand/double/etc. only make sense mid-turn: not while a card is
+	// flying or a pause is running, not while bets are open, and not
+	// while the finished round is being resolved and swept away
+	// (awaitingNewRound) -- clearTable() resets activePlayer to 0 for the
+	// sweep, so without that last check a tap in the frame between the
+	// last discard landing and betting opening would act on player 1's
+	// already-empty hand.
+	bool acceptingPlayerInput(){
+		return !cardAnimation.has_value() && pauseTimer <= 0.0f && !awaitingBets && !awaitingNewRound;
+	}
+
 	void handleEvent(const SDL_Event& event)
 	{
 		switch(event.type)
 		{
 			case SDL_EVENT_KEY_UP:
-				if(cardAnimation.has_value() || pauseTimer > 0.0f || awaitingBets)
+				if(!acceptingPlayerInput())
 					break;
 
 				switch(event.key.scancode)
@@ -676,7 +687,7 @@ public:
 				// Only once every finger from this gesture has lifted do we
 				// know the final finger count and can classify the gesture.
 				if(activeTouches.empty() && !endedTouches.empty()){
-					if(!cardAnimation.has_value() && pauseTimer <= 0.0f && !awaitingBets)
+					if(acceptingPlayerInput())
 						processGesture(endedTouches);
 
 					endedTouches.clear();
@@ -736,6 +747,18 @@ public:
 				onPauseComplete = nullptr;
 				action();
 			}
+
+			// The action above can start a pause of its own -- e.g. the
+			// hole-card reveal's continueDealerPlay() finding the dealer
+			// already on 17+ resolves the round and starts the
+			// dealer-finish pause (whose own action is clearTable()).
+			// Falling through here would see an empty deal queue and
+			// awaitingNewRound, and open betting immediately -- before
+			// the WIN/LOSE pause or the discard sweep ever ran, leaving
+			// the bet controls up while the old cards were still being
+			// pulled off the table.
+			if(pauseTimer > 0.0f)
+				return;
 		}
 
 		// If no card is moving, start the next queued deal.
