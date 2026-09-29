@@ -328,7 +328,7 @@ public:
 	// (drawCardCountStats()) to actually test their own counting instead
 	// of just reading the answer off the discard pile the whole time.
 	SDL_FRect cardCountToggleButton(){
-		return SDL_FRect{ .x = discardPosition.x, .y = discardPosition.y + cardHeight + 6.0f, .w = cardWidth, .h = 24 };
+		return SDL_FRect{ .x = discardPosition.x, .y = discardPosition.y + cardHeight + 6.0f, .w = cardWidth, .h = 44 };
 	}
 
 	bool isCardCountToggleHit(SDLState& state, float windowX, float windowY){
@@ -354,9 +354,9 @@ public:
 
 		std::string label = "CNT";
 		float pixel = 5.0f;
-		// Height shrunk to half (24, was 48) -- 5*pixel at the old default
-		// no longer fits inside it, so the width-only auto-shrink below
-		// needs a height check alongside it now too.
+		// Height is 44 (still leaves a gap above the center betting box),
+		// so the default pixel size fits -- the height check below only
+		// matters if the button is ever shrunk again.
 		float maxW = btn.w - 8.0f;
 		float maxH = btn.h - 4.0f;
 		float w = DigitFont::textWidth(label, pixel);
@@ -536,6 +536,11 @@ public:
 
 		drawCardCountStats(state);
 
+		// Right under the discard pile, so drawn with the table furniture
+		// (before any hand or the flying card) -- cards swept to discard
+		// pass over it instead of disappearing underneath it.
+		drawCardCountToggleButton(state);
+
 		// player hands
 		// hideInactiveHands (GameOptionsMenu): only while a round's
 		// actually being played through -- never during betting (nothing's
@@ -603,7 +608,6 @@ public:
 			drawQuickTip(state);
 		}
 
-		drawCardCountToggleButton(state);
 		drawChipAnimations(state, res);
 	}
 
@@ -2761,7 +2765,7 @@ private:
 					continue;
 
 				int total = hand.getHandTotal();
-				bool bust = total > 21;
+				bool bust = hand.isBust() || total > 21;
 				bool blackjack = hand.getHandSize() == 2 && total == 21;
 
 				int credit = 0;
@@ -2867,7 +2871,7 @@ private:
 	int spanish21Credit(Hand& hand, int dealerTotal, bool dealerBust, bool dealerBlackjack){
 		int bet = hand.getBet();
 		int total = hand.getHandTotal();
-		if(total > 21)
+		if(hand.isBust() || total > 21)
 			return 0;
 
 		if(total == 21){
@@ -2931,7 +2935,7 @@ private:
 	int freeBetCredit(Hand& hand, int dealerTotal, bool dealerBust, bool dealerBlackjack){
 		int bet = hand.getBet();
 		int total = hand.getHandTotal();
-		if(total > 21)
+		if(hand.isBust() || total > 21)
 			return 0;
 
 		bool blackjack = hand.getHandSize() == 2 && total == 21;
