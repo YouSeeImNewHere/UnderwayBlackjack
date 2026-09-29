@@ -1,0 +1,12 @@
+# GitHub's language bar (Linguist): count only this game's own code.
+# Third-party code copied into the repo is marked vendored so it's skipped.
+
+# SDL3/SDL3_image headers and prebuilt libs for the web build (C, ~3.7 MB --
+# ten times the size of the game itself, which made the repo show as "C").
+web/wasm-libs/** linguist-vendored
+
+# SDL's Android Java glue, copied unchanged from its android-project template.
+android/app/src/main/java/org/libsdl/** linguist-vendored
+
+# The game's headers are C++ (classes, std::), not C.
+*.h linguist-language=C++

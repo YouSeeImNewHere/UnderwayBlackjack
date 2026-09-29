@@ -1,4 +1,4 @@
-# Building Underway Blackjack
+# Building Blackjack Variants
 
 Every version is built from the same C++ source. GitHub Actions builds all of
 them for you, so you don't need a Mac or Android Studio just to get a copy.
@@ -124,7 +124,7 @@ To publish one:
 3. Click **Choose a tag**, type a new version like `v1.0`, and click
    **Create new tag: v1.0 on publish**. It must start with `v`. **Target**
    stays `master`.
-4. Give it a title such as `Underway Blackjack 1.0` and, optionally, a few
+4. Give it a title such as `Blackjack Variants 1.0` and, optionally, a few
    lines on what's new.
 5. Click **Publish release**.
 6. Wait about 5 minutes and refresh the release page. The two files appear

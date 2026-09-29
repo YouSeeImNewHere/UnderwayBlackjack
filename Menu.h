@@ -10,7 +10,9 @@ enum class MenuChoice{
 	Resume,
 	Restart,
 	Gestures,
-	Keyboard
+	Keyboard,
+	Stats,
+	Tutorial
 };
 
 // The very first thing the player sees.
@@ -26,6 +28,11 @@ public:
 		SDL_SetRenderDrawColor(state.renderer, 20, 70, 35, 255);
 		SDL_RenderFillRect(state.renderer, nullptr);
 
+		float titlePixel = 9.0f;
+		std::string title = "BLACKJACK VARIANTS";
+		float titleW = DigitFont::textWidth(title, titlePixel);
+		DigitFont::drawText(state, title, (1440.0f - titleW) / 2.0f, 60.0f, titlePixel, SDL_Color{255, 225, 80, 255});
+
 		if(hasSavedGame){
 			drawButton(state, resumeButton, SDL_Color{60, 130, 70, 255}, "RESUME");
 			drawButton(state, restartButton, SDL_Color{150, 60, 60, 255}, "RESTART");
@@ -33,6 +40,8 @@ public:
 			drawButton(state, startButton, SDL_Color{60, 130, 70, 255}, "START");
 		}
 
+		drawButton(state, tutorialButton, SDL_Color{50, 120, 130, 255}, "HOW TO PLAY");
+		drawButton(state, statsButton, SDL_Color{120, 70, 130, 255}, "STATS");
 		drawButton(state, gesturesButton, SDL_Color{60, 90, 150, 255}, "GESTURES");
 		drawButton(state, keyboardButton, SDL_Color{110, 90, 60, 255}, "KEYBOARD");
 	}
@@ -63,6 +72,10 @@ public:
 			return MenuChoice::Gestures;
 		if(SDL_PointInRectFloat(&p, &keyboardButton))
 			return MenuChoice::Keyboard;
+		if(SDL_PointInRectFloat(&p, &statsButton))
+			return MenuChoice::Stats;
+		if(SDL_PointInRectFloat(&p, &tutorialButton))
+			return MenuChoice::Tutorial;
 
 		return MenuChoice::None;
 	}
@@ -71,16 +84,20 @@ public:
 	// navigation (it "clicks" the highlighted one via handlePoint()).
 	std::vector<SDL_FRect> focusRects(){
 		if(hasSavedGame)
-			return { resumeButton, restartButton, gesturesButton, keyboardButton };
-		return { startButton, gesturesButton, keyboardButton };
+			return { resumeButton, restartButton, tutorialButton, statsButton, gesturesButton, keyboardButton };
+		return { startButton, tutorialButton, statsButton, gesturesButton, keyboardButton };
 	}
 
 private:
-	SDL_FRect startButton{ .x = 570, .y = 300, .w = 300, .h = 90 };
-	SDL_FRect resumeButton{ .x = 570, .y = 260, .w = 300, .h = 80 };
-	SDL_FRect restartButton{ .x = 570, .y = 370, .w = 300, .h = 80 };
-	SDL_FRect gesturesButton{ .x = 570, .y = 470, .w = 300, .h = 70 };
-	SDL_FRect keyboardButton{ .x = 570, .y = 555, .w = 300, .h = 70 };
+	// Title, then the big play button(s), then a 2x2 grid of the
+	// reference pages underneath.
+	SDL_FRect startButton{ .x = 570, .y = 190, .w = 300, .h = 110 };
+	SDL_FRect resumeButton{ .x = 570, .y = 170, .w = 300, .h = 80 };
+	SDL_FRect restartButton{ .x = 570, .y = 262, .w = 300, .h = 70 };
+	SDL_FRect tutorialButton{ .x = 410, .y = 400, .w = 300, .h = 70 };
+	SDL_FRect statsButton{ .x = 730, .y = 400, .w = 300, .h = 70 };
+	SDL_FRect gesturesButton{ .x = 410, .y = 490, .w = 300, .h = 70 };
+	SDL_FRect keyboardButton{ .x = 730, .y = 490, .w = 300, .h = 70 };
 
 	void drawButton(SDLState& state, const SDL_FRect& rect, SDL_Color color, const std::string& label){
 		SDL_SetRenderDrawColor(state.renderer, color.r, color.g, color.b, color.a);

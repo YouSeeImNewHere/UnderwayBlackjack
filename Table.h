@@ -12,6 +12,7 @@
 #include "DigitFont.h"
 #include "StrategyChart.h"
 #include "GameModeMenu.h"
+#include "Stats.h"
 
 struct CardAnimation {
 	Card card;
@@ -182,6 +183,7 @@ public:
 	// count/composition and remembers the mode for everything that varies
 	// by it (side-bet UI, Spanish shoe, eventually Spanish 21 payouts).
 	void configureGameMode(GameMode mode){
+		StrategyChart::useChartFor(mode);
 		gameMode = mode;
 		numberOfDecks = deckCountFor(mode);
 		makeShoe();
@@ -244,6 +246,10 @@ public:
 
 		Hand& hand = p.hands[handIdx];
 		if(hand.getHandSize() < 2)
+			return false;
+		// A doubled Player's Edge hand only has stand/redouble left --
+		// outside what the chart covers.
+		if(hand.getDoubleCount() > 0)
 			return false;
 
 		int dealerUp = -1;
@@ -413,6 +419,12 @@ public:
 
 		firstDeal();
 		awaitingInitialDeal = hasAnySideBet(gameMode);
+		awaitingPeek = true;
+		awaitingInsurance = false;
+		insuranceOffered = false;
+		insuranceQueue.clear();
+		for(int i = 0; i < 5; i++)
+			insuranceBet[i] = 0;
 	}
 
 	// Keeps a seat's main bet + side bet(s) from ever adding up to more
@@ -609,6 +621,7 @@ public:
 		}
 
 		drawChipAnimations(state, res);
+		drawInsurancePrompt(state);
 		drawJackpotCallout(state);
 	}
 
@@ -620,7 +633,56 @@ public:
 	// last discard landing and betting opening would act on player 1's
 	// already-empty hand.
 	bool acceptingPlayerInput(){
-		return !cardAnimation.has_value() && pauseTimer <= 0.0f && !awaitingBets && !awaitingNewRound;
+		// dealQueue too, not just the flying card: a card queued this
+		// frame (say by H) hasn't started moving yet, and a second key in
+		// the same frame would otherwise act on the hand as if it weren't
+		// coming -- e.g. surrendering or doubling a hand that's already
+		// been hit.
+		return tableIdle() && !activeHandNeedsSecondCard();
+	}
+
+	// Nothing moving, queued, paused or pending between rounds.
+	bool tableIdle(){
+		return !cardAnimation.has_value() && dealQueue.empty() && pauseTimer <= 0.0f && !awaitingBets
+			&& !awaitingNewRound && !awaitingInitialDeal && !awaitingPeek && !awaitingInsurance;
+	}
+
+	// A split hand starts with just the one card it was split off with;
+	// update() deals its second card as soon as play reaches it, and no
+	// input is taken until it has.
+	bool activeHandNeedsSecondCard(){
+		if(activePlayer >= numberOfPlayers)
+			return false;
+		Person& p = players[activePlayer];
+		int h = p.getActiveHand();
+		return h < p.hands.size() && p.hands[h].isFromSplit() && p.hands[h].getHandSize() == 1;
+	}
+
+	// For mina.cpp's save-after-every-round: true once a betting phase is
+	// open and every payout chip has actually landed (bankrolls are only
+	// credited on arrival), so the saved numbers are final.
+	bool isSettledForSave(){
+		return awaitingBets && chipAnimations.empty();
+	}
+
+	int getNumberOfPlayers(){ return numberOfPlayers; }
+
+	// Lifetime stats (Stats.h), owned and saved by mina.cpp; null in tests.
+	void setStats(Stats* s){ stats = s; }
+	int getPlayerBankroll(int i){ return players[i].getBankroll(); }
+	int getPlayerTotalBuyIns(int i){ return players[i].getInitialBankroll(); }
+
+	// Resume: after configurePlayers() has seated everyone at their
+	// original buy-in, put back where each bankroll had actually got to.
+	void restoreProgress(const int current[5], const int totalBuyIns[5]){
+		for(int i = 0; i < numberOfPlayers; i++)
+			players[i].restoreBankroll(current[i], totalBuyIns[i]);
+	}
+	int getPlayerBet(int i){ return players[i].getBet(); }
+	// The per-seat side-bet size, in the same terms configurePlayers()
+	// takes it (Player's Edge's two Match bets are seeded equal).
+	int getPlayerSideBet(int i){
+		return isPlayersEdge(gameMode) ? players[i].getMatchUpBet() : players[i].getSideBet();
 	}
 
 	void handleEvent(const SDL_Event& event)
@@ -633,29 +695,36 @@ public:
 			// pressing GO on a menu and then dealing on release). Keep
 			// KeyboardMenu.h's list in sync with these bindings.
 			case SDL_EVENT_KEY_DOWN:
+				if(!event.key.repeat && isAwaitingInsurance()){
+					if(event.key.scancode == SDL_SCANCODE_Y)
+						answerInsurance(true);
+					else if(event.key.scancode == SDL_SCANCODE_N)
+						answerInsurance(false);
+					break;
+				}
 				if(event.key.repeat || !acceptingPlayerInput())
 					break;
 
 				switch(event.key.scancode)
 				{
 					case SDL_SCANCODE_S:
-						onStand();
+						playerAction('S');
 					break;
 
 					case SDL_SCANCODE_H:
-						onHit();
+						playerAction('H');
 					break;
 
 					case SDL_SCANCODE_P:
-						onSplit();
+						playerAction('P');
 					break;
 
 					case SDL_SCANCODE_D:
-						onDouble();
+						playerAction('D');
 					break;
 
 					case SDL_SCANCODE_R:
-						onSurrender();
+						playerAction('R');
 					break;
 
 					default:
@@ -787,6 +856,23 @@ public:
 					awaitingInitialDeal = false;
 					resolveSideBets();
 				}
+				if(awaitingPeek && !insuranceOffered){
+					insuranceOffered = true;
+					if(startInsurance())
+						return;
+				}
+				if(awaitingInsurance)
+					return;
+				if(awaitingPeek){
+					awaitingPeek = false;
+					if(dealerPeek())
+						return;
+				}
+
+				if(tableIdle() && activeHandNeedsSecondCard()){
+					onHit();
+					return;
+				}
 				if(awaitingNewRound){
 					awaitingNewRound = false;
 
@@ -870,6 +956,12 @@ public:
 		if(activePlayer < numberOfPlayers)
 			return;
 
+		// Every player can be done before the deal even finishes (all
+		// naturals, or nobody betting) -- the dealer still has to peek
+		// first (update()), or a dealer blackjack would be settled twice.
+		if(awaitingInitialDeal || awaitingPeek || awaitingInsurance || awaitingNewRound)
+			return;
+
 		if(cardAnimation.has_value() || !dealQueue.empty() || pauseTimer > 0.0f)
 			return;
 
@@ -894,6 +986,190 @@ public:
 		}
 
 		continueDealerPlay();
+	}
+
+	// Hitting (and doubling) split aces: only Player's Edge (Spanish 21)
+	// allows it -- standard blackjack, Lucky Ladies/Lucky Stiff (standard
+	// rules plus a side bet) and Free Bet Blackjack all deal split aces
+	// one card each, the common Vegas rule.
+	bool allowsHitSplitAces(){
+		return isPlayersEdge(gameMode);
+	}
+
+	// Before the peek, with an Ace showing: queue every seat that can be
+	// offered insurance (still has its bet riding -- a Player's Edge
+	// blackjack is already paid -- and can afford half of it, or has a
+	// blackjack, where the offer is even money instead). Returns true if
+	// anyone's being asked, which holds the round until they've answered.
+	bool startInsurance(){
+		Hand& dealerHand = dealer.hands[0];
+		if(dealerHand.getHandSize() < 2 || dealerHand.cards[0].getValue() != 1)
+			return false;
+
+		insuranceQueue.clear();
+		for(int i = 0; i < numberOfPlayers; i++){
+			Person& p = players[i];
+			if(p.hands.empty() || p.hands[0].getBet() <= 0)
+				continue;
+			bool blackjack = playerHasBlackjack(i);
+			if(blackjack && isPlayersEdge(gameMode))
+				continue; // a Spanish 21 blackjack always wins 3:2 anyway
+			if(blackjack || p.getBankroll() >= p.hands[0].getBet() / 2)
+				insuranceQueue.push_back(i);
+		}
+		awaitingInsurance = !insuranceQueue.empty();
+		return awaitingInsurance;
+	}
+
+	bool playerHasBlackjack(int i){
+		Person& p = players[i];
+		if(p.hands.size() != 1)
+			return false;
+		Hand& h = p.hands[0];
+		return h.getHandSize() == 2 && h.getHandTotal() == 21 && !h.isFromSplit();
+	}
+
+public:
+	bool isAwaitingInsurance(){
+		return awaitingInsurance && !cardAnimation.has_value() && dealQueue.empty();
+	}
+
+	// The current seat's answer. Insurance: half the bet goes up now (paid
+	// back 3x by dealerPeek() on a dealer blackjack). Even money (the seat
+	// has a blackjack): paid 1:1 right now and the hand is settled, so a
+	// dealer blackjack can't push it.
+	void answerInsurance(bool yes){
+		if(!isAwaitingInsurance() || insuranceQueue.empty())
+			return;
+
+		int i = insuranceQueue.front();
+		insuranceQueue.erase(insuranceQueue.begin());
+		Person& p = players[i];
+
+		if(yes){
+			Hand& h = p.hands[0];
+			if(playerHasBlackjack(i)){
+				if(stats)
+					stats->recordHand(h.getBet(), true, false, true, false, false);
+				queueChipPayout(i, h.getBet() * 2);
+				h.setResult(HandResult::Win);
+				h.setBet(0);
+			} else{
+				int ins = h.getBet() / 2;
+				if(ins > 0 && p.getBankroll() >= ins){
+					p.deductFromBankroll(ins);
+					queueBankrollChange(i, -ins);
+					insuranceBet[i] = ins;
+					if(stats)
+						stats->bump(Stats::InsuranceTaken);
+				}
+			}
+		}
+
+		if(insuranceQueue.empty())
+			awaitingInsurance = false;
+	}
+
+	// Tap/click on the insurance prompt's YES/NO.
+	void handleInsurancePoint(SDLState& state, float windowX, float windowY){
+		float x, y;
+		if(!SDL_RenderCoordinatesFromWindow(state.renderer, windowX, windowY, &x, &y))
+			return;
+		SDL_FPoint p{x, y};
+		SDL_FRect yes = insuranceYesButton(), no = insuranceNoButton();
+		if(SDL_PointInRectFloat(&p, &yes))
+			answerInsurance(true);
+		else if(SDL_PointInRectFloat(&p, &no))
+			answerInsurance(false);
+	}
+
+private:
+	SDL_FRect insurancePanel(){ return SDL_FRect{ .x = 440, .y = 270, .w = 560, .h = 180 }; }
+	SDL_FRect insuranceYesButton(){ return SDL_FRect{ .x = 510, .y = 374, .w = 190, .h = 56 }; }
+	SDL_FRect insuranceNoButton(){ return SDL_FRect{ .x = 740, .y = 374, .w = 190, .h = 56 }; }
+
+	void drawInsurancePrompt(SDLState& state){
+		if(!isAwaitingInsurance() || insuranceQueue.empty())
+			return;
+		int i = insuranceQueue.front();
+		bool evenMoney = playerHasBlackjack(i);
+
+		SDL_FRect panel = insurancePanel();
+		SDL_SetRenderDrawColor(state.renderer, 15, 25, 18, 255);
+		SDL_RenderFillRect(state.renderer, &panel);
+		SDL_SetRenderDrawColor(state.renderer, 255, 210, 40, 255);
+		for(int k = 0; k < 3; k++){
+			SDL_FRect ring{ panel.x - k, panel.y - k, panel.w + 2 * k, panel.h + 2 * k };
+			SDL_RenderRect(state.renderer, &ring);
+		}
+
+		std::string q = "P" + std::to_string(i + 1) + (evenMoney ? "  EVEN MONEY?" : "  INSURANCE?");
+		float qPixel = 5.5f;
+		float qW = DigitFont::textWidth(q, qPixel);
+		DigitFont::drawText(state, q, panel.x + (panel.w - qW) / 2.0f, panel.y + 18.0f, qPixel, SDL_Color{255, 255, 255, 255});
+
+		int bet = players[i].hands[0].getBet();
+		std::string sub = evenMoney ? "TAKE " + std::to_string(bet) + " NOW"
+			: "COSTS " + std::to_string(bet / 2) + ", PAYS 2:1";
+		float subPixel = 4.0f;
+		float subW = DigitFont::textWidth(sub, subPixel);
+		DigitFont::drawText(state, sub, panel.x + (panel.w - subW) / 2.0f, panel.y + 18.0f + 5 * qPixel + 18.0f, subPixel, SDL_Color{210, 210, 210, 255});
+
+		SDL_FRect yes = insuranceYesButton(), no = insuranceNoButton();
+		drawButton(state, yes, SDL_Color{60, 130, 70, 255});
+		drawButton(state, no, SDL_Color{130, 60, 60, 255});
+		float bPixel = 6.0f;
+		float yW = DigitFont::textWidth("YES", bPixel), nW = DigitFont::textWidth("NO", bPixel);
+		DigitFont::drawText(state, "YES", yes.x + (yes.w - yW) / 2.0f, yes.y + (yes.h - 5 * bPixel) / 2.0f, bPixel, SDL_Color{255, 255, 255, 255});
+		DigitFont::drawText(state, "NO", no.x + (no.w - nW) / 2.0f, no.y + (no.h - 5 * bPixel) / 2.0f, bPixel, SDL_Color{255, 255, 255, 255});
+	}
+
+	// Runs once the initial deal has landed. With an Ace or 10-value
+	// up-card the dealer checks the hole card; on a blackjack it's turned
+	// over and the round settles immediately -- before anyone can double
+	// or split into it. Returns true if the round just ended that way.
+	bool dealerPeek(){
+		Hand& dealerHand = dealer.hands[0];
+		if(dealerHand.getHandSize() < 2)
+			return false;
+
+		int up = dealerHand.cards[0].getValue();
+		if(up != 1 && up < 10)
+			return false;
+
+		bool dealerBlackjack = dealerHand.getHandTotal() == 21;
+
+		// Insurance pays 2:1 (the stake back plus twice it) on a dealer
+		// blackjack; otherwise the stake, taken when it was placed, is lost.
+		for(int i = 0; i < numberOfPlayers; i++){
+			if(insuranceBet[i] <= 0)
+				continue;
+			if(stats)
+				stats->values[Stats::NetWinnings] += dealerBlackjack ? insuranceBet[i] * 2 : -insuranceBet[i];
+			if(dealerBlackjack)
+				queueChipPayout(i, insuranceBet[i] * 3);
+		}
+
+		if(!dealerBlackjack)
+			return false;
+
+		if(!dealerHand.cards[1].getShown()){
+			addToRunningCount(dealerHand.cards[1].getValue());
+			dealer.showCards();
+		}
+
+		jackpotCallouts.push_back(JackpotCallout{ .title = "DEALER BLACKJACK", .detail = "" });
+
+		resolveRound();
+		awaitingNewRound = true;
+		// Nobody's turn anymore (hides the turn arrow); clearTable() puts
+		// it back to 0 for the sweep, same as a normal round end.
+		activePlayer = numberOfPlayers;
+		pauseTimer = DEALER_FINISH_PAUSE_DURATION * dealerSpeedFactor;
+		onPauseComplete = [this](){
+			clearTable();
+		};
+		return true;
 	}
 
 	// The rest of dealDealer() -- hit again if under 17, otherwise resolve
@@ -1047,6 +1323,24 @@ private:
 	// as soon as each seat's first two cards are known, before anyone's
 	// first decision.
 	bool awaitingInitialDeal = false;
+
+	// Set when a round is dealt; once the initial cards have all landed
+	// the dealer checks for blackjack (see dealerPeek()) before anyone
+	// can act -- US rules, so a dealer blackjack only ever takes the
+	// original bets, never doubles or splits made against it.
+	bool awaitingPeek = false;
+
+	// Insurance / even money, offered when the dealer's up-card is an Ace
+	// -- before the peek, one eligible seat at a time (insuranceQueue,
+	// front = the seat being asked). insuranceBet[i] is what seat i put up
+	// (half its bet); it pays 2:1 if the dealer turns out to have
+	// blackjack, and is simply lost otherwise.
+	Stats* stats = nullptr;
+
+	bool awaitingInsurance = false;
+	bool insuranceOffered = false;
+	std::vector<int> insuranceQueue;
+	int insuranceBet[5] = { 0, 0, 0, 0, 0 };
 
 	// Snapshot of each seat's original first two cards, taken the moment
 	// resolveSideBets() runs and kept for the rest of the round -- side
@@ -2143,13 +2437,13 @@ private:
 			float dist = std::sqrt(dx * dx + dy * dy);
 
 			if(dist < TAP_MOVE_THRESHOLD){
-				onHit();
+				playerAction('H');
 			} else if(std::fabs(dy) > std::fabs(dx)){
 				// Steep swipe (up or down) -> surrender.
-				onSurrender();
+				playerAction('R');
 			} else {
 				// Shallow swipe (left or right) -> stand.
-				onStand();
+				playerAction('S');
 			}
 		} else if(touches.size() == 2){
 			const TouchPoint& a = touches[0];
@@ -2162,12 +2456,12 @@ private:
 			float bDist = std::sqrt(bDx * bDx + bDy * bDy);
 
 			if(aDist < TAP_MOVE_THRESHOLD && bDist < TAP_MOVE_THRESHOLD){
-				onDouble();
+				playerAction('D');
 			} else if(aDist >= TAP_MOVE_THRESHOLD && bDist >= TAP_MOVE_THRESHOLD){
 				float dot = (aDx * bDx + aDy * bDy) / (aDist * bDist);
 
 				if(dot < SPLIT_DOT_THRESHOLD)
-					onSplit();
+					playerAction('P');
 				else
 					std::cout << "Two-finger gesture not recognized (moved together)\n";
 			} else {
@@ -2180,7 +2474,77 @@ private:
 
 
 	// player moves
+	// Every hit/stand/double/split/surrender the player makes (keys and
+	// gestures alike) comes through here, so a legal move can be scored
+	// against the strategy chart for the STATS page before it's played.
+	// Illegal moves (e.g. double on 3 cards in standard) do nothing and
+	// aren't scored.
+	void playerAction(char action){
+		bool legal = true;
+		switch(action){
+			case 'D': legal = canDoubleActiveHand(); break;
+			case 'P': legal = canSplitActiveHand(); break;
+			case 'R': legal = canSurrenderActiveHand(); break;
+			case 'H': {
+				Person& p = players[activePlayer];
+				int h = p.getActiveHand();
+				legal = !(isPlayersEdge(gameMode) && h < p.hands.size() && p.hands[h].getDoubleCount() > 0);
+				break;
+			}
+			default: break;
+		}
+
+		if(legal && stats){
+			char advice;
+			if(chartAdvice(advice))
+				stats->recordDecision(advice == action);
+		}
+
+		switch(action){
+			case 'H': onHit(); break;
+			case 'S': onStand(); break;
+			case 'D': onDouble(); break;
+			case 'P': onSplit(); break;
+			case 'R': onSurrender(); break;
+			default: break;
+		}
+	}
+
+	// What the current mode's chart says for the active hand, turned into
+	// a move that's actually available: a chart double on a hand that
+	// can't double means hit (stand on soft 18/19), a chart surrender that
+	// isn't allowed means stand on 17 / split 8s / otherwise hit. False
+	// when there's no chart situation or the chart's split can't be made.
+	bool chartAdvice(char& advice){
+		int section, row, col;
+		if(!getStrategySituation(section, row, col))
+			return false;
+		advice = StrategyChart::rowData(section, row)[col];
+		if(advice == 'D' && !canDoubleActiveHand())
+			advice = (section == 1 && row >= 5) ? 'S' : 'H';
+		else if(advice == 'R' && !canSurrenderActiveHand()){
+			if(section == 0 && row == 9) advice = 'S';
+			else if(section == 2 && canSplitActiveHand()) advice = 'P';
+			else advice = 'H';
+		}
+		else if(advice == 'P' && !canSplitActiveHand())
+			return false;
+		return true;
+	}
+
+	// Player's Edge (Spanish 21): once doubled, a hand only draws more
+	// cards by redoubling -- a doubled hand can't simply be hit. (In every
+	// other mode a double ends the hand anyway, see checkBreak().)
+	static constexpr int MAX_PLAYERS_EDGE_DOUBLES = 3;
+	static constexpr int MAX_SPLIT_HANDS = 4;
+
 	void onHit(){
+		{
+			Person& p = players[activePlayer];
+			int h = p.getActiveHand();
+			if(isPlayersEdge(gameMode) && h < p.hands.size() && p.hands[h].getDoubleCount() > 0)
+				return;
+		}
 		dealQueue.push(DealRequest{
 			.playerIndex = activePlayer,
 			.isDealer = false,
@@ -2245,7 +2609,9 @@ private:
 		if(hand.getHandSize() != 2)
 			return false;
 
-		if(isFreeBet(gameMode) && p.hands.size() >= 4)
+		// Split and re-split up to 4 hands in every mode -- the usual casino
+		// limit, and as many as fit beside each other at a seat.
+		if(p.hands.size() >= MAX_SPLIT_HANDS)
 			return false;
 
 		bool free = isFreeBet(gameMode) && isFreeSplitEligible();
@@ -2268,15 +2634,30 @@ private:
 		if(handIdx >= p.hands.size())
 			return false;
 
+		Hand& hand = p.hands[handIdx];
+
+		// Player's Edge is Spanish 21, which allows doubling on any
+		// number of cards (and redoubling, see checkBreak()) -- every
+		// other mode only doubles a hand's first two cards.
+		if(!isPlayersEdge(gameMode) && hand.getHandSize() != 2)
+			return false;
+		// Spanish 21 redoubling: a hand can be doubled at most 3 times.
+		if(isPlayersEdge(gameMode) && hand.getDoubleCount() >= MAX_PLAYERS_EDGE_DOUBLES)
+			return false;
+		if(hand.isSplitAces() && !allowsHitSplitAces())
+			return false;
+
 		if(isFreeBet(gameMode) && isFreeDoubleEligible())
 			return true;
 
-		return p.getBankroll() >= p.hands[handIdx].getBet();
+		return p.getBankroll() >= hand.getBet();
 	}
 
 	void onSplit(){
 		if(!canSplitActiveHand())
 			return;
+		if(stats)
+			stats->bump(Stats::Splits);
 
 		// The new hand costs the same as the one being split -- split()
 		// (Person.h) already copies the stake onto it. Ordinarily this is
@@ -2293,7 +2674,14 @@ private:
 			queueBankrollChange(activePlayer, -betAmount);
 		}
 
+		bool aces = players[activePlayer].hands[players[activePlayer].getActiveHand()].cards[0].getValue() == 1;
 		Card c = players[activePlayer].split();
+		{
+			Person& p = players[activePlayer];
+			int h = p.getActiveHand();
+			p.hands[h].markSplit(aces);
+			p.hands[h + 1].markSplit(aces);
+		}
 
 		if(free){
 			int newHandIdx = players[activePlayer].getActiveHand() + 1;
@@ -2320,6 +2708,8 @@ private:
 	void onDouble(){
 		if(!canDoubleActiveHand())
 			return;
+		if(stats)
+			stats->bump(Stats::Doubles);
 
 		std::cout << "Double. ActivePlayer: " << activePlayer << '\n';
 
@@ -2375,8 +2765,37 @@ private:
 		// index when addCard() finally ran ("subscript out of range").
 	}
 
+	// Late surrender: only on the hand's first two cards, never after a
+	// split, and not at all in Free Bet Blackjack (its rules don't offer
+	// it -- the free doubles/splits are the trade).
+	bool canSurrenderActiveHand(){
+		if(isFreeBet(gameMode))
+			return false;
+		Person& p = players[activePlayer];
+		int handIdx = p.getActiveHand();
+		if(handIdx >= p.hands.size() || p.hands.size() != 1)
+			return false;
+		return p.hands[handIdx].getHandSize() == 2;
+	}
+
 	void onSurrender(){
+		if(!canSurrenderActiveHand())
+			return;
+
 		std::cout << "Surrender. ActivePlayer: " << activePlayer << '\n';
+
+		// Half the bet comes back (rounded down, like a casino keeping the
+		// odd chip); zeroing the bet keeps resolveRound() from settling
+		// the hand again.
+		{
+			Hand& hand = players[activePlayer].hands[players[activePlayer].getActiveHand()];
+			int refund = hand.getBet() / 2;
+			if(stats)
+				stats->recordHand(-(hand.getBet() - refund), false, false, false, false, true);
+			hand.setBet(0);
+			if(refund > 0)
+				queueChipPayout(activePlayer, refund, true);
+		}
 
 		// Surrendering forfeits the hand same as busting does -- give it the
 		// same tilted "broken" look, even though its total never went over
@@ -2567,6 +2986,9 @@ public:
 		awaitingBets = false;
 		awaitingNewRound = false;
 		awaitingInitialDeal = false;
+		awaitingPeek = false;
+		awaitingInsurance = false;
+		insuranceQueue.clear();
 		shoeNeedsReshuffle = false;
 		runningCount = 0;
 
@@ -2738,11 +3160,10 @@ private:
 	// dealer also has one (push); otherwise the dealer busting or a higher
 	// total wins 1:1, equal totals push (bet back, no gain), anything else
 	// loses. Applies per hand, not per player, so a split's two hands
-	// resolve independently. Doesn't distinguish a post-split 21 from a
-	// true natural -- a reasonable simplification, not the standard
-	// casino rule (which usually excludes split hands from the 3:2 bonus).
-	// Surrendered hands never reach here at all: onSurrender() already
-	// zeroes their bet via busted()'s discard path.
+	// resolve independently. A two-card 21 on a split hand (say A+10) is
+	// just 21, paid 1:1 -- only an unsplit hand's first two cards are a
+	// blackjack, the standard casino rule. Surrendered hands never reach
+	// here at all: onSurrender() zeroes their bet.
 	void resolveRound(){
 		int dealerTotal = dealer.getHandTotal();
 		bool dealerBust = dealerTotal > 21;
@@ -2812,7 +3233,7 @@ private:
 
 				int total = hand.getHandTotal();
 				bool bust = hand.isBust() || total > 21;
-				bool blackjack = hand.getHandSize() == 2 && total == 21;
+				bool blackjack = hand.getHandSize() == 2 && total == 21 && !hand.isFromSplit();
 
 				int credit = 0;
 				if(isPlayersEdge(gameMode)){
@@ -2847,6 +3268,12 @@ private:
 				// 0), so this is a no-op everywhere except Free Bet
 				// Blackjack, where a loss or push only costs/returns
 				// whatever part of the bet was actually real money.
+				if(stats){
+					bool isWin = credit > bet, isPush = credit == bet && credit > 0;
+					long long net = credit == 0 ? -hand.getRealBet() : isPush ? 0 : credit - hand.getRealBet();
+					stats->recordHand(net, isWin, isPush, isWin && blackjack, hand.isBust(), false);
+				}
+
 				if(credit == 0){
 					hand.setResult(HandResult::Loss);
 					queueChipCollection(i, hand.getRealBet());
@@ -2950,8 +3377,8 @@ private:
 				return bet + bet * 2;
 			if(cardCount == 5)
 				return bet + bet * 3 / 2;
-			if(cardCount == 2)
-				return bet + bet * 3 / 2; // natural
+			if(cardCount == 2 && !hand.isFromSplit())
+				return bet + bet * 3 / 2; // natural (a split hand's A+10 is plain 21)
 			return bet * 2; // an unremarkable 3-4 card 21
 		}
 
@@ -2984,7 +3411,7 @@ private:
 		if(hand.isBust() || total > 21)
 			return 0;
 
-		bool blackjack = hand.getHandSize() == 2 && total == 21;
+		bool blackjack = hand.getHandSize() == 2 && total == 21 && !hand.isFromSplit();
 		if(dealerBlackjack && blackjack)
 			return bet;
 		if(dealerBlackjack)
@@ -3042,6 +3469,8 @@ private:
 	// or four of a kind (a pair matching both). payout is the full credit
 	// coming back (wager + winnings).
 	void queueJackpotCallout(int playerIndex, const std::string& title, const std::string& what, int payout){
+		if(stats)
+			stats->bump(Stats::JackpotHits);
 		jackpotCallouts.push_back(JackpotCallout{
 			.title = title,
 			.detail = "P" + std::to_string(playerIndex + 1) + "  " + what + "  +" + std::to_string(payout),
@@ -3418,6 +3847,9 @@ private:
 			if(reachedTwentyOne && isPlayersEdge(gameMode)){
 				Hand& hand = players[activePlayer].hands[handIdx];
 				int credit = spanish21Credit(hand, 0, false, false);
+				if(stats)
+					stats->recordHand(credit - hand.getBet(), true, false,
+						hand.getHandSize() == 2 && !hand.isFromSplit() && players[activePlayer].hands.size() == 1, false, false);
 				hand.setResult(HandResult::Win);
 				queueChipPayout(activePlayer, credit);
 				hand.setBet(0);
@@ -3430,7 +3862,20 @@ private:
 			// there just deals the card and leaves the hand active for
 			// another hit/double/stand, same as any other card. A 21 still
 			// always auto-stands regardless of mode (see above).
-			bool forceStand = reachedTwentyOne || (forceStandIfNotBust && !isPlayersEdge(gameMode));
+			// Split aces get one card each (except Player's Edge -- see
+			// allowsHitSplitAces()), so the second card ends the hand.
+			bool splitAceDone = handIdx < players[activePlayer].hands.size()
+				&& players[activePlayer].hands[handIdx].isSplitAces()
+				&& players[activePlayer].hands[handIdx].getHandSize() >= 2
+				&& !allowsHitSplitAces();
+
+			// Player's Edge redoubling tops out at 3 doubles -- after the
+			// third, standing is the only move left.
+			bool doublesUsedUp = forceStandIfNotBust && isPlayersEdge(gameMode)
+				&& handIdx < players[activePlayer].hands.size()
+				&& players[activePlayer].hands[handIdx].getDoubleCount() >= MAX_PLAYERS_EDGE_DOUBLES;
+
+			bool forceStand = reachedTwentyOne || splitAceDone || doublesUsedUp || (forceStandIfNotBust && !isPlayersEdge(gameMode));
 
 			if(forceStand){
 				activePlayer += players[activePlayer].stand();

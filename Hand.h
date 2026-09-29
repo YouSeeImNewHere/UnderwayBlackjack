@@ -107,7 +107,12 @@ public:
 
 	void doubleBet(){
 		bet *= 2;
+		doubleCount++;
 	}
+
+	// How many times this hand has been doubled (Player's Edge can
+	// redouble -- see Table::canDoubleActiveHand()/onHit()).
+	int getDoubleCount() const{ return doubleCount; }
 
 	// Free Bet Blackjack only: how much of this hand's bet was never
 	// actually funded from bankroll (a free double's extra half, or a free
@@ -137,6 +142,17 @@ public:
 			bust = true;
 			applyRotationToAllCards();
 		}
+	}
+
+	// Set on both hands when a pair is split (Table::onSplit()). fromSplit
+	// drives the automatic second card when play reaches a split hand;
+	// splitAces drives the one-card-per-ace rule (see
+	// Table::allowsHitSplitAces()).
+	bool isFromSplit() const{ return fromSplit; }
+	bool isSplitAces() const{ return splitAces; }
+	void markSplit(bool aces){
+		fromSplit = true;
+		splitAces = aces;
 	}
 
 	// Stays true once the hand has busted (or been surrendered, see
@@ -250,6 +266,9 @@ public:
 
 private:
 	bool bust = false;
+	bool fromSplit = false;
+	int doubleCount = 0;
+	bool splitAces = false;
 	std::set<int> aceLocations;
 	float baseRotation = 0;
 	int bet = 0;

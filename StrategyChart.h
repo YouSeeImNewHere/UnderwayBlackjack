@@ -1,20 +1,26 @@
 #pragma once
 #include "Game.h"
 #include "DigitFont.h"
+#include "GameModeMenu.h"
 #include <string>
 #include <vector>
 
 // The classic 3-part basic-strategy reference (hard totals / soft totals /
-// pairs, each x dealer up-card 2-10/A) -- multi-deck, dealer hits soft 17,
-// double-after-split allowed, matching this game's own H17 setup. Purely a
-// static reference table; not tuned per-rule beyond that. Opened from
-// PauseMenu's STRATEGY TABLE button. If Table::getStrategySituation()
-// finds a hand actually in progress, that cell gets highlighted so it
-// doubles as "what should I do right now," not just a wall chart.
+// pairs, each x dealer up-card 2-10/A), one set per rule family -- the
+// game's own rules differ enough between them that one chart gives wrong
+// advice in the others:
+//   - Standard (2/6-deck, Lucky Ladies, Lucky Stiff): multi-deck, dealer
+//     hits soft 17, double after split, late surrender.
+//   - Player's Edge (Spanish 21): 48-card decks, a player 21 always wins,
+//     5+ card 21 bonuses, double on any cards and redouble up to 3 times.
+//   - Free Bet: free doubles on hard 9-11 and free splits (except 10s),
+//     dealer 22 pushes, no surrender.
+// Table::configureGameMode() picks the set (useChartFor()); the pause
+// menu's chart and the in-game quick tip both read it. If
+// Table::getStrategySituation() finds a hand in progress, that cell is
+// highlighted, so it doubles as "what should I do right now."
 //
-// H=hit, S=stand, D=double, P=split, R=surrender (falls back to hit in
-// this game, which has no half-bet-back surrender payout -- still the
-// textbook-correct call to flag).
+// H=hit, S=stand, D=double, P=split, R=surrender (half the bet back).
 class StrategyChart
 {
 public:
@@ -23,15 +29,16 @@ public:
 		SDL_RenderFillRect(state.renderer, nullptr);
 
 		float titlePixel = 7.0f;
-		std::string title = "STRATEGY TABLE";
+		std::string title = std::string("STRATEGY - ") + CHARTS[activeChart].name;
 		float titleW = DigitFont::textWidth(title, titlePixel);
 		DigitFont::drawText(state, title, (1440.0f - titleW) / 2.0f, 20.0f, titlePixel, SDL_Color{255, 255, 255, 255});
 
-		drawTable(state, 8.0f, "HARD TOTALS", HARD_LABELS, HARD_ROWS, 10,
+		const ChartSet& chart = CHARTS[activeChart];
+		drawTable(state, 8.0f, "HARD TOTALS", HARD_LABELS, chart.hard, 10,
 			hasHighlight && hSection == 0 ? hRow : -1, hasHighlight && hSection == 0 ? hCol : -1);
-		drawTable(state, 488.0f, "SOFT TOTALS", SOFT_LABELS, SOFT_ROWS, 8,
+		drawTable(state, 488.0f, "SOFT TOTALS", SOFT_LABELS, chart.soft, 8,
 			hasHighlight && hSection == 1 ? hRow : -1, hasHighlight && hSection == 1 ? hCol : -1);
-		drawTable(state, 968.0f, "PAIRS", PAIR_LABELS, PAIR_ROWS, 10,
+		drawTable(state, 968.0f, "PAIRS", PAIR_LABELS, chart.pairs, 10,
 			hasHighlight && hSection == 2 ? hRow : -1, hasHighlight && hSection == 2 ? hCol : -1);
 
 		drawLegend(state);
@@ -80,9 +87,21 @@ public:
 	}
 
 	static const char* rowData(int section, int row){
-		if(section == 0) return HARD_ROWS[row];
-		if(section == 1) return SOFT_ROWS[row];
-		return PAIR_ROWS[row];
+		const ChartSet& chart = CHARTS[activeChart];
+		if(section == 0) return chart.hard[row];
+		if(section == 1) return chart.soft[row];
+		return chart.pairs[row];
+	}
+
+	// Which rule family's chart the pause-menu chart and quick tip show --
+	// set whenever the table's game mode is (Table::configureGameMode()).
+	static void useChartFor(GameMode mode){
+		if(isPlayersEdge(mode))
+			activeChart = 1;
+		else if(isFreeBet(mode))
+			activeChart = 2;
+		else
+			activeChart = 0;
 	}
 
 	std::vector<SDL_FRect> focusRects(){
@@ -104,20 +123,31 @@ private:
 
 	static constexpr const char* COL_LABELS[10] = {"2","3","4","5","6","7","8","9","10","A"};
 
-	// Verified against wizardofodds.com's multi-deck (4-8 deck) text
-	// strategy notes rather than memory: their S17 baseline surrenders hard
-	// 15 vs. 10 and hard 16 (not a pair of 8s) vs. 9/10/A, and their H17
-	// deltas on top of that are "surrender 15/pair-8s/17 vs. A", "double 11
-	// vs. A", "double soft 18 vs. 2", "double soft 19 vs. 6" -- all folded
-	// into HARD_ROWS/SOFT_ROWS below. No total-dependent difference exists
-	// between double-deck and multi-deck at this level (WoO's own
-	// double-deck page notes the only known exception, soft 18 vs. A, still
-	// favors standing in practice), so this one chart covers both 2-deck
-	// and 6-deck games -- only *composition*-dependent double-deck plays
-	// (exact ranks, not just the total) differ, a finer tier than this
-	// chart -- or Hand::getShownTotals() -- tracks.
 	static constexpr const char* HARD_LABELS[10] = {"8","9","10","11","12","13","14","15","16","17"};
-	static constexpr const char* HARD_ROWS[10] = {
+	static constexpr const char* SOFT_LABELS[8] = {"A2","A3","A4","A5","A6","A7","A8","A9"};
+	static constexpr const char* PAIR_LABELS[10] = {"2","3","4","5","6","7","8","9","10","A"};
+
+	struct ChartSet{
+		const char* name;
+		const char* const* hard;  // HARD_LABELS rows
+		const char* const* soft;  // SOFT_LABELS rows
+		const char* const* pairs; // PAIR_LABELS rows
+	};
+
+	// Standard: verified against wizardofodds.com's multi-deck (4-8 deck)
+	// strategy notes: their S17 baseline surrenders hard 15 vs. 10 and
+	// hard 16 (not a pair of 8s) vs. 9/10/A, and their H17 deltas on top of
+	// that are "surrender 15/pair-8s/17 vs. A", "double 11 vs. A", "double
+	// soft 18 vs. 2", "double soft 19 vs. 6". (17 vs. A and 8s vs. A were
+	// described but missing from the rows until now.) No total-dependent
+	// difference exists between double-deck and multi-deck at this level,
+	// so this one chart covers both 2-deck and 6-deck games.
+	//
+	// Every set was also cross-checked with an infinite-deck expected-
+	// value solver run against this game's exact rules for that family --
+	// it reproduces this standard chart cell for cell except soft 13 vs. 5
+	// (a known 6-deck-vs-infinite-deck edge case, left as the 6-deck play).
+	static constexpr const char* STANDARD_HARD[10] = {
 		"HHHHHHHHHH",
 		"HDDDDHHHHH",
 		"DDDDDDDDHH",
@@ -127,11 +157,9 @@ private:
 		"SSSSSHHHHH",
 		"SSSSSHHHRR",
 		"SSSSSHHRRR",
-		"SSSSSSSSSS"
+		"SSSSSSSSSR"
 	};
-
-	static constexpr const char* SOFT_LABELS[8] = {"A2","A3","A4","A5","A6","A7","A8","A9"};
-	static constexpr const char* SOFT_ROWS[8] = {
+	static constexpr const char* STANDARD_SOFT[8] = {
 		"HHHDDHHHHH",
 		"HHHDDHHHHH",
 		"HHDDDHHHHH",
@@ -141,20 +169,113 @@ private:
 		"SSSSDSSSSS",
 		"SSSSSSSSSS"
 	};
-
-	static constexpr const char* PAIR_LABELS[10] = {"2","3","4","5","6","7","8","9","10","A"};
-	static constexpr const char* PAIR_ROWS[10] = {
+	static constexpr const char* STANDARD_PAIRS[10] = {
 		"PPPPPPHHHH",
 		"PPPPPPHHHH",
 		"HHHPPHHHHH",
 		"DDDDDDDDHH",
 		"PPPPPHHHHH",
 		"PPPPPPHHHH",
-		"PPPPPPPPPP",
+		"PPPPPPPPPR",
 		"PPPPPSPPSS",
 		"SSSSSSSSSS",
 		"PPPPPPPPPP"
 	};
+
+	// Player's Edge (Spanish 21, dealer hits soft 17): computed by the
+	// solver described above with the 48-card deck, player 21 always
+	// winning, 5/6/7+ card 21 bonuses, doubling on any number of cards,
+	// redoubling up to 3 times (no plain hits on a doubled hand), dealer
+	// peek and late surrender. Agrees with the published Spanish 21 H17
+	// guidance checked so far: soft 17 hits vs 2-3 and doubles vs 4-6,
+	// soft 18 stands vs 2/3/7/8 and doubles vs 4-6, 16 vs. A surrenders,
+	// 4s/5s/10s are never split, aces always are. Two-card decisions only
+	// -- the published charts' card-count exceptions (e.g. "hit with 4+
+	// cards") aren't modelled.
+	static constexpr const char* SPANISH_HARD[10] = {
+		"HHHDDHHHHH",
+		"HDDDDHHHHH",
+		"DDDDDDDHHH",
+		"DDDDDDDHHH",
+		"HHHHHHHHHH",
+		"HHHHSHHHHH",
+		"HHSSSHHHHH",
+		"SSSSSHHHHH",
+		"SSSSSHHHHR",
+		"SSSSSSSSSR"
+	};
+	static constexpr const char* SPANISH_SOFT[8] = {
+		"HDDDDHHHHH",
+		"HDDDDHHHHH",
+		"HHDDDHHHHH",
+		"HHDDDHHHHH",
+		"HHDDDHHHHH",
+		"SSDDDSSHHH",
+		"SSSSSSSSSS",
+		"SSSSSSSSSS"
+	};
+	static constexpr const char* SPANISH_PAIRS[10] = {
+		"HPPPPPHHHH",
+		"HPPPPPPHHH",
+		"HHHDDHHHHH",
+		"DDDDDDDHHH",
+		"HHPPPHHHHH",
+		"PPPPPPHHHH",
+		"PPPPPPPPPR",
+		"SPPPPSPPSS",
+		"SSSSSSSSSS",
+		"PPPPPPPPPP"
+	};
+
+	// Free Bet (6 decks, dealer hits soft 17): computed by the same solver
+	// with free doubles on hard 9-11 and free splits of every pair but 10s
+	// (the split-off hand rides on a free bet), a dealer 22 pushing, and no
+	// surrender. Matches the published Free Bet advice checked so far:
+	// always take the free doubles and free splits (5s double instead),
+	// never split 10s. The D on hard 9-11 is the free double; a D anywhere
+	// else costs the usual extra bet.
+	static constexpr const char* FREEBET_HARD[10] = {
+		"HHHHHHHHHH",
+		"DDDDDDDDDD",
+		"DDDDDDDDDD",
+		"DDDDDDDDDD",
+		"HHHSSHHHHH",
+		"HSSSSHHHHH",
+		"SSSSSHHHHH",
+		"SSSSSHHHHH",
+		"SSSSSHHHHH",
+		"SSSSSSSSSS"
+	};
+	static constexpr const char* FREEBET_SOFT[8] = {
+		"HHHHHHHHHH",
+		"HHHHHHHHHH",
+		"HHHHHHHHHH",
+		"HHHHHHHHHH",
+		"HHHHDHHHHH",
+		"SSSDDSSHHH",
+		"SSSSSSSSSS",
+		"SSSSSSSSSS"
+	};
+	static constexpr const char* FREEBET_PAIRS[10] = {
+		"PPPPPPPPPP",
+		"PPPPPPPPPP",
+		"PPPPPPPPPP",
+		"DDDDDDDDDD",
+		"PPPPPPPPPP",
+		"PPPPPPPPPP",
+		"PPPPPPPPPP",
+		"PPPPPPPPPP",
+		"SSSSSSSSSS",
+		"PPPPPPPPPP"
+	};
+
+	static constexpr ChartSet CHARTS[3] = {
+		{ "STANDARD", STANDARD_HARD, STANDARD_SOFT, STANDARD_PAIRS },
+		{ "SPANISH 21", SPANISH_HARD, SPANISH_SOFT, SPANISH_PAIRS },
+		{ "FREE BET", FREEBET_HARD, FREEBET_SOFT, FREEBET_PAIRS }
+	};
+
+	inline static int activeChart = 0;
 
 	SDL_FRect backButton{ .x = 620, .y = 630, .w = 200, .h = 56 };
 

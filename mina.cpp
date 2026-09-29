@@ -18,6 +18,9 @@
 #include "AboutMenu.h"
 #include "GesturesMenu.h"
 #include "KeyboardMenu.h"
+#include "StatsMenu.h"
+#include "TutorialMenu.h"
+#include "Stats.h"
 #include "SaveData.h"
 
 enum class AppScreen {
@@ -28,6 +31,8 @@ enum class AppScreen {
     Setup,
     Gestures,
     Keyboard,
+    Stats,
+    Tutorial,
     Playing
 };
 
@@ -45,6 +50,7 @@ enum class PauseState {
     About,
     Gestures,
     Keyboard,
+    Stats,
     Options
 };
 
@@ -74,6 +80,9 @@ struct AppContext {
     // as Strategy/About).
     GesturesMenu gesturesMenu;
     KeyboardMenu keyboardMenu;
+    StatsMenu statsMenu;
+    TutorialMenu tutorialMenu;
+    Stats stats;
     SaveData save;
     AppScreen screen = AppScreen::Menu;
     // Remembered between GameModeMenu and applySetupComplete().
@@ -110,6 +119,10 @@ struct AppContext {
     // running game isn't actually using.
     GameOptionsMenu optionsBeforeEdit;
 
+    // saveProgress() runs once per betting phase (see mainLoopIteration);
+    // reset whenever bets close.
+    bool progressSavedThisBetting = false;
+
     AppContext() : table(3, true, 2) {}
 };
 
@@ -145,6 +158,18 @@ static bool isPauseButtonHit(AppContext& ctx, float windowX, float windowY){
     return SDL_PointInRectFloat(&p, &btn);
 }
 
+// GameOptionsMenu's current choices -> the running Table.
+static void applyOptionsToTable(AppContext& ctx){
+    ctx.table.setDealerSpeedFactor(ctx.gameOptionsMenu.dealerSpeedFactor());
+    ctx.table.setFaceDownDoubles(ctx.gameOptionsMenu.faceDownDoubles);
+    ctx.table.setHideInactiveHands(ctx.gameOptionsMenu.hideInactiveHands);
+}
+
+static void saveOptions(AppContext& ctx){
+    ctx.save.saveOptions(static_cast<int>(ctx.gameOptionsMenu.dealerSpeed),
+        ctx.gameOptionsMenu.faceDownDoubles, ctx.gameOptionsMenu.hideInactiveHands);
+}
+
 // Shared by both mouse and touch handling below: applies whichever menu
 // button was tapped/clicked. Start/Restart both go to the game-mode screen
 // first now (which deck count?), then Setup, before actually dealing;
@@ -158,6 +183,10 @@ static void applyMenuChoice(AppContext& ctx, MenuChoice choice){
         case MenuChoice::Resume:
             ctx.table.configureGameMode(static_cast<GameMode>(ctx.save.gameModeIndex));
             ctx.table.configurePlayers(ctx.save.numberOfPlayers, ctx.save.bankrolls, ctx.save.initialBets, ctx.save.sideBetSizes);
+            if(ctx.save.hasProgress)
+                ctx.table.restoreProgress(ctx.save.currentBankrolls, ctx.save.totalBuyIns);
+            ctx.gameOptionsMenu.setGameMode(static_cast<GameMode>(ctx.save.gameModeIndex));
+            applyOptionsToTable(ctx);
             ctx.table.startGame();
             ctx.screen = AppScreen::Playing;
         break;
@@ -186,6 +215,15 @@ static void applyMenuChoice(AppContext& ctx, MenuChoice choice){
             ctx.screen = AppScreen::Keyboard;
         break;
 
+        case MenuChoice::Stats:
+            ctx.screen = AppScreen::Stats;
+        break;
+
+        case MenuChoice::Tutorial:
+            ctx.tutorialMenu.open();
+            ctx.screen = AppScreen::Tutorial;
+        break;
+
         case MenuChoice::None:
         break;
     }
@@ -209,9 +247,8 @@ static void applyGameModeChoice(AppContext& ctx, GameMode mode){
 // (Setup hasn't configured players yet, but these don't depend on player
 // count, so there's no reason to wait), then move on to Setup.
 static void applyGameOptionsComplete(AppContext& ctx){
-    ctx.table.setDealerSpeedFactor(ctx.gameOptionsMenu.dealerSpeedFactor());
-    ctx.table.setFaceDownDoubles(ctx.gameOptionsMenu.faceDownDoubles);
-    ctx.table.setHideInactiveHands(ctx.gameOptionsMenu.hideInactiveHands);
+    applyOptionsToTable(ctx);
+    saveOptions(ctx);
     ctx.screen = AppScreen::Setup;
 }
 
@@ -272,6 +309,10 @@ static void applyPauseChoice(AppContext& ctx, PauseChoice choice){
             ctx.pauseState = PauseState::Keyboard;
         break;
 
+        case PauseChoice::Stats:
+            ctx.pauseState = PauseState::Stats;
+        break;
+
         case PauseChoice::Options:
             // The pre-game flow calls this via applyGameModeChoice()
             // instead, right as the mode's picked -- reopening mid-game
@@ -293,9 +334,8 @@ static void applyPauseChoice(AppContext& ctx, PauseChoice choice){
 // Table directly and drops back to the pause menu itself, instead of
 // applyGameOptionsComplete()'s own move on to Setup.
 static void applyGameOptionsFromPause(AppContext& ctx){
-    ctx.table.setDealerSpeedFactor(ctx.gameOptionsMenu.dealerSpeedFactor());
-    ctx.table.setFaceDownDoubles(ctx.gameOptionsMenu.faceDownDoubles);
-    ctx.table.setHideInactiveHands(ctx.gameOptionsMenu.hideInactiveHands);
+    applyOptionsToTable(ctx);
+    saveOptions(ctx);
     ctx.pauseState = PauseState::Menu;
 }
 
@@ -384,9 +424,16 @@ static void goBack(AppContext& ctx){
     switch(ctx.screen){
     case AppScreen::Menu:
         return;
+    case AppScreen::Tutorial:
+        // Closing it any way counts as seen -- it won't open by itself again.
+        ctx.save.saveTutorialSeen();
+        ctx.screen = AppScreen::Menu;
+        return;
     case AppScreen::GameMode:
     case AppScreen::Gestures:
     case AppScreen::Keyboard:
+    case AppScreen::Stats:
+        ctx.statsMenu.onLeave();
         // A Restart on the way here already cleared the save, so Resume
         // would have nothing to resume.
         ctx.menu.hasSavedGame = ctx.save.gameStarted;
@@ -418,6 +465,8 @@ static void goBack(AppContext& ctx){
     case PauseState::About:
     case PauseState::Gestures:
     case PauseState::Keyboard:
+    case PauseState::Stats:
+        ctx.statsMenu.onLeave();
         ctx.pauseState = PauseState::Menu;
         return;
     }
@@ -470,6 +519,18 @@ static void handleMenuClick(AppContext& ctx, float wx, float wy){
         if(ctx.keyboardMenu.handlePoint(ctx.state, wx, wy))
             goBack(ctx);
         return;
+    case AppScreen::Stats: {
+        bool changed = false;
+        if(ctx.statsMenu.handlePoint(ctx.state, wx, wy, ctx.stats, changed))
+            goBack(ctx);
+        if(changed)
+            ctx.stats.save();
+        return;
+    }
+    case AppScreen::Tutorial:
+        if(ctx.tutorialMenu.handlePoint(ctx.state, wx, wy))
+            goBack(ctx);
+        return;
     case AppScreen::Playing:
         break;
     }
@@ -496,6 +557,14 @@ static void handleMenuClick(AppContext& ctx, float wx, float wy){
         if(ctx.keyboardMenu.handlePoint(ctx.state, wx, wy))
             goBack(ctx);
         return;
+    case PauseState::Stats: {
+        bool changed = false;
+        if(ctx.statsMenu.handlePoint(ctx.state, wx, wy, ctx.stats, changed))
+            goBack(ctx);
+        if(changed)
+            ctx.stats.save();
+        return;
+    }
     case PauseState::Options:
         if(ctx.gameOptionsMenu.handleBackPoint(ctx.state, wx, wy))
             goBack(ctx);
@@ -520,6 +589,8 @@ static std::vector<SDL_FRect> currentFocusRects(AppContext& ctx){
     case AppScreen::Setup:         return ctx.setupMenu.focusRects();
     case AppScreen::Gestures:      return ctx.gesturesMenu.focusRects();
     case AppScreen::Keyboard:      return ctx.keyboardMenu.focusRects();
+    case AppScreen::Stats:         return ctx.statsMenu.focusRects();
+    case AppScreen::Tutorial:      return ctx.tutorialMenu.focusRects();
     case AppScreen::Playing:       break;
     }
     switch(ctx.pauseState){
@@ -528,6 +599,7 @@ static std::vector<SDL_FRect> currentFocusRects(AppContext& ctx){
     case PauseState::About:    return ctx.aboutMenu.focusRects();
     case PauseState::Gestures: return ctx.gesturesMenu.focusRects();
     case PauseState::Keyboard: return ctx.keyboardMenu.focusRects();
+    case PauseState::Stats:    return ctx.statsMenu.focusRects();
     case PauseState::Options:  return ctx.gameOptionsMenu.focusRects();
     case PauseState::None:     break;
     }
@@ -635,6 +707,8 @@ static SDL_Color letterboxColor(const AppContext &ctx) {
     case AppScreen::GameModeAbout:
     case AppScreen::Gestures:
     case AppScreen::Keyboard:
+    case AppScreen::Stats:
+    case AppScreen::Tutorial:
         return darkGreen;
     case AppScreen::Playing:
         break;
@@ -651,6 +725,7 @@ static SDL_Color letterboxColor(const AppContext &ctx) {
     case PauseState::About:
     case PauseState::Gestures:
     case PauseState::Keyboard:
+    case PauseState::Stats:
         return darkGreen;
     }
     return SDL_Color{0, 0, 0, 255};
@@ -740,6 +815,12 @@ static void mainLoopIteration(void *arg) {
                     ctx.focusIndex = -1;
                     handleMenuClick(ctx, event.tfinger.x * ctx.state.width, event.tfinger.y * ctx.state.height);
                 }
+            } else if(ctx.screen == AppScreen::Playing && ctx.table.isAwaitingInsurance()){
+                // Insurance/even money prompt: YES/NO buttons, not gestures.
+                if(event.type == SDL_EVENT_FINGER_UP)
+                    ctx.table.handleInsurancePoint(ctx.state,
+                        event.tfinger.x * ctx.state.width,
+                        event.tfinger.y * ctx.state.height);
             } else if(ctx.screen == AppScreen::Playing && ctx.table.isAwaitingBets()){
                 // Betting phase: raise/lower/DEAL, not gameplay gestures.
                 if(event.type == SDL_EVENT_FINGER_UP)
@@ -775,6 +856,8 @@ static void mainLoopIteration(void *arg) {
                     ctx.table.toggleQuickTip();
                 else if(ctx.screen == AppScreen::Playing && ctx.table.isCardCountToggleHit(ctx.state, event.button.x, event.button.y))
                     ctx.table.toggleCardCount();
+                else if(ctx.screen == AppScreen::Playing && ctx.table.isAwaitingInsurance())
+                    ctx.table.handleInsurancePoint(ctx.state, event.button.x, event.button.y);
                 else if(ctx.screen == AppScreen::Playing && ctx.table.isAwaitingBets())
                     ctx.table.handleBettingPoint(ctx.state, event.button.x, event.button.y);
             }
@@ -819,6 +902,26 @@ static void mainLoopIteration(void *arg) {
         ctx.table.update(deltaTime);
         ctx.table.dealDealer();
     }
+
+    // Save every seat's bankroll/bets once per betting phase, after the
+    // last round's payouts have landed -- so Resume picks up from here.
+    if(ctx.screen == AppScreen::Playing){
+        if(!ctx.table.isAwaitingBets())
+            ctx.progressSavedThisBetting = false;
+        else if(!ctx.progressSavedThisBetting && ctx.table.isSettledForSave()){
+            int current[5] = {0, 0, 0, 0, 0}, buyIns[5] = {0, 0, 0, 0, 0};
+            int bets[5] = {0, 0, 0, 0, 0}, sideBets[5] = {0, 0, 0, 0, 0};
+            for(int i = 0; i < ctx.table.getNumberOfPlayers(); i++){
+                current[i] = ctx.table.getPlayerBankroll(i);
+                buyIns[i] = ctx.table.getPlayerTotalBuyIns(i);
+                bets[i] = ctx.table.getPlayerBet(i);
+                sideBets[i] = ctx.table.getPlayerSideBet(i);
+            }
+            ctx.save.saveProgress(current, buyIns, bets, sideBets);
+            ctx.stats.save();
+            ctx.progressSavedThisBetting = true;
+        }
+    }
     else if(ctx.screen == AppScreen::GameOptions
             || (ctx.screen == AppScreen::Playing && ctx.pauseState == PauseState::Options))
         ctx.gameOptionsMenu.update(deltaTime);
@@ -847,6 +950,10 @@ static void mainLoopIteration(void *arg) {
         ctx.gesturesMenu.draw(ctx.state, ctx.res);
     else if(ctx.screen == AppScreen::Keyboard)
         ctx.keyboardMenu.draw(ctx.state, ctx.res);
+    else if(ctx.screen == AppScreen::Stats)
+        ctx.statsMenu.draw(ctx.state, ctx.res, ctx.stats);
+    else if(ctx.screen == AppScreen::Tutorial)
+        ctx.tutorialMenu.draw(ctx.state, ctx.res);
     else{
         // The table's still drawn even while paused -- frozen underneath
         // the overlay -- rather than swapped out for a blank screen.
@@ -867,6 +974,8 @@ static void mainLoopIteration(void *arg) {
             ctx.gesturesMenu.draw(ctx.state, ctx.res);
         else if(ctx.pauseState == PauseState::Keyboard)
             ctx.keyboardMenu.draw(ctx.state, ctx.res);
+        else if(ctx.pauseState == PauseState::Stats)
+            ctx.statsMenu.draw(ctx.state, ctx.res, ctx.stats);
         else if(ctx.pauseState == PauseState::Options)
             ctx.gameOptionsMenu.draw(ctx.state, ctx.res);
     }
@@ -897,6 +1006,19 @@ int main(int argc,char *argv[]) {
 
     ctx->save.load();
     ctx->menu.hasSavedGame = ctx->save.gameStarted;
+    ctx->stats.load();
+    ctx->table.setStats(&ctx->stats);
+    // First launch: open HOW TO PLAY before anything else.
+    if(!ctx->save.tutorialSeen){
+        ctx->tutorialMenu.open();
+        ctx->screen = AppScreen::Tutorial;
+    }
+    // Last-used Game Options, for Resume and for the next new game alike.
+    if(ctx->save.hasOptions){
+        ctx->gameOptionsMenu.dealerSpeed = static_cast<GameOptionsMenu::DealerSpeed>(ctx->save.dealerSpeed);
+        ctx->gameOptionsMenu.faceDownDoubles = ctx->save.faceDownDoubles;
+        ctx->gameOptionsMenu.hideInactiveHands = ctx->save.hideInactiveHands;
+    }
 
 #ifdef __EMSCRIPTEN__
     // SDL writes the window's w/h straight onto the canvas as an inline
@@ -981,7 +1103,7 @@ bool initialize(SDLState &state){
     SDL_SetHint(SDL_HINT_WINDOWS_INTRESOURCE_ICON, "1");
     SDL_SetHint(SDL_HINT_WINDOWS_INTRESOURCE_ICON_SMALL, "1");
 #endif
-    state.window = SDL_CreateWindow("Underway Blackjack",state.width,state.height,windowFlags);
+    state.window = SDL_CreateWindow("Blackjack Variants",state.width,state.height,windowFlags);
     if(!state.window){
         SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR,"Error","Error creating window",nullptr);
         cleanup(state);

@@ -194,6 +194,14 @@ public:
 		return bankroll;
 	}
 
+	// Resume (SaveData): put back a saved game's live bankroll and its
+	// break-even point, after setBankroll() has stamped the seat's
+	// original buy-in (which is still what a rebuy() adds).
+	void restoreBankroll(int current, int totalBuyIns){
+		bankroll = current;
+		initialBankroll = totalBuyIns;
+	}
+
 	// The break-even reference drawBankrolls() colors against -- despite
 	// the name, this is the running total of every buy-in so far (the
 	// original one plus every rebuy()), not just the first one. A player
