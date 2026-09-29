@@ -222,9 +222,11 @@ static void applyMenuChoice(AppContext& ctx, MenuChoice choice){
         break;
 
         case MenuChoice::Update:
-            // The release page, in the player's browser -- they download
-            // the new zip from there.
-            SDL_OpenURL(UpdateCheck::RELEASES_PAGE);
+            // Downloads and installs in the background (see UpdateCheck.h);
+            // mainLoopIteration() restarts into the new version when it's
+            // done. Where that isn't possible, the release page instead.
+            if(!ctx.update.installUpdate())
+                SDL_OpenURL(UpdateCheck::RELEASES_PAGE);
         break;
 
         case MenuChoice::Tutorial:
@@ -934,7 +936,26 @@ static void mainLoopIteration(void *arg) {
             || (ctx.screen == AppScreen::Playing && ctx.pauseState == PauseState::Options))
         ctx.gameOptionsMenu.update(deltaTime);
 
+    switch(ctx.update.installState()){
+        case UpdateCheck::Install::Done:
+            // The new files are in place: start the new copy and quit this one.
+            if(ctx.update.launchNewVersion())
+                ctx.running = false;
+            else
+                SDL_OpenURL(UpdateCheck::RELEASES_PAGE);
+            ctx.update.acknowledgeInstall();
+        break;
+        case UpdateCheck::Install::Failed:
+            // Couldn't update in place: let the player do it by hand.
+            SDL_OpenURL(UpdateCheck::RELEASES_PAGE);
+            ctx.update.acknowledgeInstall();
+        break;
+        default:
+        break;
+    }
+
     if(ctx.screen == AppScreen::Menu){
+        ctx.menu.updating = ctx.update.installState() == UpdateCheck::Install::Working;
         ctx.menu.updateVersion = ctx.update.updateAvailable() ? ctx.update.latestVersion() : "";
         ctx.menu.currentVersion = UpdateCheck::isDevBuild() ? "" : UpdateCheck::currentVersion();
     }

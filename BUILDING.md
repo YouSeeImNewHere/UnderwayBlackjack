@@ -168,12 +168,20 @@ It always points to the newest release. For the next version, repeat with
 
 ### How Windows players get updates
 
-The Windows game checks for updates by itself. Each time it starts, it asks
-GitHub what the latest release is. If that's newer than the copy they're
-running, the main menu shows a gold **UPDATE TO V1.1** button. It opens the
-release page, where they download the new zip and unzip it over the old
-folder. Saved games and stats live elsewhere (in `%APPDATA%`), so they carry
-over.
+The Windows game updates itself. Each time it starts, it asks GitHub what
+the latest release is. If that's newer than the copy they're running, the
+main menu shows a gold **UPDATE TO V1.4** button. Pressing it downloads the
+release's zip, puts the new files in the game's folder, and restarts into the
+new version, usually within a few seconds. Saved games and stats live
+elsewhere (in `%APPDATA%`), so they carry over.
+
+If the update can't install itself, for example with no internet or with the
+game in a folder Windows won't let it write to such as `Program Files`, the
+button opens the release page instead. The player downloads the zip there
+and unzips it over the old folder.
+
+Copies from v1.3 and earlier only open the release page, so players on those
+need to download the new zip by hand once.
 
 For this to work:
 
