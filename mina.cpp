@@ -349,6 +349,49 @@ extern "C" EMSCRIPTEN_KEEPALIVE void onBrowserResize() {
 }
 #endif
 
+// Color for the letterbox bars around the fixed 1440x720 canvas (visible on
+// wider screens like modern phones). SDL_RenderClear fills the whole window,
+// bars included, so clearing with each screen's own edge color makes the
+// screen look like it runs edge to edge instead of leaving the bars white
+// (whatever draw color happened to be left over from last frame). Keep in
+// sync with each menu's background SDL_RenderFillRect color.
+static SDL_Color letterboxColor(const AppContext &ctx) {
+    const SDL_Color darkGreen{10, 30, 15, 255};   // About, Gestures, StrategyChart
+    const SDL_Color menuGreen{20, 70, 35, 255};   // Menu, GameMode, GameOptions
+    const SDL_Color setupGreen{15, 55, 28, 255};  // SetupMenu
+    const SDL_Color tableRail{86, 57, 15, 255};   // Table5Player.png's outer edge
+    // tableRail under PauseMenu's 165-alpha black overlay
+    const SDL_Color tableRailPaused{30, 20, 5, 255};
+
+    switch(ctx.screen){
+    case AppScreen::Menu:
+    case AppScreen::GameMode:
+    case AppScreen::GameOptions:
+        return menuGreen;
+    case AppScreen::Setup:
+        return setupGreen;
+    case AppScreen::GameModeAbout:
+    case AppScreen::Gestures:
+        return darkGreen;
+    case AppScreen::Playing:
+        break;
+    }
+
+    switch(ctx.pauseState){
+    case PauseState::None:
+        return tableRail;
+    case PauseState::Menu:
+        return tableRailPaused;
+    case PauseState::Options:
+        return menuGreen;
+    case PauseState::Strategy:
+    case PauseState::About:
+    case PauseState::Gestures:
+        return darkGreen;
+    }
+    return SDL_Color{0, 0, 0, 255};
+}
+
 static void mainLoopIteration(void *arg) {
     AppContext &ctx = *static_cast<AppContext *>(arg);
 
@@ -580,6 +623,8 @@ static void mainLoopIteration(void *arg) {
         ctx.gameOptionsMenu.update(deltaTime);
 
     // perform drawing commands
+    SDL_Color clearColor = letterboxColor(ctx);
+    SDL_SetRenderDrawColor(ctx.state.renderer, clearColor.r, clearColor.g, clearColor.b, clearColor.a);
     SDL_RenderClear(ctx.state.renderer);
     if(ctx.screen == AppScreen::Menu)
         ctx.menu.draw(ctx.state, ctx.res);
