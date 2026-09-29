@@ -59,12 +59,14 @@ jobs:
       # -allowProvisioningUpdates + the API key lets Xcode create/download
       # the signing certificate and provisioning profile itself, so no
       # certificates have to be exported from a Mac and stored as secrets.
+      # RelWithDebInfo (optimized + debug info) rather than Release, so the
+      # archive has a dSYM and TestFlight crash reports get symbol names.
       - name: Archive
         run: |
           xcodebuild archive \
             -project build-ios/UnderwayBlackjack.xcodeproj \
             -scheme UnderwayBlackjack \
-            -configuration Release \
+            -configuration RelWithDebInfo \
             -destination 'generic/platform=iOS' \
             -archivePath "$RUNNER_TEMP/UnderwayBlackjack.xcarchive" \
             -allowProvisioningUpdates \
