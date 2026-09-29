@@ -20,7 +20,7 @@ jobs:
       # Has to go up on every upload; run_attempt keeps re-runs unique too.
       BUILD_NUMBER: ${{ github.run_number }}.${{ github.run_attempt }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Check secrets are set
         env:
