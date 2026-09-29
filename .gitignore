@@ -29,3 +29,7 @@ nul
 # CMake / iOS build output
 build/
 build-*/
+
+# Android signing keys: never commit these (see BUILDING.md, Signing)
+*.jks
+*.keystore
