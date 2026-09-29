@@ -9,9 +9,11 @@ WHITE = (245, 245, 245, 255)
 FONT_CANDIDATES_BOLD = [
     r"C:\Windows\Fonts\arialbd.ttf",
     r"C:\Windows\Fonts\arial.ttf",
+    "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
 ]
 FONT_CANDIDATES_REGULAR = [
     r"C:\Windows\Fonts\arial.ttf",
+    "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
 ]
 
 def load_font(candidates, size):
@@ -43,8 +45,8 @@ tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
 draw.text((140 - bbox[0], H / 2 - th / 2 - bbox[1]), text, font=big_font, fill=WHITE)
 
 # Title + subtitle, right side
-title = "Underway"
-title2 = "Blackjack"
+title = "Blackjack"
+title2 = "Variants"
 subtitle = "Play in your browser"
 
 block_x = 460

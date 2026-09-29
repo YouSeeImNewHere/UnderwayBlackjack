@@ -1,4 +1,4 @@
-// Android build of Underway Blackjack. Based on SDL's own android-project
+// Android build of Blackjack Variants. Based on SDL's own android-project
 // template (release-3.4.16): the Java activity code under
 // app/src/main/java/org/libsdl/app is copied from it unchanged, and the
 // game's C++ is built by the repo-root CMakeLists.txt. See BUILDING.md.

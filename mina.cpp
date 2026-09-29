@@ -1103,7 +1103,7 @@ bool initialize(SDLState &state){
     SDL_SetHint(SDL_HINT_WINDOWS_INTRESOURCE_ICON, "1");
     SDL_SetHint(SDL_HINT_WINDOWS_INTRESOURCE_ICON_SMALL, "1");
 #endif
-    state.window = SDL_CreateWindow("Underway Blackjack",state.width,state.height,windowFlags);
+    state.window = SDL_CreateWindow("Blackjack Variants",state.width,state.height,windowFlags);
     if(!state.window){
         SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR,"Error","Error creating window",nullptr);
         cleanup(state);

@@ -22,7 +22,7 @@ exactly where described, it's nearby with a similar name.
 2. Click the blue **+** next to "Identifiers".
 3. Select **App IDs** → **Continue**.
 4. Select **App** → **Continue**.
-5. **Description:** `Underway Blackjack`.
+5. **Description:** `Blackjack Variants`.
    **Bundle ID:** leave **Explicit** selected and enter
    `com.youseeimnewhere.underwayblackjack` exactly.
 6. Leave every capability unchecked → **Continue** → **Register**.
@@ -35,11 +35,11 @@ exactly where described, it's nearby with a similar name.
 3. Click the blue **+** next to "Apps" → **New App**.
 4. Fill in:
    - **Platforms:** check **iOS**
-   - **Name:** `Underway Blackjack`. This has to be unique across the whole
-     App Store; if it's taken, try something like `Underway Blackjack 21`.
+   - **Name:** `Blackjack Variants`. This has to be unique across the whole
+     App Store; if it's taken, try something like `Blackjack Variants 21`.
      It's only the store name and can be changed later.
    - **Primary Language:** English (U.S.)
-   - **Bundle ID:** pick `Underway Blackjack - com.youseeimnewhere.underwayblackjack`
+   - **Bundle ID:** pick `Blackjack Variants - com.youseeimnewhere.underwayblackjack`
      (it appears after step 2; refresh if not)
    - **SKU:** `underwayblackjack`
    - **User Access:** Full Access

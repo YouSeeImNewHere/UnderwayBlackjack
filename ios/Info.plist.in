@@ -5,7 +5,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
 	<key>CFBundleDisplayName</key>
-	<string>Underway Blackjack</string>
+	<string>Blackjack Variants</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -27,9 +27,9 @@
 	     static check (ITMS-90683) passes if a framework still references
 	     these APIs. -->
 	<key>NSCameraUsageDescription</key>
-	<string>Underway Blackjack does not use the camera.</string>
+	<string>Blackjack Variants does not use the camera.</string>
 	<key>NSBluetoothAlwaysUsageDescription</key>
-	<string>Underway Blackjack does not use Bluetooth.</string>
+	<string>Blackjack Variants does not use Bluetooth.</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 	<key>UILaunchStoryboardName</key>
