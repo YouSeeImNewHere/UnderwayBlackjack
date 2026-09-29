@@ -2427,6 +2427,12 @@ private:
 
 		angle -= (request.doubleHand) ? 90 : 0;
 
+		// The cut card goes straight from the shoe to the discard pile,
+		// never through anyone's seat -- slide it flat instead of
+		// spinning it in from the dealer seat's 180 degrees.
+		if(card.getValue() == 14)
+			angle = 0;
+
 		cardAnimation.emplace(CardAnimation{
 			.card = card,
 			.start = request.from,
@@ -2445,7 +2451,9 @@ private:
 			// too makes the setting actually visible on every single deal,
 			// which is also what GameOptionsMenu's own live demo card
 			// needs to be demonstrating in the first place.
-			.duration = (request.discard ? DISCARD_DURATION : DEAL_DURATION) * dealerSpeedFactor,
+			// The cut card flies at deal speed, not the quicker discard
+			// sweep speed, so it's actually noticeable.
+			.duration = (request.discard && card.getValue() != 14 ? DISCARD_DURATION : DEAL_DURATION) * dealerSpeedFactor,
 			.playerIndex = request.playerIndex,
 			.handIndex = request.handIndex,
 			.split = request.split,
@@ -3282,11 +3290,23 @@ private:
 		shoe.erase(shoe.begin());
 
 		if(c.getValue() == 14){
+			// Flies face-up from the shoe to the discard pile (queued
+			// ahead of whatever card the caller is about to deal, so it
+			// goes first) and stays on top of the pile, yellow, until the
+			// next discard covers it -- a visible "reshuffle after this
+			// round" signal instead of vanishing silently.
 			shoeNeedsReshuffle = true;
-			c.showCard(false);
+			c.showCard(true);
 			c.setRotation(0);
-			c.setPostion(discardPosition);
-			discard.push_back(c);
+			dealQueue.push(DealRequest{
+				.playerIndex = -1,
+				.isDealer = true,
+				.discard = true,
+				.showCard = true,
+				.from = shoePosition,
+				.to = discardPosition,
+				.card = c,
+			});
 			return getNextCard();
 		}
 

@@ -30,12 +30,18 @@ public:
 				.h = 70
 			};
 		}
-		this->src = SDL_FRect{
-			.x = static_cast<float> (value) * 50,
-			.y = static_cast<float> (suit) * 70,
-			.w = 50,
-			.h = 70
-		};
+		// Only real cards index the sheet by value/suit -- this used to
+		// run unconditionally, overwriting the yellow card's own src above
+		// with x=700 (off the right edge of Cards.png), so a face-up cut
+		// card drew nothing at all.
+		else{
+			this->src = SDL_FRect{
+				.x = static_cast<float> (value) * 50,
+				.y = static_cast<float> (suit) * 70,
+				.w = 50,
+				.h = 70
+			};
+		}
 	}
 
 	void setPostion(SDL_FPoint postion){
