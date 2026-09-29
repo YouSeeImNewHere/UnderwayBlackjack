@@ -655,6 +655,14 @@ public:
 
 	int getNumberOfPlayers(){ return numberOfPlayers; }
 	int getPlayerBankroll(int i){ return players[i].getBankroll(); }
+	int getPlayerTotalBuyIns(int i){ return players[i].getInitialBankroll(); }
+
+	// Resume: after configurePlayers() has seated everyone at their
+	// original buy-in, put back where each bankroll had actually got to.
+	void restoreProgress(const int current[5], const int totalBuyIns[5]){
+		for(int i = 0; i < numberOfPlayers; i++)
+			players[i].restoreBankroll(current[i], totalBuyIns[i]);
+	}
 	int getPlayerBet(int i){ return players[i].getBet(); }
 	// The per-seat side-bet size, in the same terms configurePlayers()
 	// takes it (Player's Edge's two Match bets are seeded equal).

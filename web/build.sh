@@ -29,7 +29,7 @@ em++ \
     "$LIBS_DIR/lib/libpng16.a" \
     "$LIBS_DIR/lib/libzlibstatic.a" \
     --preload-file "$PROJECT_DIR/Cards.png@Cards.png" \
-    --preload-file "$PROJECT_DIR/Table.png@Table.png" \
+    --preload-file "$PROJECT_DIR/Table5Player.png@Table5Player.png" \
     --preload-file "$PROJECT_DIR/Arrow.png@Arrow.png" \
     --preload-file "$PROJECT_DIR/Chips.png@Chips.png" \
     --shell-file "$SCRIPT_DIR/shell.html" \

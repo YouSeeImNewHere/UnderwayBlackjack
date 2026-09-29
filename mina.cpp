@@ -110,6 +110,10 @@ struct AppContext {
     // running game isn't actually using.
     GameOptionsMenu optionsBeforeEdit;
 
+    // saveProgress() runs once per betting phase (see mainLoopIteration);
+    // reset whenever bets close.
+    bool progressSavedThisBetting = false;
+
     AppContext() : table(3, true, 2) {}
 };
 
@@ -145,6 +149,18 @@ static bool isPauseButtonHit(AppContext& ctx, float windowX, float windowY){
     return SDL_PointInRectFloat(&p, &btn);
 }
 
+// GameOptionsMenu's current choices -> the running Table.
+static void applyOptionsToTable(AppContext& ctx){
+    ctx.table.setDealerSpeedFactor(ctx.gameOptionsMenu.dealerSpeedFactor());
+    ctx.table.setFaceDownDoubles(ctx.gameOptionsMenu.faceDownDoubles);
+    ctx.table.setHideInactiveHands(ctx.gameOptionsMenu.hideInactiveHands);
+}
+
+static void saveOptions(AppContext& ctx){
+    ctx.save.saveOptions(static_cast<int>(ctx.gameOptionsMenu.dealerSpeed),
+        ctx.gameOptionsMenu.faceDownDoubles, ctx.gameOptionsMenu.hideInactiveHands);
+}
+
 // Shared by both mouse and touch handling below: applies whichever menu
 // button was tapped/clicked. Start/Restart both go to the game-mode screen
 // first now (which deck count?), then Setup, before actually dealing;
@@ -158,6 +174,10 @@ static void applyMenuChoice(AppContext& ctx, MenuChoice choice){
         case MenuChoice::Resume:
             ctx.table.configureGameMode(static_cast<GameMode>(ctx.save.gameModeIndex));
             ctx.table.configurePlayers(ctx.save.numberOfPlayers, ctx.save.bankrolls, ctx.save.initialBets, ctx.save.sideBetSizes);
+            if(ctx.save.hasProgress)
+                ctx.table.restoreProgress(ctx.save.currentBankrolls, ctx.save.totalBuyIns);
+            ctx.gameOptionsMenu.setGameMode(static_cast<GameMode>(ctx.save.gameModeIndex));
+            applyOptionsToTable(ctx);
             ctx.table.startGame();
             ctx.screen = AppScreen::Playing;
         break;
@@ -209,9 +229,8 @@ static void applyGameModeChoice(AppContext& ctx, GameMode mode){
 // (Setup hasn't configured players yet, but these don't depend on player
 // count, so there's no reason to wait), then move on to Setup.
 static void applyGameOptionsComplete(AppContext& ctx){
-    ctx.table.setDealerSpeedFactor(ctx.gameOptionsMenu.dealerSpeedFactor());
-    ctx.table.setFaceDownDoubles(ctx.gameOptionsMenu.faceDownDoubles);
-    ctx.table.setHideInactiveHands(ctx.gameOptionsMenu.hideInactiveHands);
+    applyOptionsToTable(ctx);
+    saveOptions(ctx);
     ctx.screen = AppScreen::Setup;
 }
 
@@ -293,9 +312,8 @@ static void applyPauseChoice(AppContext& ctx, PauseChoice choice){
 // Table directly and drops back to the pause menu itself, instead of
 // applyGameOptionsComplete()'s own move on to Setup.
 static void applyGameOptionsFromPause(AppContext& ctx){
-    ctx.table.setDealerSpeedFactor(ctx.gameOptionsMenu.dealerSpeedFactor());
-    ctx.table.setFaceDownDoubles(ctx.gameOptionsMenu.faceDownDoubles);
-    ctx.table.setHideInactiveHands(ctx.gameOptionsMenu.hideInactiveHands);
+    applyOptionsToTable(ctx);
+    saveOptions(ctx);
     ctx.pauseState = PauseState::Menu;
 }
 
@@ -819,6 +837,25 @@ static void mainLoopIteration(void *arg) {
         ctx.table.update(deltaTime);
         ctx.table.dealDealer();
     }
+
+    // Save every seat's bankroll/bets once per betting phase, after the
+    // last round's payouts have landed -- so Resume picks up from here.
+    if(ctx.screen == AppScreen::Playing){
+        if(!ctx.table.isAwaitingBets())
+            ctx.progressSavedThisBetting = false;
+        else if(!ctx.progressSavedThisBetting && ctx.table.isSettledForSave()){
+            int current[5] = {0, 0, 0, 0, 0}, buyIns[5] = {0, 0, 0, 0, 0};
+            int bets[5] = {0, 0, 0, 0, 0}, sideBets[5] = {0, 0, 0, 0, 0};
+            for(int i = 0; i < ctx.table.getNumberOfPlayers(); i++){
+                current[i] = ctx.table.getPlayerBankroll(i);
+                buyIns[i] = ctx.table.getPlayerTotalBuyIns(i);
+                bets[i] = ctx.table.getPlayerBet(i);
+                sideBets[i] = ctx.table.getPlayerSideBet(i);
+            }
+            ctx.save.saveProgress(current, buyIns, bets, sideBets);
+            ctx.progressSavedThisBetting = true;
+        }
+    }
     else if(ctx.screen == AppScreen::GameOptions
             || (ctx.screen == AppScreen::Playing && ctx.pauseState == PauseState::Options))
         ctx.gameOptionsMenu.update(deltaTime);
@@ -897,6 +934,12 @@ int main(int argc,char *argv[]) {
 
     ctx->save.load();
     ctx->menu.hasSavedGame = ctx->save.gameStarted;
+    // Last-used Game Options, for Resume and for the next new game alike.
+    if(ctx->save.hasOptions){
+        ctx->gameOptionsMenu.dealerSpeed = static_cast<GameOptionsMenu::DealerSpeed>(ctx->save.dealerSpeed);
+        ctx->gameOptionsMenu.faceDownDoubles = ctx->save.faceDownDoubles;
+        ctx->gameOptionsMenu.hideInactiveHands = ctx->save.hideInactiveHands;
+    }
 
 #ifdef __EMSCRIPTEN__
     // SDL writes the window's w/h straight onto the canvas as an inline
