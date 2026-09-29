@@ -1,12 +1,14 @@
 # Builds the Android app from android/ (which compiles the same C++ via the
 # repo-root CMakeLists.txt).
-#   - Always: a debug APK you can install straight onto a phone
-#     (artifact "UnderwayBlackjack-android-apk").
-#   - When the upload-key secrets are set: a signed release App Bundle
-#     (.aab) for Google Play (artifact "UnderwayBlackjack-android-aab").
-#   - On a v* tag: the APK is also attached to that GitHub Release as
-#     UnderwayBlackjack-android.apk.
-# See BUILDING.md.
+#   - Every push: a debug APK for quick testing (artifact
+#     "UnderwayBlackjack-android-apk"). It installs as a separate app,
+#     "Blackjack Variants (dev)", and is signed with a throwaway key.
+#   - A v* tag (a GitHub Release): a release APK signed with YOUR upload key,
+#     attached to the release as UnderwayBlackjack-android.apk, plus a
+#     signed App Bundle (.aab) for Google Play. Every release must be signed
+#     with the same key, or Android (and Obtainium) refuse to install it as
+#     an update -- so a tag build fails, loudly, if the key secrets are
+#     missing. See BUILDING.md for making the key and adding the secrets.
 name: Android build
 
 on:
@@ -34,41 +36,44 @@ jobs:
 
       - name: Build debug APK
         working-directory: android
-        run: ./gradlew --no-daemon assembleDebug -PversionCode=$VERSION_CODE
+        run: ./gradlew --no-daemon assembleDebug -PversionCode=$VERSION_CODE -PversionName=dev
 
       - uses: actions/upload-artifact@v5
         with:
           name: UnderwayBlackjack-android-apk
           path: android/app/build/outputs/apk/debug/app-debug.apk
 
-      - name: Attach APK to release
+      - name: Build signed release APK and bundle
         if: startsWith(github.ref, 'refs/tags/v')
-        run: cp android/app/build/outputs/apk/debug/app-debug.apk UnderwayBlackjack-android.apk
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        working-directory: android
+        run: |
+          if [ -z "$KEYSTORE_BASE64" ] || [ -z "$KEYSTORE_PASSWORD" ] || [ -z "$KEY_ALIAS" ] || [ -z "$KEY_PASSWORD" ]; then
+            echo "::error::Release APKs must be signed with your upload key, or phones can't update from one release to the next. Add the ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS and ANDROID_KEY_PASSWORD secrets (see BUILDING.md), then re-run this workflow."
+            exit 1
+          fi
+          VERSION_NAME="${GITHUB_REF_NAME#v}"
+          echo "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/upload.jks"
+          ./gradlew --no-daemon assembleRelease bundleRelease \
+            -PversionCode=$VERSION_CODE -PversionName="$VERSION_NAME" \
+            -PuploadStoreFile="$RUNNER_TEMP/upload.jks" \
+            -PuploadStorePassword="$KEYSTORE_PASSWORD" \
+            -PuploadKeyAlias="$KEY_ALIAS" \
+            -PuploadKeyPassword="$KEY_PASSWORD"
+          rm -f "$RUNNER_TEMP/upload.jks"
+          cp app/build/outputs/apk/release/app-release.apk ../UnderwayBlackjack-android.apk
 
       - if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
           files: UnderwayBlackjack-android.apk
 
-      - name: Build signed release bundle
-        env:
-          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
-          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-        if: env.KEYSTORE_BASE64 != ''
-        working-directory: android
-        run: |
-          echo "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/upload.jks"
-          ./gradlew --no-daemon bundleRelease -PversionCode=$VERSION_CODE \
-            -PuploadStoreFile="$RUNNER_TEMP/upload.jks" \
-            -PuploadStorePassword="$KEYSTORE_PASSWORD" \
-            -PuploadKeyAlias="$KEY_ALIAS" \
-            -PuploadKeyPassword="$KEY_PASSWORD"
-          rm -f "$RUNNER_TEMP/upload.jks"
-
       - uses: actions/upload-artifact@v5
-        if: hashFiles('android/app/build/outputs/bundle/release/app-release.aab') != ''
+        if: startsWith(github.ref, 'refs/tags/v')
         with:
           name: UnderwayBlackjack-android-aab
           path: android/app/build/outputs/bundle/release/app-release.aab

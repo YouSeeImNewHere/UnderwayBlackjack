@@ -53,16 +53,61 @@ unchanged, and the game's C++ comes from the root `CMakeLists.txt`.
 
 ### Install it on your phone (no Play Store)
 
+For players, the easy way is the APK attached to each
+[release](#releases-a-download-page-for-everyone): open
+<https://github.com/YouSeeImNewHere/UnderwayBlackjack/releases/latest> on the
+phone, tap `UnderwayBlackjack-android.apk`, allow installs from the browser
+when Android asks, and tap **Install**. Release APKs are signed with your
+upload key (see [Signing](#signing-set-this-up-before-your-next-release)), so
+each new release installs over the last one as an update. That also makes
+them work with update apps like [Obtainium](https://obtainium.imranr.dev/):
+add the repository URL and it picks up every new release.
+
+To test a commit that isn't released yet:
+
 1. Open <https://github.com/YouSeeImNewHere/UnderwayBlackjack/actions> and
    click **Android build**, then the newest green run.
 2. Under **Artifacts**, download **UnderwayBlackjack-android-apk**. It's a
    zip containing `app-debug.apk`.
 3. Get `app-debug.apk` onto the phone, for example by emailing it to yourself
    or putting it in Google Drive, then tap it on the phone.
-4. Android asks to allow installing apps from that source (Chrome, Drive,
-   Files…). Allow it, then tap **Install**.
 
-Anyone can install that APK the same way.
+This test build installs as a separate app, **Blackjack Variants (dev)**,
+next to the real one, with its own saved game. Each build machine signs it
+with its own throwaway key, so to install a newer test build you may need to
+uninstall the old test build first.
+
+### Signing: set this up before your next release
+
+Android only installs an update when it's signed with the same key as the
+installed copy. Tagging a release fails with an error until these are set up.
+You only do this once, and you must keep the file and passwords safe forever:
+if you lose them, players can't update and have to uninstall and reinstall.
+
+1. **Create an upload key.** You need `keytool`, which comes with Java or
+   Android Studio (on Windows, Android Studio's copy is in
+   `C:\Program Files\Android\Android Studio\jbr\bin`). In a terminal run:
+   ```
+   keytool -genkeypair -v -keystore upload.jks -alias upload -keyalg RSA -keysize 2048 -validity 10000
+   ```
+   It asks for a password and some name fields. Back up `upload.jks` and the
+   password somewhere safe, such as a password manager. Never commit it.
+2. **Add four repository secrets** at
+   <https://github.com/YouSeeImNewHere/UnderwayBlackjack/settings/secrets/actions>
+   (**New repository secret** for each):
+
+   | Name | Value |
+   | --- | --- |
+   | `ANDROID_KEYSTORE_BASE64` | The keystore file as base64. Git Bash: `base64 -w0 upload.jks`. PowerShell: `[Convert]::ToBase64String([IO.File]::ReadAllBytes("upload.jks"))` |
+   | `ANDROID_KEYSTORE_PASSWORD` | The keystore password |
+   | `ANDROID_KEY_ALIAS` | `upload` |
+   | `ANDROID_KEY_PASSWORD` | The key password. If keytool didn't ask separately, it's the same as the keystore password |
+
+Releases v1.0 to v1.2 were signed with throwaway debug keys, a different one
+each time, so phones can't update from them. Anyone who installed one of
+those has to uninstall it once (that clears its saved game and stats) and
+install the first release made after the secrets are added. Updates work
+normally from then on.
 
 ### Build it yourself
 
@@ -76,36 +121,20 @@ From a terminal it's `./gradlew assembleDebug` inside `android/` (on Windows,
 
 ### Publishing on Google Play
 
-Google Play takes a signed **App Bundle** (`.aab`), not the debug APK.
+Google Play takes a signed **App Bundle** (`.aab`), not an APK.
 
 1. **Make a Google Play developer account** at
    <https://play.google.com/console/signup>. It's a one-time $25 fee.
-2. **Create an upload key.** You only do this once, and you must keep the
-   file and passwords safe: every future update has to be signed with the
-   same key. With Android Studio installed, run this in a terminal:
-   ```
-   keytool -genkeypair -v -keystore upload.jks -alias upload -keyalg RSA -keysize 2048 -validity 10000
-   ```
-   It asks for a password and some name fields.
-3. **Add four repository secrets** at
-   <https://github.com/YouSeeImNewHere/UnderwayBlackjack/settings/secrets/actions>:
-
-   | Name | Value |
-   | --- | --- |
-   | `ANDROID_KEYSTORE_BASE64` | The keystore file as base64. Git Bash: `base64 -w0 upload.jks`. PowerShell: `[Convert]::ToBase64String([IO.File]::ReadAllBytes("upload.jks"))` |
-   | `ANDROID_KEYSTORE_PASSWORD` | The keystore password |
-   | `ANDROID_KEY_ALIAS` | `upload` |
-   | `ANDROID_KEY_PASSWORD` | The key password. If keytool didn't ask separately, it's the same as the keystore password |
-
-4. **Get the bundle.** The next **Android build** run also produces
+2. **Set up signing** as described [above](#signing-set-this-up-before-your-next-release).
+3. **Get the bundle.** Each release's **Android build** run also produces
    **UnderwayBlackjack-android-aab**. Download it and unzip `app-release.aab`.
-5. **Upload it.** In Play Console: **Create app**, then **Testing → Internal
+4. **Upload it.** In Play Console: **Create app**, then **Testing → Internal
    testing → Create new release**, and upload `app-release.aab`. Internal
    testing is Google Play's version of TestFlight: add testers by email and
    send them the opt-in link.
 
-The version code goes up automatically with each workflow run. Change
-`versionName` in `android/app/build.gradle` for a new user-facing version.
+The version code goes up automatically with each workflow run, and the
+version name comes from the release tag (`v1.3` becomes `1.3`).
 
 ## Releases: a download page for everyone
 
@@ -119,7 +148,9 @@ Windows and Android workflows, which attach:
 
 To publish one:
 
-1. Make sure the code you want is merged into `master`.
+1. Make sure the code you want is merged into `master`, and that the Android
+   [signing secrets](#signing-set-this-up-before-your-next-release) are set
+   up. Without them the Android build fails and the release gets no APK.
 2. Go to <https://github.com/YouSeeImNewHere/UnderwayBlackjack/releases/new>.
 3. Click **Choose a tag**, type a new version like `v1.0`, and click
    **Create new tag: v1.0 on publish**. It must start with `v`. **Target**

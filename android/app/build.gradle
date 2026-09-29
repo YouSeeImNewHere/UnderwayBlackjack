@@ -2,9 +2,12 @@ plugins {
     id 'com.android.application'
 }
 
-// Bump versionName for each release; versionCode must go up on every
-// upload to Google Play (CI passes the run number as -PversionCode=N).
+// CI passes both: versionCode (the run number -- it must go up on every
+// update, or Android and Google Play refuse it) and versionName (the
+// release tag without its "v", e.g. 1.2, so update tools like Obtainium
+// see the same version as the GitHub release).
 def appVersionCode = project.hasProperty('versionCode') ? project.property('versionCode').toInteger() : 1
+def appVersionName = project.hasProperty('versionName') ? project.property('versionName') : "dev"
 
 android {
     namespace = "com.youseeimnewhere.underwayblackjack"
@@ -16,7 +19,9 @@ android {
         minSdkVersion 21
         targetSdkVersion 35
         versionCode appVersionCode
-        versionName "1.0"
+        versionName appVersionName
+        // The home-screen name (the debug build type overrides it below).
+        resValue "string", "app_name", "Blackjack Variants"
         externalNativeBuild {
             cmake {
                 arguments "-DANDROID_PLATFORM=android-21", "-DANDROID_STL=c++_static"
@@ -43,6 +48,14 @@ android {
     }
 
     buildTypes {
+        // Debug builds (every push's test APK) install as a separate app,
+        // "Blackjack Variants (dev)", so they never clash with the release
+        // install -- each CI machine signs debug builds with its own
+        // throwaway key, which Android won't accept as an update.
+        debug {
+            applicationIdSuffix ".dev"
+            resValue "string", "app_name", "Blackjack Variants (dev)"
+        }
         release {
             minifyEnabled false
             signingConfig project.hasProperty('uploadStoreFile') ? signingConfigs.release : signingConfigs.debug
