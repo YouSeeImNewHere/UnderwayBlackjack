@@ -2,13 +2,15 @@
 #include "Game.h"
 #include "DigitFont.h"
 #include <string>
+#include <vector>
 
 enum class MenuChoice{
 	None,
 	Start,
 	Resume,
 	Restart,
-	Gestures
+	Gestures,
+	Keyboard
 };
 
 // The very first thing the player sees.
@@ -32,6 +34,7 @@ public:
 		}
 
 		drawButton(state, gesturesButton, SDL_Color{60, 90, 150, 255}, "GESTURES");
+		drawButton(state, keyboardButton, SDL_Color{110, 90, 60, 255}, "KEYBOARD");
 	}
 
 	// windowX/windowY: raw event coordinates in window space (SDL_EVENT_
@@ -58,8 +61,18 @@ public:
 
 		if(SDL_PointInRectFloat(&p, &gesturesButton))
 			return MenuChoice::Gestures;
+		if(SDL_PointInRectFloat(&p, &keyboardButton))
+			return MenuChoice::Keyboard;
 
 		return MenuChoice::None;
+	}
+
+	// Every button currently on screen, for mina.cpp's arrow-key
+	// navigation (it "clicks" the highlighted one via handlePoint()).
+	std::vector<SDL_FRect> focusRects(){
+		if(hasSavedGame)
+			return { resumeButton, restartButton, gesturesButton, keyboardButton };
+		return { startButton, gesturesButton, keyboardButton };
 	}
 
 private:
@@ -67,6 +80,7 @@ private:
 	SDL_FRect resumeButton{ .x = 570, .y = 260, .w = 300, .h = 80 };
 	SDL_FRect restartButton{ .x = 570, .y = 370, .w = 300, .h = 80 };
 	SDL_FRect gesturesButton{ .x = 570, .y = 470, .w = 300, .h = 70 };
+	SDL_FRect keyboardButton{ .x = 570, .y = 555, .w = 300, .h = 70 };
 
 	void drawButton(SDLState& state, const SDL_FRect& rect, SDL_Color color, const std::string& label){
 		SDL_SetRenderDrawColor(state.renderer, color.r, color.g, color.b, color.a);

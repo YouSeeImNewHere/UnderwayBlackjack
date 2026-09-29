@@ -55,6 +55,10 @@ public:
 		return SDL_PointInRectFloat(&p, &backButton);
 	}
 
+	std::vector<SDL_FRect> focusRects(){
+		return { backButton };
+	}
+
 private:
 	static constexpr float COLUMN_W = 620.0f;
 	// Was 4.0f -- DigitFont's 5-wide glyphs run ~50% wider per character

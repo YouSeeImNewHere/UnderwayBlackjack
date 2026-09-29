@@ -4,6 +4,7 @@
 #include "GameModeMenu.h"
 #include <string>
 #include <algorithm>
+#include <vector>
 
 // The vertical setup screen shown before a fresh game (Start or Restart off
 // the main menu -- Resume skips this entirely and reuses whatever was saved
@@ -98,6 +99,68 @@ public:
 		drawButton(state, go, SDL_Color{60, 130, 70, 255});
 		float goW = DigitFont::textWidth("GO", 8.0f);
 		DigitFont::drawText(state, "GO", go.x + (go.w - goW) / 2.0f, go.y + (go.h - 5 * 8.0f) / 2.0f, 8.0f, WHITE);
+
+		SDL_FRect back = backButton(endIdx - startIdx);
+		drawButton(state, back, SDL_Color{80, 80, 80, 255});
+		float backW = DigitFont::textWidth("BACK", 6.0f);
+		DigitFont::drawText(state, "BACK", back.x + (back.w - backW) / 2.0f, back.y + (back.h - 5 * 6.0f) / 2.0f, 6.0f, WHITE);
+	}
+
+	// True when BACK is hit -- mina.cpp decides where back goes.
+	bool handleBackPoint(SDLState& state, float windowX, float windowY){
+		float x, y;
+		if(!SDL_RenderCoordinatesFromWindow(state.renderer, windowX, windowY, &x, &y))
+			return false;
+
+		SDL_FPoint p{x, y};
+		playerPage = clampedPage();
+		int startIdx = playerPage * 3;
+		int endIdx = std::min(numberOfPlayers, startIdx + 3);
+		SDL_FRect back = backButton(endIdx - startIdx);
+		return SDL_PointInRectFloat(&p, &back);
+	}
+
+	// Every control currently on screen, for mina.cpp's arrow-key
+	// navigation -- mirrors what handlePoint()/handlePlayerRowPoint()
+	// actually respond to (e.g. BANK +/- only while CALC is off).
+	std::vector<SDL_FRect> focusRects(){
+		std::vector<SDL_FRect> rects;
+		Stepper players = playersStepper();
+		rects.push_back(players.minus);
+		rects.push_back(players.plus);
+
+		playerPage = clampedPage();
+		if(maxPage() > 0){
+			rects.push_back(pagePrevButton());
+			rects.push_back(pageNextButton());
+		}
+
+		int startIdx = playerPage * 3;
+		int endIdx = std::min(numberOfPlayers, startIdx + 3);
+		for(int i = startIdx; i < endIdx; i++){
+			int row = i - startIdx;
+			if(!playerConfigs[i].useCalculator){
+				Stepper bank = bankStepper(row);
+				rects.push_back(bank.minus);
+				rects.push_back(bank.plus);
+			}
+			Stepper bet = betStepper(row);
+			rects.push_back(bet.minus);
+			rects.push_back(bet.plus);
+			if(hasAnySideBet(gameMode)){
+				Stepper side = sideBetStepper(row);
+				rects.push_back(side.minus);
+				rects.push_back(side.plus);
+			}
+			rects.push_back(calcToggle(row));
+			Stepper cnt = cntStepper(row);
+			rects.push_back(cnt.minus);
+			rects.push_back(cnt.plus);
+		}
+
+		rects.push_back(backButton(endIdx - startIdx));
+		rects.push_back(confirmButton(endIdx - startIdx));
+		return rects;
 	}
 
 	// windowX/windowY: raw event coordinates in window space, same
@@ -231,10 +294,18 @@ private:
 	// page (at most 3) -- so GO sits directly under whatever's on screen,
 	// same as it always positioned itself under numberOfPlayers rows
 	// before paging existed.
+	// GO and BACK side by side under the rows, the pair centered on the
+	// block.
 	SDL_FRect confirmButton(int rowsOnPage){
 		float y = playerRowTop(rowsOnPage) + 8.0f;
 		float w = 260.0f;
-		return SDL_FRect{ colX(0) + (blockWidth() - w) / 2.0f, y, w, 56 };
+		return SDL_FRect{ colX(0) + blockWidth() / 2.0f + 10.0f, y, w, 56 };
+	}
+
+	SDL_FRect backButton(int rowsOnPage){
+		float y = playerRowTop(rowsOnPage) + 8.0f;
+		float w = 200.0f;
+		return SDL_FRect{ colX(0) + blockWidth() / 2.0f - 10.0f - w, y, w, 56 };
 	}
 
 	void drawButton(SDLState& state, const SDL_FRect& rect, SDL_Color color){

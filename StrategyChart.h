@@ -2,6 +2,7 @@
 #include "Game.h"
 #include "DigitFont.h"
 #include <string>
+#include <vector>
 
 // The classic 3-part basic-strategy reference (hard totals / soft totals /
 // pairs, each x dealer up-card 2-10/A) -- multi-deck, dealer hits soft 17,
@@ -82,6 +83,10 @@ public:
 		if(section == 0) return HARD_ROWS[row];
 		if(section == 1) return SOFT_ROWS[row];
 		return PAIR_ROWS[row];
+	}
+
+	std::vector<SDL_FRect> focusRects(){
+		return { backButton };
 	}
 
 private:

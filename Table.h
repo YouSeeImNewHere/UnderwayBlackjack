@@ -626,29 +626,34 @@ public:
 	{
 		switch(event.type)
 		{
-			case SDL_EVENT_KEY_UP:
-				if(!acceptingPlayerInput())
+			// Key down (not up), ignoring auto-repeat: mina.cpp handles
+			// menus/Space/Esc on key down too, and splitting one press
+			// across down/up let a single key act twice (e.g. Space both
+			// pressing GO on a menu and then dealing on release). Keep
+			// KeyboardMenu.h's list in sync with these bindings.
+			case SDL_EVENT_KEY_DOWN:
+				if(event.key.repeat || !acceptingPlayerInput())
 					break;
 
 				switch(event.key.scancode)
 				{
-					case SDL_SCANCODE_A:
+					case SDL_SCANCODE_S:
 						onStand();
 					break;
 
-					case SDL_SCANCODE_S:
+					case SDL_SCANCODE_H:
 						onHit();
 					break;
 
-					case SDL_SCANCODE_D:
+					case SDL_SCANCODE_P:
 						onSplit();
 					break;
 
-					case SDL_SCANCODE_F:
+					case SDL_SCANCODE_D:
 						onDouble();
 					break;
 
-					case SDL_SCANCODE_G:
+					case SDL_SCANCODE_R:
 						onSurrender();
 					break;
 

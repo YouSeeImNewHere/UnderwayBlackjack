@@ -3,6 +3,7 @@
 #include "DigitFont.h"
 #include "GameModeMenu.h"
 #include <string>
+#include <vector>
 #include <algorithm>
 
 // Shown once, between GameModeMenu and SetupMenu -- dealer pacing and 2
@@ -101,6 +102,36 @@ public:
 		SDL_RenderRect(state.renderer, &go);
 		float goW = DigitFont::textWidth("GO", 8.0f);
 		DigitFont::drawText(state, "GO", go.x + (go.w - goW) / 2.0f, go.y + (go.h - 5 * 8.0f) / 2.0f, 8.0f, WHITE);
+
+		SDL_FRect back = backButton();
+		SDL_SetRenderDrawColor(state.renderer, 80, 80, 80, 255);
+		SDL_RenderFillRect(state.renderer, &back);
+		SDL_SetRenderDrawColor(state.renderer, 255, 255, 255, 255);
+		SDL_RenderRect(state.renderer, &back);
+		float backW = DigitFont::textWidth("BACK", 6.0f);
+		DigitFont::drawText(state, "BACK", back.x + (back.w - backW) / 2.0f, back.y + (back.h - 5 * 6.0f) / 2.0f, 6.0f, WHITE);
+	}
+
+	// True when BACK is hit -- mina.cpp decides where back goes.
+	bool handleBackPoint(SDLState& state, float windowX, float windowY){
+		float x, y;
+		if(!SDL_RenderCoordinatesFromWindow(state.renderer, windowX, windowY, &x, &y))
+			return false;
+
+		SDL_FPoint p{x, y};
+		SDL_FRect back = backButton();
+		return SDL_PointInRectFloat(&p, &back);
+	}
+
+	// Every enabled control, for mina.cpp's arrow-key navigation.
+	std::vector<SDL_FRect> focusRects(){
+		std::vector<SDL_FRect> rects{ speedButton(0), speedButton(1), speedButton(2) };
+		if(faceDownDoublesAllowed())
+			rects.push_back(toggleButton(1));
+		rects.push_back(toggleButton(2));
+		rects.push_back(backButton());
+		rects.push_back(confirmButton());
+		return rects;
 	}
 
 	// windowX/windowY: raw event coordinates in window space, same
@@ -222,8 +253,14 @@ private:
 		DigitFont::drawText(state, label, r.x + (r.w - w) / 2.0f, r.y + (r.h - 5 * pixel) / 2.0f, pixel, WHITE);
 	}
 
+	// GO and BACK sit side by side, the pair centered.
 	SDL_FRect confirmButton(){
 		float w = 260.0f, h = 56.0f;
-		return SDL_FRect{ .x = (1440.0f - w) / 2.0f, .y = 520.0f, .w = w, .h = h };
+		return SDL_FRect{ .x = 720.0f + 10.0f, .y = 520.0f, .w = w, .h = h };
+	}
+
+	SDL_FRect backButton(){
+		float w = 200.0f, h = 56.0f;
+		return SDL_FRect{ .x = 720.0f - 10.0f - w, .y = 520.0f, .w = w, .h = h };
 	}
 };
