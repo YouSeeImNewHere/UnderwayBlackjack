@@ -48,6 +48,10 @@ public:
 		return SDL_PointInRectFloat(&p, &backButton);
 	}
 
+	std::vector<SDL_FRect> focusRects(){
+		return { backButton };
+	}
+
 private:
 	// Mirrors Table::processGesture() exactly -- update this alongside any
 	// change there instead of letting it drift out of date.

@@ -17,6 +17,7 @@
 #include "StrategyChart.h"
 #include "AboutMenu.h"
 #include "GesturesMenu.h"
+#include "KeyboardMenu.h"
 #include "SaveData.h"
 
 enum class AppScreen {
@@ -26,6 +27,7 @@ enum class AppScreen {
     GameOptions,
     Setup,
     Gestures,
+    Keyboard,
     Playing
 };
 
@@ -42,6 +44,7 @@ enum class PauseState {
     Strategy,
     About,
     Gestures,
+    Keyboard,
     Options
 };
 
@@ -70,6 +73,7 @@ struct AppContext {
     // PauseState::Gestures (BACK returns to PauseState::Menu, same pattern
     // as Strategy/About).
     GesturesMenu gesturesMenu;
+    KeyboardMenu keyboardMenu;
     SaveData save;
     AppScreen screen = AppScreen::Menu;
     // Remembered between GameModeMenu and applySetupComplete().
@@ -92,6 +96,19 @@ struct AppContext {
     // a "hit" gesture.
     std::optional<SDL_FingerID> uiClaimedFinger;
     ClaimedUIButton uiClaimedButton = ClaimedUIButton::None;
+
+    // Arrow-key menu navigation: index into the current screen's
+    // focusRects(), or -1 for no highlight (the default, and after any
+    // mouse click/touch -- the highlight only shows once arrows are used).
+    // Reset whenever the screen changes (see focusScreenKey()).
+    int focusIndex = -1;
+    int focusScreenKey = -1;
+
+    // GameOptionsMenu as it was when opened from the pause menu, so its
+    // BACK can undo changes that were never applied (GO is what applies
+    // them to Table) instead of leaving the menu showing settings the
+    // running game isn't actually using.
+    GameOptionsMenu optionsBeforeEdit;
 
     AppContext() : table(3, true, 2) {}
 };
@@ -163,6 +180,10 @@ static void applyMenuChoice(AppContext& ctx, MenuChoice choice){
 
         case MenuChoice::Gestures:
             ctx.screen = AppScreen::Gestures;
+        break;
+
+        case MenuChoice::Keyboard:
+            ctx.screen = AppScreen::Keyboard;
         break;
 
         case MenuChoice::None:
@@ -247,12 +268,17 @@ static void applyPauseChoice(AppContext& ctx, PauseChoice choice){
             ctx.pauseState = PauseState::Gestures;
         break;
 
+        case PauseChoice::Keyboard:
+            ctx.pauseState = PauseState::Keyboard;
+        break;
+
         case PauseChoice::Options:
             // The pre-game flow calls this via applyGameModeChoice()
             // instead, right as the mode's picked -- reopening mid-game
             // needs its own call since GameOptionsMenu can't just read
             // ctx.chosenMode/ctx.setupMenu itself.
             ctx.gameOptionsMenu.setGameMode(ctx.table.getGameMode());
+            ctx.optionsBeforeEdit = ctx.gameOptionsMenu;
             ctx.pauseState = PauseState::Options;
         break;
 
@@ -349,6 +375,242 @@ extern "C" EMSCRIPTEN_KEEPALIVE void onBrowserResize() {
 }
 #endif
 
+// One step "back" from wherever the player is: the BACK button on every
+// menu and the Esc key both land here, so no screen is ever a dead end.
+// Pre-game goes back one step through Menu -> GameMode -> GameOptions ->
+// Setup; mid-game, Esc opens/closes the pause menu and every page off it
+// returns to it.
+static void goBack(AppContext& ctx){
+    switch(ctx.screen){
+    case AppScreen::Menu:
+        return;
+    case AppScreen::GameMode:
+    case AppScreen::Gestures:
+    case AppScreen::Keyboard:
+        // A Restart on the way here already cleared the save, so Resume
+        // would have nothing to resume.
+        ctx.menu.hasSavedGame = ctx.save.gameStarted;
+        ctx.screen = AppScreen::Menu;
+        return;
+    case AppScreen::GameModeAbout:
+    case AppScreen::GameOptions:
+        ctx.screen = AppScreen::GameMode;
+        return;
+    case AppScreen::Setup:
+        ctx.screen = AppScreen::GameOptions;
+        return;
+    case AppScreen::Playing:
+        break;
+    }
+
+    switch(ctx.pauseState){
+    case PauseState::None:
+        ctx.pauseState = PauseState::Menu;
+        return;
+    case PauseState::Menu:
+        ctx.pauseState = PauseState::None;
+        return;
+    case PauseState::Options:
+        ctx.gameOptionsMenu = ctx.optionsBeforeEdit;
+        ctx.pauseState = PauseState::Menu;
+        return;
+    case PauseState::Strategy:
+    case PauseState::About:
+    case PauseState::Gestures:
+    case PauseState::Keyboard:
+        ctx.pauseState = PauseState::Menu;
+        return;
+    }
+}
+
+// A click/tap/Enter on whatever menu is showing (anything but live
+// gameplay), in window coordinates -- the one place mouse, touch and
+// arrow-key "Enter" all route through, so each screen's buttons behave
+// identically however they were pressed.
+static void handleMenuClick(AppContext& ctx, float wx, float wy){
+    switch(ctx.screen){
+    case AppScreen::Menu:
+        applyMenuChoice(ctx, ctx.menu.handlePoint(ctx.state, wx, wy));
+        return;
+    case AppScreen::GameMode: {
+        if(ctx.gameModeMenu.handleBackPoint(ctx.state, wx, wy)){
+            goBack(ctx);
+            return;
+        }
+        GameMode aboutMode = ctx.gameModeMenu.handleAboutPoint(ctx.state, wx, wy);
+        if(aboutMode != GameMode::None){
+            ctx.gameModeAboutPreview = aboutMode;
+            ctx.screen = AppScreen::GameModeAbout;
+        } else{
+            applyGameModeChoice(ctx, ctx.gameModeMenu.handlePoint(ctx.state, wx, wy));
+        }
+        return;
+    }
+    case AppScreen::GameModeAbout:
+        if(ctx.aboutMenu.handlePoint(ctx.state, wx, wy))
+            goBack(ctx);
+        return;
+    case AppScreen::GameOptions:
+        if(ctx.gameOptionsMenu.handleBackPoint(ctx.state, wx, wy))
+            goBack(ctx);
+        else if(ctx.gameOptionsMenu.handlePoint(ctx.state, wx, wy))
+            applyGameOptionsComplete(ctx);
+        return;
+    case AppScreen::Setup:
+        if(ctx.setupMenu.handleBackPoint(ctx.state, wx, wy))
+            goBack(ctx);
+        else if(ctx.setupMenu.handlePoint(ctx.state, wx, wy))
+            applySetupComplete(ctx);
+        return;
+    case AppScreen::Gestures:
+        if(ctx.gesturesMenu.handlePoint(ctx.state, wx, wy))
+            goBack(ctx);
+        return;
+    case AppScreen::Keyboard:
+        if(ctx.keyboardMenu.handlePoint(ctx.state, wx, wy))
+            goBack(ctx);
+        return;
+    case AppScreen::Playing:
+        break;
+    }
+
+    switch(ctx.pauseState){
+    case PauseState::None:
+        return;
+    case PauseState::Menu:
+        applyPauseChoice(ctx, ctx.pauseMenu.handlePoint(ctx.state, wx, wy));
+        return;
+    case PauseState::Strategy:
+        if(ctx.strategyChart.handlePoint(ctx.state, wx, wy))
+            goBack(ctx);
+        return;
+    case PauseState::About:
+        if(ctx.aboutMenu.handlePoint(ctx.state, wx, wy))
+            goBack(ctx);
+        return;
+    case PauseState::Gestures:
+        if(ctx.gesturesMenu.handlePoint(ctx.state, wx, wy))
+            goBack(ctx);
+        return;
+    case PauseState::Keyboard:
+        if(ctx.keyboardMenu.handlePoint(ctx.state, wx, wy))
+            goBack(ctx);
+        return;
+    case PauseState::Options:
+        if(ctx.gameOptionsMenu.handleBackPoint(ctx.state, wx, wy))
+            goBack(ctx);
+        else if(ctx.gameOptionsMenu.handlePoint(ctx.state, wx, wy))
+            applyGameOptionsFromPause(ctx);
+        return;
+    }
+}
+
+static bool inMenu(const AppContext& ctx){
+    return ctx.screen != AppScreen::Playing || ctx.pauseState != PauseState::None;
+}
+
+// The selectable buttons on whatever menu is showing, in logical
+// (1440x720) coordinates. Empty during live gameplay.
+static std::vector<SDL_FRect> currentFocusRects(AppContext& ctx){
+    switch(ctx.screen){
+    case AppScreen::Menu:          return ctx.menu.focusRects();
+    case AppScreen::GameMode:      return ctx.gameModeMenu.focusRects();
+    case AppScreen::GameModeAbout: return ctx.aboutMenu.focusRects();
+    case AppScreen::GameOptions:   return ctx.gameOptionsMenu.focusRects();
+    case AppScreen::Setup:         return ctx.setupMenu.focusRects();
+    case AppScreen::Gestures:      return ctx.gesturesMenu.focusRects();
+    case AppScreen::Keyboard:      return ctx.keyboardMenu.focusRects();
+    case AppScreen::Playing:       break;
+    }
+    switch(ctx.pauseState){
+    case PauseState::Menu:     return ctx.pauseMenu.focusRects();
+    case PauseState::Strategy: return ctx.strategyChart.focusRects();
+    case PauseState::About:    return ctx.aboutMenu.focusRects();
+    case PauseState::Gestures: return ctx.gesturesMenu.focusRects();
+    case PauseState::Keyboard: return ctx.keyboardMenu.focusRects();
+    case PauseState::Options:  return ctx.gameOptionsMenu.focusRects();
+    case PauseState::None:     break;
+    }
+    return {};
+}
+
+// Moves the highlight to the nearest button in the arrow's direction
+// (by screen position, not list order), so grids like GameModeMenu's and
+// SetupMenu's steppers navigate the way they look.
+static void moveFocus(AppContext& ctx, int dx, int dy){
+    std::vector<SDL_FRect> rects = currentFocusRects(ctx);
+    if(rects.empty())
+        return;
+    if(ctx.focusIndex < 0 || ctx.focusIndex >= (int)rects.size()){
+        ctx.focusIndex = 0;
+        return;
+    }
+
+    const SDL_FRect& cur = rects[ctx.focusIndex];
+    float cx = cur.x + cur.w / 2.0f, cy = cur.y + cur.h / 2.0f;
+    int best = -1;
+    bool bestInLine = false;
+    float bestScore = 0.0f;
+    for(int i = 0; i < (int)rects.size(); i++){
+        if(i == ctx.focusIndex)
+            continue;
+        const SDL_FRect& r = rects[i];
+        float ox = r.x + r.w / 2.0f - cx;
+        float oy = r.y + r.h / 2.0f - cy;
+        float along = ox * dx + oy * dy;        // distance in the arrow's direction
+        float across = std::fabs(ox * dy) + std::fabs(oy * dx); // sideways drift
+        if(along <= 1.0f)
+            continue;
+        // "In line": shares some of the current button's row (for
+        // left/right) or column (for up/down). Those always win over
+        // diagonal neighbours, so Right from a wide button goes to the
+        // thing beside it, not one a row up that happens to be closer.
+        bool inLine = dx != 0
+            ? (r.y < cur.y + cur.h && r.y + r.h > cur.y)
+            : (r.x < cur.x + cur.w && r.x + r.w > cur.x);
+        // Left/right stay within the row -- otherwise Right on the last
+        // button of a row jumps to some unrelated button above it.
+        if(dx != 0 && !inLine)
+            continue;
+        float score = along + across * 2.5f;
+        if(best < 0 || (inLine && !bestInLine) || (inLine == bestInLine && score < bestScore)){
+            best = i;
+            bestInLine = inLine;
+            bestScore = score;
+        }
+    }
+    if(best >= 0)
+        ctx.focusIndex = best;
+}
+
+// Enter/Space on a highlighted button: click its center, exactly as a
+// mouse would.
+static void activateFocus(AppContext& ctx){
+    std::vector<SDL_FRect> rects = currentFocusRects(ctx);
+    if(ctx.focusIndex < 0 || ctx.focusIndex >= (int)rects.size()){
+        if(!rects.empty())
+            ctx.focusIndex = 0;
+        return;
+    }
+    const SDL_FRect& r = rects[ctx.focusIndex];
+    float wx, wy;
+    if(!SDL_RenderCoordinatesToWindow(ctx.state.renderer, r.x + r.w / 2.0f, r.y + r.h / 2.0f, &wx, &wy))
+        return;
+    handleMenuClick(ctx, wx, wy);
+}
+
+static void drawFocusHighlight(AppContext& ctx){
+    std::vector<SDL_FRect> rects = currentFocusRects(ctx);
+    if(ctx.focusIndex < 0 || ctx.focusIndex >= (int)rects.size())
+        return;
+    const SDL_FRect& r = rects[ctx.focusIndex];
+    SDL_SetRenderDrawColor(ctx.state.renderer, 255, 215, 0, 255);
+    for(int i = 3; i <= 7; i++){
+        SDL_FRect ring{ r.x - i, r.y - i, r.w + 2 * i, r.h + 2 * i };
+        SDL_RenderRect(ctx.state.renderer, &ring);
+    }
+}
+
 // Color for the letterbox bars around the fixed 1440x720 canvas (visible on
 // wider screens like modern phones). SDL_RenderClear fills the whole window,
 // bars included, so clearing with each screen's own edge color makes the
@@ -372,6 +634,7 @@ static SDL_Color letterboxColor(const AppContext &ctx) {
         return setupGreen;
     case AppScreen::GameModeAbout:
     case AppScreen::Gestures:
+    case AppScreen::Keyboard:
         return darkGreen;
     case AppScreen::Playing:
         break;
@@ -387,6 +650,7 @@ static SDL_Color letterboxColor(const AppContext &ctx) {
     case PauseState::Strategy:
     case PauseState::About:
     case PauseState::Gestures:
+    case PauseState::Keyboard:
         return darkGreen;
     }
     return SDL_Color{0, 0, 0, 255};
@@ -471,68 +735,11 @@ static void mainLoopIteration(void *arg) {
                 }
             }
 
-            if(ctx.screen == AppScreen::Menu){
-                if(event.type == SDL_EVENT_FINGER_UP)
-                    applyMenuChoice(ctx, ctx.menu.handlePoint(ctx.state,
-                        event.tfinger.x * ctx.state.width,
-                        event.tfinger.y * ctx.state.height));
-            } else if(ctx.screen == AppScreen::GameMode){
+            if(inMenu(ctx)){
                 if(event.type == SDL_EVENT_FINGER_UP){
-                    float wx = event.tfinger.x * ctx.state.width;
-                    float wy = event.tfinger.y * ctx.state.height;
-                    GameMode aboutMode = ctx.gameModeMenu.handleAboutPoint(ctx.state, wx, wy);
-                    if(aboutMode != GameMode::None){
-                        ctx.gameModeAboutPreview = aboutMode;
-                        ctx.screen = AppScreen::GameModeAbout;
-                    } else{
-                        applyGameModeChoice(ctx, ctx.gameModeMenu.handlePoint(ctx.state, wx, wy));
-                    }
+                    ctx.focusIndex = -1;
+                    handleMenuClick(ctx, event.tfinger.x * ctx.state.width, event.tfinger.y * ctx.state.height);
                 }
-            } else if(ctx.screen == AppScreen::GameModeAbout){
-                if(event.type == SDL_EVENT_FINGER_UP && ctx.aboutMenu.handlePoint(ctx.state,
-                        event.tfinger.x * ctx.state.width,
-                        event.tfinger.y * ctx.state.height))
-                    ctx.screen = AppScreen::GameMode;
-            } else if(ctx.screen == AppScreen::GameOptions){
-                if(event.type == SDL_EVENT_FINGER_UP && ctx.gameOptionsMenu.handlePoint(ctx.state,
-                        event.tfinger.x * ctx.state.width,
-                        event.tfinger.y * ctx.state.height))
-                    applyGameOptionsComplete(ctx);
-            } else if(ctx.screen == AppScreen::Setup){
-                if(event.type == SDL_EVENT_FINGER_UP && ctx.setupMenu.handlePoint(ctx.state,
-                        event.tfinger.x * ctx.state.width,
-                        event.tfinger.y * ctx.state.height))
-                    applySetupComplete(ctx);
-            } else if(ctx.screen == AppScreen::Gestures){
-                if(event.type == SDL_EVENT_FINGER_UP && ctx.gesturesMenu.handlePoint(ctx.state,
-                        event.tfinger.x * ctx.state.width,
-                        event.tfinger.y * ctx.state.height))
-                    ctx.screen = AppScreen::Menu;
-            } else if(ctx.screen == AppScreen::Playing && ctx.pauseState == PauseState::Menu){
-                if(event.type == SDL_EVENT_FINGER_UP)
-                    applyPauseChoice(ctx, ctx.pauseMenu.handlePoint(ctx.state,
-                        event.tfinger.x * ctx.state.width,
-                        event.tfinger.y * ctx.state.height));
-            } else if(ctx.screen == AppScreen::Playing && ctx.pauseState == PauseState::Strategy){
-                if(event.type == SDL_EVENT_FINGER_UP && ctx.strategyChart.handlePoint(ctx.state,
-                        event.tfinger.x * ctx.state.width,
-                        event.tfinger.y * ctx.state.height))
-                    ctx.pauseState = PauseState::Menu;
-            } else if(ctx.screen == AppScreen::Playing && ctx.pauseState == PauseState::About){
-                if(event.type == SDL_EVENT_FINGER_UP && ctx.aboutMenu.handlePoint(ctx.state,
-                        event.tfinger.x * ctx.state.width,
-                        event.tfinger.y * ctx.state.height))
-                    ctx.pauseState = PauseState::Menu;
-            } else if(ctx.screen == AppScreen::Playing && ctx.pauseState == PauseState::Gestures){
-                if(event.type == SDL_EVENT_FINGER_UP && ctx.gesturesMenu.handlePoint(ctx.state,
-                        event.tfinger.x * ctx.state.width,
-                        event.tfinger.y * ctx.state.height))
-                    ctx.pauseState = PauseState::Menu;
-            } else if(ctx.screen == AppScreen::Playing && ctx.pauseState == PauseState::Options){
-                if(event.type == SDL_EVENT_FINGER_UP && ctx.gameOptionsMenu.handlePoint(ctx.state,
-                        event.tfinger.x * ctx.state.width,
-                        event.tfinger.y * ctx.state.height))
-                    applyGameOptionsFromPause(ctx);
             } else if(ctx.screen == AppScreen::Playing && ctx.table.isAwaitingBets()){
                 // Betting phase: raise/lower/DEAL, not gameplay gestures.
                 if(event.type == SDL_EVENT_FINGER_UP)
@@ -559,43 +766,9 @@ static void mainLoopIteration(void *arg) {
             // mouse one). SDL_TOUCH_MOUSEID marks exactly those synthetic
             // events; a real mouse's `which` is never that value.
             if(event.button.button == SDL_BUTTON_LEFT && event.button.which != SDL_TOUCH_MOUSEID){
-                if(ctx.screen == AppScreen::Menu)
-                    applyMenuChoice(ctx, ctx.menu.handlePoint(ctx.state, event.button.x, event.button.y));
-                else if(ctx.screen == AppScreen::GameMode){
-                    GameMode aboutMode = ctx.gameModeMenu.handleAboutPoint(ctx.state, event.button.x, event.button.y);
-                    if(aboutMode != GameMode::None){
-                        ctx.gameModeAboutPreview = aboutMode;
-                        ctx.screen = AppScreen::GameModeAbout;
-                    } else{
-                        applyGameModeChoice(ctx, ctx.gameModeMenu.handlePoint(ctx.state, event.button.x, event.button.y));
-                    }
-                }
-                else if(ctx.screen == AppScreen::GameModeAbout){
-                    if(ctx.aboutMenu.handlePoint(ctx.state, event.button.x, event.button.y))
-                        ctx.screen = AppScreen::GameMode;
-                }
-                else if(ctx.screen == AppScreen::GameOptions && ctx.gameOptionsMenu.handlePoint(ctx.state, event.button.x, event.button.y))
-                    applyGameOptionsComplete(ctx);
-                else if(ctx.screen == AppScreen::Setup && ctx.setupMenu.handlePoint(ctx.state, event.button.x, event.button.y))
-                    applySetupComplete(ctx);
-                else if(ctx.screen == AppScreen::Gestures){
-                    if(ctx.gesturesMenu.handlePoint(ctx.state, event.button.x, event.button.y))
-                        ctx.screen = AppScreen::Menu;
-                }
-                else if(ctx.screen == AppScreen::Playing && ctx.pauseState == PauseState::Menu)
-                    applyPauseChoice(ctx, ctx.pauseMenu.handlePoint(ctx.state, event.button.x, event.button.y));
-                else if(ctx.screen == AppScreen::Playing && ctx.pauseState == PauseState::Strategy){
-                    if(ctx.strategyChart.handlePoint(ctx.state, event.button.x, event.button.y))
-                        ctx.pauseState = PauseState::Menu;
-                } else if(ctx.screen == AppScreen::Playing && ctx.pauseState == PauseState::About){
-                    if(ctx.aboutMenu.handlePoint(ctx.state, event.button.x, event.button.y))
-                        ctx.pauseState = PauseState::Menu;
-                } else if(ctx.screen == AppScreen::Playing && ctx.pauseState == PauseState::Gestures){
-                    if(ctx.gesturesMenu.handlePoint(ctx.state, event.button.x, event.button.y))
-                        ctx.pauseState = PauseState::Menu;
-                } else if(ctx.screen == AppScreen::Playing && ctx.pauseState == PauseState::Options){
-                    if(ctx.gameOptionsMenu.handlePoint(ctx.state, event.button.x, event.button.y))
-                        applyGameOptionsFromPause(ctx);
+                if(inMenu(ctx)){
+                    ctx.focusIndex = -1;
+                    handleMenuClick(ctx, event.button.x, event.button.y);
                 } else if(ctx.screen == AppScreen::Playing && isPauseButtonHit(ctx, event.button.x, event.button.y))
                     ctx.pauseState = PauseState::Menu;
                 else if(ctx.screen == AppScreen::Playing && ctx.table.isQuickTipButtonHit(ctx.state, event.button.x, event.button.y))
@@ -607,10 +780,38 @@ static void mainLoopIteration(void *arg) {
             }
         break;
 
-        case SDL_EVENT_KEY_UP:
-            if(ctx.screen == AppScreen::Playing && ctx.pauseState == PauseState::None)
-                ctx.table.handleEvent(event);
+        case SDL_EVENT_KEY_DOWN: {
+            // Everything keyboard happens on key down (see Table::
+            // handleEvent) -- arrows may auto-repeat, nothing else does.
+            SDL_Scancode key = event.key.scancode;
+            bool isArrow = key == SDL_SCANCODE_UP || key == SDL_SCANCODE_DOWN
+                || key == SDL_SCANCODE_LEFT || key == SDL_SCANCODE_RIGHT;
+            if(event.key.repeat && !isArrow)
+                break;
+
+            // Android's system Back arrives as AC_BACK -- same as Esc.
+            if(key == SDL_SCANCODE_ESCAPE || key == SDL_SCANCODE_AC_BACK){
+                goBack(ctx);
+                break;
+            }
+
+            if(inMenu(ctx)){
+                if(key == SDL_SCANCODE_UP)         moveFocus(ctx, 0, -1);
+                else if(key == SDL_SCANCODE_DOWN)  moveFocus(ctx, 0, 1);
+                else if(key == SDL_SCANCODE_LEFT)  moveFocus(ctx, -1, 0);
+                else if(key == SDL_SCANCODE_RIGHT) moveFocus(ctx, 1, 0);
+                else if(key == SDL_SCANCODE_RETURN || key == SDL_SCANCODE_KP_ENTER || key == SDL_SCANCODE_SPACE)
+                    activateFocus(ctx);
+                break;
+            }
+
+            if(key == SDL_SCANCODE_SPACE && ctx.table.isAwaitingBets()){
+                ctx.table.beginRound();
+                break;
+            }
+            ctx.table.handleEvent(event);
         break;
+        }
         }
     }
 
@@ -621,6 +822,12 @@ static void mainLoopIteration(void *arg) {
     else if(ctx.screen == AppScreen::GameOptions
             || (ctx.screen == AppScreen::Playing && ctx.pauseState == PauseState::Options))
         ctx.gameOptionsMenu.update(deltaTime);
+
+    int screenKey = static_cast<int>(ctx.screen) * 16 + static_cast<int>(ctx.pauseState);
+    if(screenKey != ctx.focusScreenKey){
+        ctx.focusScreenKey = screenKey;
+        ctx.focusIndex = -1;
+    }
 
     // perform drawing commands
     SDL_Color clearColor = letterboxColor(ctx);
@@ -638,6 +845,8 @@ static void mainLoopIteration(void *arg) {
         ctx.setupMenu.draw(ctx.state, ctx.res);
     else if(ctx.screen == AppScreen::Gestures)
         ctx.gesturesMenu.draw(ctx.state, ctx.res);
+    else if(ctx.screen == AppScreen::Keyboard)
+        ctx.keyboardMenu.draw(ctx.state, ctx.res);
     else{
         // The table's still drawn even while paused -- frozen underneath
         // the overlay -- rather than swapped out for a blank screen.
@@ -656,9 +865,14 @@ static void mainLoopIteration(void *arg) {
             ctx.aboutMenu.draw(ctx.state, ctx.res, ctx.table.getGameMode());
         else if(ctx.pauseState == PauseState::Gestures)
             ctx.gesturesMenu.draw(ctx.state, ctx.res);
+        else if(ctx.pauseState == PauseState::Keyboard)
+            ctx.keyboardMenu.draw(ctx.state, ctx.res);
         else if(ctx.pauseState == PauseState::Options)
             ctx.gameOptionsMenu.draw(ctx.state, ctx.res);
     }
+
+    if(inMenu(ctx))
+        drawFocusHighlight(ctx);
 
     // swap buffer and present
     SDL_RenderPresent(ctx.state.renderer);
@@ -743,15 +957,29 @@ bool initialize(SDLState &state){
     // correct size is computed from the real viewport and requested here
     // directly (see main()), and kept in sync afterward by onBrowserResize().
     SDL_WindowFlags windowFlags = SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY;
-#ifdef SDL_PLATFORM_IOS
+#if defined(SDL_PLATFORM_IOS) || defined(SDL_PLATFORM_ANDROID)
     // Fullscreen hides the status bar; landscape-only matches the fixed
-    // 1440x720 canvas (the Info.plist says the same). Deferring system
-    // gestures means a swipe near the bottom edge -- which the game uses
-    // for its own gestures -- needs a second swipe before iOS treats it as
-    // "go home".
+    // 1440x720 canvas (the Info.plist/AndroidManifest say the same).
     windowFlags |= SDL_WINDOW_FULLSCREEN;
     SDL_SetHint(SDL_HINT_ORIENTATIONS, "LandscapeLeft LandscapeRight");
+#endif
+#ifdef SDL_PLATFORM_IOS
+    // Deferring system gestures means a swipe near the bottom edge --
+    // which the game uses for its own gestures -- needs a second swipe
+    // before iOS treats it as "go home".
     SDL_SetHint(SDL_HINT_IOS_HIDE_HOME_INDICATOR, "2");
+#endif
+#ifdef SDL_PLATFORM_ANDROID
+    // Deliver the system Back button/gesture to the game (as
+    // SDL_SCANCODE_AC_BACK, handled like Esc) instead of letting it close
+    // the app from any screen.
+    SDL_SetHint(SDL_HINT_ANDROID_TRAP_BACK_BUTTON, "1");
+#endif
+#ifdef SDL_PLATFORM_WINDOWS
+    // Title bar/taskbar icon from the .exe's own icon resource
+    // (windows/UnderwayBlackjack.rc).
+    SDL_SetHint(SDL_HINT_WINDOWS_INTRESOURCE_ICON, "1");
+    SDL_SetHint(SDL_HINT_WINDOWS_INTRESOURCE_ICON_SMALL, "1");
 #endif
     state.window = SDL_CreateWindow("Underway Blackjack",state.width,state.height,windowFlags);
     if(!state.window){

@@ -139,6 +139,16 @@ public:
 		}
 	}
 
+	// Stays true once the hand has busted (or been surrendered, see
+	// forceBust()), even after Table's bust handling sweeps every card past
+	// the first two into the discard pile -- at that point getHandTotal()
+	// only sees those two leftover cards and can read as a live total
+	// (e.g. 10+6=16), so settling a hand must check this, not just
+	// total > 21.
+	bool isBust() const{
+		return bust;
+	}
+
 	bool checkIfBreak(){
 		int runningTotal = 0;
 		bool wasBust = bust;

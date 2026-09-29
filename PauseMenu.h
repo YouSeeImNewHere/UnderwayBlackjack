@@ -2,6 +2,7 @@
 #include "Game.h"
 #include "DigitFont.h"
 #include <string>
+#include <vector>
 
 enum class PauseChoice{
 	None,
@@ -10,6 +11,7 @@ enum class PauseChoice{
 	StrategyTable,
 	About,
 	Gestures,
+	Keyboard,
 	Options
 };
 
@@ -30,6 +32,7 @@ public:
 		drawButton(state, strategyButton, SDL_Color{60, 90, 150, 255}, "STRATEGY TABLE");
 		drawButton(state, aboutButton, SDL_Color{110, 90, 60, 255}, "ABOUT");
 		drawButton(state, gesturesButton, SDL_Color{90, 70, 130, 255}, "GESTURES");
+		drawButton(state, keyboardButton, SDL_Color{110, 90, 60, 255}, "KEYBOARD");
 		drawButton(state, optionsButton, SDL_Color{70, 110, 110, 255}, "GAME OPTIONS");
 	}
 
@@ -52,21 +55,29 @@ public:
 			return PauseChoice::About;
 		if(SDL_PointInRectFloat(&p, &gesturesButton))
 			return PauseChoice::Gestures;
+		if(SDL_PointInRectFloat(&p, &keyboardButton))
+			return PauseChoice::Keyboard;
 		if(SDL_PointInRectFloat(&p, &optionsButton))
 			return PauseChoice::Options;
 
 		return PauseChoice::None;
 	}
 
+	// For mina.cpp's arrow-key navigation, top to bottom.
+	std::vector<SDL_FRect> focusRects(){
+		return { resumeButton, restartButton, strategyButton, aboutButton, gesturesButton, keyboardButton, optionsButton };
+	}
+
 private:
-	// Spacing tightened to fit a 5th (then 6th) button in the same
-	// vertical span the original 3 used.
-	SDL_FRect resumeButton{ .x = 530, .y = 210, .w = 380, .h = 66 };
-	SDL_FRect restartButton{ .x = 530, .y = 288, .w = 380, .h = 66 };
-	SDL_FRect strategyButton{ .x = 530, .y = 366, .w = 380, .h = 66 };
-	SDL_FRect aboutButton{ .x = 530, .y = 444, .w = 380, .h = 66 };
-	SDL_FRect gesturesButton{ .x = 530, .y = 522, .w = 380, .h = 66 };
-	SDL_FRect optionsButton{ .x = 530, .y = 600, .w = 380, .h = 66 };
+	// 7 buttons at a 68px stride (60 tall + 8 gap), still thumb-sized,
+	// centered in the 720-tall canvas.
+	SDL_FRect resumeButton{ .x = 530, .y = 124, .w = 380, .h = 60 };
+	SDL_FRect restartButton{ .x = 530, .y = 192, .w = 380, .h = 60 };
+	SDL_FRect strategyButton{ .x = 530, .y = 260, .w = 380, .h = 60 };
+	SDL_FRect aboutButton{ .x = 530, .y = 328, .w = 380, .h = 60 };
+	SDL_FRect gesturesButton{ .x = 530, .y = 396, .w = 380, .h = 60 };
+	SDL_FRect keyboardButton{ .x = 530, .y = 464, .w = 380, .h = 60 };
+	SDL_FRect optionsButton{ .x = 530, .y = 532, .w = 380, .h = 60 };
 
 	void drawButton(SDLState& state, const SDL_FRect& rect, SDL_Color color, const std::string& label){
 		SDL_SetRenderDrawColor(state.renderer, color.r, color.g, color.b, color.a);

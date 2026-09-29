@@ -328,7 +328,7 @@ public:
 	// (drawCardCountStats()) to actually test their own counting instead
 	// of just reading the answer off the discard pile the whole time.
 	SDL_FRect cardCountToggleButton(){
-		return SDL_FRect{ .x = discardPosition.x, .y = discardPosition.y + cardHeight + 6.0f, .w = cardWidth, .h = 24 };
+		return SDL_FRect{ .x = discardPosition.x, .y = discardPosition.y + cardHeight + 6.0f, .w = cardWidth, .h = 44 };
 	}
 
 	bool isCardCountToggleHit(SDLState& state, float windowX, float windowY){
@@ -354,9 +354,9 @@ public:
 
 		std::string label = "CNT";
 		float pixel = 5.0f;
-		// Height shrunk to half (24, was 48) -- 5*pixel at the old default
-		// no longer fits inside it, so the width-only auto-shrink below
-		// needs a height check alongside it now too.
+		// Height is 44 (still leaves a gap above the center betting box),
+		// so the default pixel size fits -- the height check below only
+		// matters if the button is ever shrunk again.
 		float maxW = btn.w - 8.0f;
 		float maxH = btn.h - 4.0f;
 		float w = DigitFont::textWidth(label, pixel);
@@ -536,6 +536,11 @@ public:
 
 		drawCardCountStats(state);
 
+		// Right under the discard pile, so drawn with the table furniture
+		// (before any hand or the flying card) -- cards swept to discard
+		// pass over it instead of disappearing underneath it.
+		drawCardCountToggleButton(state);
+
 		// player hands
 		// hideInactiveHands (GameOptionsMenu): only while a round's
 		// actually being played through -- never during betting (nothing's
@@ -603,8 +608,8 @@ public:
 			drawQuickTip(state);
 		}
 
-		drawCardCountToggleButton(state);
 		drawChipAnimations(state, res);
+		drawJackpotCallout(state);
 	}
 
 	// Hit/stand/double/etc. only make sense mid-turn: not while a card is
@@ -622,29 +627,34 @@ public:
 	{
 		switch(event.type)
 		{
-			case SDL_EVENT_KEY_UP:
-				if(!acceptingPlayerInput())
+			// Key down (not up), ignoring auto-repeat: mina.cpp handles
+			// menus/Space/Esc on key down too, and splitting one press
+			// across down/up let a single key act twice (e.g. Space both
+			// pressing GO on a menu and then dealing on release). Keep
+			// KeyboardMenu.h's list in sync with these bindings.
+			case SDL_EVENT_KEY_DOWN:
+				if(event.key.repeat || !acceptingPlayerInput())
 					break;
 
 				switch(event.key.scancode)
 				{
-					case SDL_SCANCODE_A:
+					case SDL_SCANCODE_S:
 						onStand();
 					break;
 
-					case SDL_SCANCODE_S:
+					case SDL_SCANCODE_H:
 						onHit();
 					break;
 
-					case SDL_SCANCODE_D:
+					case SDL_SCANCODE_P:
 						onSplit();
 					break;
 
-					case SDL_SCANCODE_F:
+					case SDL_SCANCODE_D:
 						onDouble();
 					break;
 
-					case SDL_SCANCODE_G:
+					case SDL_SCANCODE_R:
 						onSurrender();
 					break;
 
@@ -722,6 +732,14 @@ public:
 			} else{
 				++it;
 			}
+		}
+
+		// The banner plays out on its own clock too -- it shouldn't hold up
+		// the round, just sit on top of it.
+		if(!jackpotCallouts.empty()){
+			jackpotCallouts.front().elapsed += deltaTime;
+			if(jackpotCallouts.front().elapsed >= CALLOUT_DURATION)
+				jackpotCallouts.erase(jackpotCallouts.begin());
 		}
 
 		// Ages independently of everything else below too, same reasoning
@@ -943,6 +961,18 @@ private:
 	std::queue<DealRequest> dealQueue;
 	std::optional<CardAnimation> cardAnimation;
 	std::vector<ChipAnimation> chipAnimations;
+
+	// A rare side-bet hit (see queueJackpotCallout()) announced with a
+	// big flashing banner across the middle of the table. Queued, not
+	// replaced, so two players hitting on the same deal both get their
+	// moment, one after the other.
+	struct JackpotCallout{
+		std::string title;
+		std::string detail;
+		float elapsed = 0.0f;
+	};
+	std::vector<JackpotCallout> jackpotCallouts;
+	static constexpr float CALLOUT_DURATION = 3.5f;
 
 	// A brief "-$25"/"+$50" readout under a seat's bankroll number
 	// whenever it actually changes -- initial bet, split, double, a
@@ -2418,6 +2448,12 @@ private:
 
 		angle -= (request.doubleHand) ? 90 : 0;
 
+		// The cut card goes straight from the shoe to the discard pile,
+		// never through anyone's seat -- slide it flat instead of
+		// spinning it in from the dealer seat's 180 degrees.
+		if(card.getValue() == 14)
+			angle = 0;
+
 		cardAnimation.emplace(CardAnimation{
 			.card = card,
 			.start = request.from,
@@ -2436,7 +2472,9 @@ private:
 			// too makes the setting actually visible on every single deal,
 			// which is also what GameOptionsMenu's own live demo card
 			// needs to be demonstrating in the first place.
-			.duration = (request.discard ? DISCARD_DURATION : DEAL_DURATION) * dealerSpeedFactor,
+			// The cut card flies at deal speed, not the quicker discard
+			// sweep speed, so it's actually noticeable.
+			.duration = (request.discard && card.getValue() != 14 ? DISCARD_DURATION : DEAL_DURATION) * dealerSpeedFactor,
 			.playerIndex = request.playerIndex,
 			.handIndex = request.handIndex,
 			.split = request.split,
@@ -2506,6 +2544,7 @@ public:
 		cardAnimation.reset();
 		chipAnimations.clear();
 		bankrollChanges.clear();
+		jackpotCallouts.clear();
 
 		dealer.resetHands();
 		for(int i = 0; i < numberOfPlayers; i++)
@@ -2747,6 +2786,17 @@ private:
 				if(payout > 0){
 					queueChipPayout(i, payout);
 					matchDownResult[i] = HandResult::Win;
+
+					// A pair matching the hole card is three of a kind;
+					// if the up-card is that rank too, it's four.
+					bool allSuited = false;
+					if(matchCount(i, dealerDown, allSuited) == 2){
+						bool fourOfAKind = dealer.hands[0].cards[0].getValue() == dealerDown.getValue();
+						queueJackpotCallout(i,
+							fourOfAKind ? "FOUR OF A KIND!" : (allSuited ? "SUITED THREE OF A KIND!" : "THREE OF A KIND!"),
+							(fourOfAKind ? "FOUR " : "MATCH DOWN  ") + rankPlural(dealerDown.getValue()),
+							payout);
+					}
 				} else{
 					queueChipCollection(i, wager);
 					matchDownResult[i] = HandResult::Loss;
@@ -2761,7 +2811,7 @@ private:
 					continue;
 
 				int total = hand.getHandTotal();
-				bool bust = total > 21;
+				bool bust = hand.isBust() || total > 21;
 				bool blackjack = hand.getHandSize() == 2 && total == 21;
 
 				int credit = 0;
@@ -2867,7 +2917,7 @@ private:
 	int spanish21Credit(Hand& hand, int dealerTotal, bool dealerBust, bool dealerBlackjack){
 		int bet = hand.getBet();
 		int total = hand.getHandTotal();
-		if(total > 21)
+		if(hand.isBust() || total > 21)
 			return 0;
 
 		if(total == 21){
@@ -2931,7 +2981,7 @@ private:
 	int freeBetCredit(Hand& hand, int dealerTotal, bool dealerBust, bool dealerBlackjack){
 		int bet = hand.getBet();
 		int total = hand.getHandTotal();
-		if(total > 21)
+		if(hand.isBust() || total > 21)
 			return 0;
 
 		bool blackjack = hand.getHandSize() == 2 && total == 21;
@@ -2953,6 +3003,117 @@ private:
 		if(total == dealerTotal)
 			return bet;
 		return 0;
+	}
+
+	static std::string rankName(int value){
+		switch(value){
+			case 1: return "A";
+			case 11: return "J";
+			case 12: return "Q";
+			case 13: return "K";
+			default: return std::to_string(value);
+		}
+	}
+
+	// Plural for "PAIR OF KINGS" / "FOUR 7S" style detail lines.
+	static std::string rankPlural(int value){
+		switch(value){
+			case 1: return "ACES";
+			case 11: return "JACKS";
+			case 12: return "QUEENS";
+			case 13: return "KINGS";
+			default: return std::to_string(value) + "S";
+		}
+	}
+
+	static std::string suitName(int suit){
+		switch(suit){
+			case 0: return "SPADES";
+			case 1: return "CLUBS";
+			case 2: return "DIAMONDS";
+			default: return "HEARTS";
+		}
+	}
+
+	// Announces a rare side-bet hit -- only the long-shot tiers, not every
+	// side-bet win, so it still means something when it shows up: Lucky
+	// Ladies' matched 20 (200:1, Queen of Hearts pair named as such),
+	// and Player's Edge three of a kind (a pair matching a dealer card)
+	// or four of a kind (a pair matching both). payout is the full credit
+	// coming back (wager + winnings).
+	void queueJackpotCallout(int playerIndex, const std::string& title, const std::string& what, int payout){
+		jackpotCallouts.push_back(JackpotCallout{
+			.title = title,
+			.detail = "P" + std::to_string(playerIndex + 1) + "  " + what + "  +" + std::to_string(payout),
+		});
+	}
+
+	// Two suited/unsuited matches == the player's own pair plus the dealer
+	// card, i.e. three of a kind (see evaluateMatchBet()).
+	int matchCount(int playerIndex, Card& dealerCard, bool& allSuited){
+		const InitialTwoCards& ic = initialTwoCards[playerIndex];
+		allSuited = true;
+		if(!ic.valid)
+			return 0;
+		int count = 0;
+		int values[2] = { ic.value1, ic.value2 };
+		int suits[2] = { ic.suit1, ic.suit2 };
+		for(int k = 0; k < 2; k++){
+			if(values[k] != dealerCard.getValue())
+				continue;
+			count++;
+			if(suits[k] != dealerCard.getSuit())
+				allSuited = false;
+		}
+		return count;
+	}
+
+	void drawJackpotCallout(SDLState& state){
+		if(jackpotCallouts.empty())
+			return;
+
+		const JackpotCallout& c = jackpotCallouts.front();
+		float t = c.elapsed;
+
+		// Pops open over the first 0.25s, fades over the last 0.4s.
+		float open = std::min(1.0f, t / 0.25f);
+		float fade = std::clamp((CALLOUT_DURATION - t) / 0.4f, 0.0f, 1.0f);
+		Uint8 alpha = (Uint8)(255 * fade);
+
+		float fullH = 190.0f;
+		float h = fullH * open;
+		SDL_FRect band{ .x = 0, .y = 360.0f - h / 2.0f, .w = 1440, .h = h };
+
+		SDL_SetRenderDrawBlendMode(state.renderer, SDL_BLENDMODE_BLEND);
+		SDL_SetRenderDrawColor(state.renderer, 10, 10, 10, (Uint8)(238 * fade));
+		SDL_RenderFillRect(state.renderer, &band);
+
+		// Border flashes gold/red five times a second.
+		bool flash = ((int)(t * 5.0f)) % 2 == 0;
+		SDL_Color border = flash ? SDL_Color{255, 210, 40, alpha} : SDL_Color{230, 50, 50, alpha};
+		SDL_SetRenderDrawColor(state.renderer, border.r, border.g, border.b, border.a);
+		for(int i = 0; i < 6; i++){
+			SDL_FRect top{ .x = 0, .y = band.y + i, .w = 1440, .h = 1 };
+			SDL_FRect bottom{ .x = 0, .y = band.y + band.h - 1 - i, .w = 1440, .h = 1 };
+			SDL_RenderFillRect(state.renderer, &top);
+			SDL_RenderFillRect(state.renderer, &bottom);
+		}
+
+		if(open >= 1.0f){
+			float titlePixel = 11.0f;
+			float titleW = DigitFont::textWidth(c.title, titlePixel);
+			if(titleW > 1340.0f){
+				titlePixel *= 1340.0f / titleW;
+				titleW = DigitFont::textWidth(c.title, titlePixel);
+			}
+			SDL_Color titleColor = flash ? SDL_Color{255, 225, 80, alpha} : SDL_Color{255, 255, 255, alpha};
+			DigitFont::drawText(state, c.title, (1440.0f - titleW) / 2.0f, band.y + 38.0f, titlePixel, titleColor);
+
+			float detailPixel = 5.0f;
+			float detailW = DigitFont::textWidth(c.detail, detailPixel);
+			DigitFont::drawText(state, c.detail, (1440.0f - detailW) / 2.0f, band.y + 38.0f + 5 * titlePixel + 28.0f, detailPixel, SDL_Color{230, 230, 230, alpha});
+		}
+		SDL_SetRenderDrawBlendMode(state.renderer, SDL_BLENDMODE_NONE);
 	}
 
 	// Lucky Ladies Pay Table B: a same-rank, same-suit pair of 10-value
@@ -3110,6 +3271,15 @@ private:
 				if(payout > 0){
 					queueChipPayout(i, payout);
 					sideBetResult[i] = HandResult::Win;
+
+					const InitialTwoCards& c = initialTwoCards[i];
+					if(c.value1 == c.value2 && c.suit1 == c.suit2){
+						bool queenOfHearts = c.value1 == 12 && c.suit1 == 3;
+						queueJackpotCallout(i,
+							queenOfHearts ? "QUEEN OF HEARTS PAIR!" : "MATCHED TWENTY!",
+							"PAIR OF " + rankPlural(c.value1) + " OF " + suitName(c.suit1),
+							payout);
+					}
 				} else{
 					queueChipCollection(i, wager);
 					sideBetResult[i] = HandResult::Loss;
@@ -3121,9 +3291,17 @@ private:
 
 				Card& dealerUp = dealer.hands[0].cards[0];
 				int payout = evaluateMatchBet(i, dealerUp, wager);
+				bool allSuited = false;
+				int matches = matchCount(i, dealerUp, allSuited);
 				if(payout > 0){
 					queueChipPayout(i, payout);
 					matchUpResult[i] = HandResult::Win;
+
+					if(matches == 2)
+						queueJackpotCallout(i,
+							allSuited ? "SUITED THREE OF A KIND!" : "THREE OF A KIND!",
+							"MATCH UP  " + rankPlural(dealerUp.getValue()),
+							payout);
 				} else{
 					queueChipCollection(i, wager);
 					matchUpResult[i] = HandResult::Loss;
@@ -3273,11 +3451,23 @@ private:
 		shoe.erase(shoe.begin());
 
 		if(c.getValue() == 14){
+			// Flies face-up from the shoe to the discard pile (queued
+			// ahead of whatever card the caller is about to deal, so it
+			// goes first) and stays on top of the pile, yellow, until the
+			// next discard covers it -- a visible "reshuffle after this
+			// round" signal instead of vanishing silently.
 			shoeNeedsReshuffle = true;
-			c.showCard(false);
+			c.showCard(true);
 			c.setRotation(0);
-			c.setPostion(discardPosition);
-			discard.push_back(c);
+			dealQueue.push(DealRequest{
+				.playerIndex = -1,
+				.isDealer = true,
+				.discard = true,
+				.showCard = true,
+				.from = shoePosition,
+				.to = discardPosition,
+				.card = c,
+			});
 			return getNextCard();
 		}
 

@@ -1,0 +1,4 @@
+// Gives UnderwayBlackjack.exe its icon (Explorer, taskbar, title bar --
+// mina.cpp points SDL_HINT_WINDOWS_INTRESOURCE_ICON at resource 1).
+// icon.ico is made from web/static/icon-512.png.
+1 ICON "icon.ico"

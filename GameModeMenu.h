@@ -2,6 +2,7 @@
 #include "Game.h"
 #include "DigitFont.h"
 #include <string>
+#include <vector>
 
 // Shown once, between the main Menu and SetupMenu, whenever Start/Restart
 // is chosen -- picks which game gets played. All modes from the original
@@ -51,6 +52,31 @@ public:
 		drawAboutButton(state, playersEdgeAboutButton());
 		drawAboutButton(state, luckyStiffAboutButton());
 		drawAboutButton(state, freeBetAboutButton());
+
+		drawButton(state, backButton_, SDL_Color{80, 80, 80, 255}, "BACK", 6.0f);
+	}
+
+	// True when BACK is hit -- mina.cpp decides where back goes.
+	bool handleBackPoint(SDLState& state, float windowX, float windowY){
+		float x, y;
+		if(!SDL_RenderCoordinatesFromWindow(state.renderer, windowX, windowY, &x, &y))
+			return false;
+
+		SDL_FPoint p{x, y};
+		SDL_FRect back = backButton_;
+		return SDL_PointInRectFloat(&p, &back);
+	}
+
+	// Every button, for mina.cpp's arrow-key navigation.
+	std::vector<SDL_FRect> focusRects(){
+		return {
+			twoDeckButton_, sixDeckButton_, standardAboutButton_,
+			twoDeckLuckyLadiesButton_, sixDeckLuckyLadiesButton_, luckyLadiesAboutButton_,
+			twoDeckPlayersEdgeButton_, sixDeckPlayersEdgeButton_, playersEdgeAboutButton_,
+			luckyStiffButton_, luckyStiffAboutButton_,
+			freeBetButton_, freeBetAboutButton_,
+			backButton_
+		};
 	}
 
 	// windowX/windowY: raw event coordinates in window space, same
@@ -146,6 +172,8 @@ private:
 	SDL_FRect playersEdgeAboutButton_{ .x = ABOUT_BTN_X, .y = ROW3_Y, .w = ABOUT_BTN_W, .h = BTN_H };
 	SDL_FRect luckyStiffAboutButton_{ .x = ABOUT_BTN_X, .y = ROW4_Y, .w = ABOUT_BTN_W, .h = BTN_H };
 	SDL_FRect freeBetAboutButton_{ .x = ABOUT_BTN_X, .y = ROW5_Y, .w = ABOUT_BTN_W, .h = BTN_H };
+	// Same size/x as the other screens' BACK buttons, under the last row.
+	SDL_FRect backButton_{ .x = 620, .y = ROW5_Y + BTN_H + 40.0f, .w = 200, .h = 56 };
 
 	SDL_FRect standardAboutButton(){ return standardAboutButton_; }
 	SDL_FRect luckyLadiesAboutButton(){ return luckyLadiesAboutButton_; }
