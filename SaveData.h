@@ -248,12 +248,12 @@ private:
 
 #ifdef __EMSCRIPTEN__
 	// Game-wide values by index (see write() for the key order); missing
-	// keys fall back to def.
+	// keys fall back to def. The key lists are single '|'-separated strings
+	// because EM_ASM is a macro: a bare comma in the JS (like in an array
+	// literal) would split its argument and break the build.
 	static int webGet(int which, int def){
 		return EM_ASM_INT({
-			var keys = ['underwayBlackjackMode', 'underwayBlackjackPlayers', 'underwayBlackjackHasProgress',
-				'underwayBlackjackHasOptions', 'underwayBlackjackDealerSpeed',
-				'underwayBlackjackFaceDownDoubles', 'underwayBlackjackHideHands', 'underwayBlackjackTutorialSeen'];
+			var keys = 'underwayBlackjackMode|underwayBlackjackPlayers|underwayBlackjackHasProgress|underwayBlackjackHasOptions|underwayBlackjackDealerSpeed|underwayBlackjackFaceDownDoubles|underwayBlackjackHideHands|underwayBlackjackTutorialSeen'.split('|');
 			var v = localStorage.getItem(keys[$0]);
 			return v === null ? $1 : parseInt(v);
 		}, which, def);
@@ -262,8 +262,7 @@ private:
 	// Per-seat values: 0 bankroll, 1 bet, 2 sideBet, 3 current, 4 buyIns.
 	static int webGetSeat(int which, int seat, int def){
 		return EM_ASM_INT({
-			var keys = ['underwayBlackjackBankroll', 'underwayBlackjackBet', 'underwayBlackjackSideBet',
-				'underwayBlackjackCurrent', 'underwayBlackjackBuyIns'];
+			var keys = 'underwayBlackjackBankroll|underwayBlackjackBet|underwayBlackjackSideBet|underwayBlackjackCurrent|underwayBlackjackBuyIns'.split('|');
 			var v = localStorage.getItem(keys[$0] + $1);
 			return v === null ? $2 : parseInt(v);
 		}, which, seat, def);
