@@ -3212,6 +3212,7 @@ private:
 					continue;
 
 				int payout = evaluateMatchBet(i, dealerDown, wager);
+				recordSideBet(Stats::MatchDown, wager, payout);
 				if(payout > 0){
 					queueChipPayout(i, payout);
 					matchDownResult[i] = HandResult::Win;
@@ -3318,6 +3319,8 @@ private:
 					continue;
 
 				HandResult mainResult = players[i].hands[0].getResult();
+				recordSideBet(Stats::LuckyStiff, wager,
+					mainResult == HandResult::Win ? wager * 6 : mainResult == HandResult::Push ? wager : 0);
 				if(mainResult == HandResult::Win){
 					queueChipPayout(i, wager + wager * 5);
 					sideBetResult[i] = HandResult::Win;
@@ -3468,6 +3471,11 @@ private:
 			case 2: return "DIAMONDS";
 			default: return "HEARTS";
 		}
+	}
+
+	void recordSideBet(Stats::SideBet bet, int wager, int credit){
+		if(stats)
+			stats->recordSideBet(bet, wager, credit);
 	}
 
 	// Announces a rare side-bet hit -- only the long-shot tiers, not every
@@ -3705,6 +3713,7 @@ private:
 					continue;
 
 				int payout = evaluateLuckyLadies(i, wager);
+				recordSideBet(Stats::LuckyLadies, wager, payout);
 				if(payout > 0){
 					queueChipPayout(i, payout);
 					sideBetResult[i] = HandResult::Win;
@@ -3728,6 +3737,7 @@ private:
 
 				Card& dealerUp = dealer.hands[0].cards[0];
 				int payout = evaluateMatchBet(i, dealerUp, wager);
+				recordSideBet(Stats::MatchUp, wager, payout);
 				bool allSuited = false;
 				int matches = matchCount(i, dealerUp, allSuited);
 				if(payout > 0){
@@ -3750,6 +3760,8 @@ private:
 
 				bool pending = false;
 				int payout = evaluateLuckyStiffImmediate(i, wager, pending);
+				if(!pending)
+					recordSideBet(Stats::LuckyStiff, wager, payout);
 				if(pending){
 					luckyStiffPending[i] = true;
 				} else if(payout > 0){
