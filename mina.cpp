@@ -128,13 +128,22 @@ struct AppContext {
     AppContext() : table(3, true, 2) {}
 };
 
-// Small "||" icon, top right -- opens the pause menu. Kept as plain rects
-// rather than DigitFont text since there's no room for a readable word at
-// this size, and a pause icon is universally recognizable anyway. At least
-// as big as Table.h's bet buttons (56x48) -- the game-wide minimum for a
-// tap target.
+// "||" icon, top right -- opens the pause menu. Kept as plain rects
+// rather than DigitFont text, since a pause icon is universally
+// recognizable. 82x84, with TIP the same size right under it: big enough
+// that a thumb aimed at either one lands on it, not on the table (where
+// any tap is a HIT). Table::drawBankrolls() keeps the P1 label left of
+// x 1344 to leave room.
 static SDL_FRect pauseButtonRect(){
-    return SDL_FRect{ .x = 1364.0f, .y = 8.0f, .w = 68.0f, .h = 48.0f };
+    return SDL_FRect{ .x = 1352.0f, .y = 6.0f, .w = 82.0f, .h = 84.0f };
+}
+
+// Where a tap counts as the pause button: the button plus a margin out to
+// the screen edges and partway toward the table, so a near miss doesn't
+// fall through as a HIT. Ends where TIP's own margin starts (see
+// Table::quickTipHitRect()).
+static SDL_FRect pauseButtonHitRect(){
+    return SDL_FRect{ .x = 1330.0f, .y = 0.0f, .w = 110.0f, .h = 94.0f };
 }
 
 static void drawPauseButton(AppContext& ctx){
@@ -144,8 +153,8 @@ static void drawPauseButton(AppContext& ctx){
     SDL_SetRenderDrawColor(ctx.state.renderer, 255, 255, 255, 255);
     SDL_RenderRect(ctx.state.renderer, &btn);
 
-    SDL_FRect bar1{ .x = btn.x + btn.w / 2.0f - 9.0f, .y = btn.y + 11.0f, .w = 6.0f, .h = 26.0f };
-    SDL_FRect bar2{ .x = btn.x + btn.w / 2.0f + 3.0f, .y = btn.y + 11.0f, .w = 6.0f, .h = 26.0f };
+    SDL_FRect bar1{ .x = btn.x + btn.w / 2.0f - 14.0f, .y = btn.y + 22.0f, .w = 10.0f, .h = 40.0f };
+    SDL_FRect bar2{ .x = btn.x + btn.w / 2.0f + 4.0f, .y = btn.y + 22.0f, .w = 10.0f, .h = 40.0f };
     SDL_RenderFillRect(ctx.state.renderer, &bar1);
     SDL_RenderFillRect(ctx.state.renderer, &bar2);
 }
@@ -156,8 +165,8 @@ static bool isPauseButtonHit(AppContext& ctx, float windowX, float windowY){
         return false;
 
     SDL_FPoint p{lx, ly};
-    SDL_FRect btn = pauseButtonRect();
-    return SDL_PointInRectFloat(&p, &btn);
+    SDL_FRect hit = pauseButtonHitRect();
+    return SDL_PointInRectFloat(&p, &hit);
 }
 
 // GameOptionsMenu's current choices -> the running Table.
@@ -168,7 +177,7 @@ static void applyOptionsToTable(AppContext& ctx){
 }
 
 static void saveOptions(AppContext& ctx){
-    ctx.save.saveOptions(static_cast<int>(ctx.gameOptionsMenu.dealerSpeed),
+    ctx.save.saveOptions(ctx.gameOptionsMenu.dealerSpeed,
         ctx.gameOptionsMenu.faceDownDoubles, ctx.gameOptionsMenu.hideInactiveHands);
 }
 
@@ -616,6 +625,17 @@ static std::vector<SDL_FRect> currentFocusRects(AppContext& ctx){
     return {};
 }
 
+static bool optionsShowing(const AppContext& ctx){
+    return ctx.screen == AppScreen::GameOptions
+        || (ctx.screen == AppScreen::Playing && ctx.pauseState == PauseState::Options);
+}
+
+// The DEALER SPEED slider has the highlight: Left/Right move it, and
+// Enter does nothing (there's nothing to click).
+static bool sliderFocused(const AppContext& ctx){
+    return optionsShowing(ctx) && ctx.focusIndex == GameOptionsMenu::SLIDER_FOCUS_INDEX;
+}
+
 // Moves the highlight to the nearest button in the arrow's direction
 // (by screen position, not list order), so grids like GameModeMenu's and
 // SetupMenu's steppers navigate the way they look.
@@ -668,6 +688,8 @@ static void moveFocus(AppContext& ctx, int dx, int dy){
 // Enter/Space on a highlighted button: click its center, exactly as a
 // mouse would.
 static void activateFocus(AppContext& ctx){
+    if(sliderFocused(ctx))
+        return;
     std::vector<SDL_FRect> rects = currentFocusRects(ctx);
     if(ctx.focusIndex < 0 || ctx.focusIndex >= (int)rects.size()){
         if(!rects.empty())
@@ -821,6 +843,12 @@ static void mainLoopIteration(void *arg) {
             }
 
             if(inMenu(ctx)){
+                // DEALER SPEED slider drags (the release goes through
+                // handleMenuClick() below like any tap).
+                if(optionsShowing(ctx) && event.type == SDL_EVENT_FINGER_DOWN)
+                    ctx.gameOptionsMenu.pointerDown(ctx.state, event.tfinger.x * ctx.state.width, event.tfinger.y * ctx.state.height);
+                else if(optionsShowing(ctx) && event.type == SDL_EVENT_FINGER_MOTION)
+                    ctx.gameOptionsMenu.pointerMove(ctx.state, event.tfinger.x * ctx.state.width, event.tfinger.y * ctx.state.height);
                 if(event.type == SDL_EVENT_FINGER_UP){
                     ctx.focusIndex = -1;
                     handleMenuClick(ctx, event.tfinger.x * ctx.state.width, event.tfinger.y * ctx.state.height);
@@ -840,6 +868,18 @@ static void mainLoopIteration(void *arg) {
             } else {
                 ctx.table.handleEvent(event);
             }
+        break;
+
+        // A real mouse dragging the DEALER SPEED slider (touches arrive as
+        // finger events above, so their synthetic mouse copies are skipped).
+        case SDL_EVENT_MOUSE_BUTTON_DOWN:
+            if(event.button.button == SDL_BUTTON_LEFT && event.button.which != SDL_TOUCH_MOUSEID && optionsShowing(ctx))
+                ctx.gameOptionsMenu.pointerDown(ctx.state, event.button.x, event.button.y);
+        break;
+
+        case SDL_EVENT_MOUSE_MOTION:
+            if(event.motion.which != SDL_TOUCH_MOUSEID && optionsShowing(ctx))
+                ctx.gameOptionsMenu.pointerMove(ctx.state, event.motion.x, event.motion.y);
         break;
 
         case SDL_EVENT_MOUSE_BUTTON_UP:
@@ -889,6 +929,10 @@ static void mainLoopIteration(void *arg) {
             }
 
             if(inMenu(ctx)){
+                if(sliderFocused(ctx) && (key == SDL_SCANCODE_LEFT || key == SDL_SCANCODE_RIGHT)){
+                    ctx.gameOptionsMenu.nudgeSpeed(key == SDL_SCANCODE_LEFT ? -5 : 5);
+                    break;
+                }
                 if(key == SDL_SCANCODE_UP)         moveFocus(ctx, 0, -1);
                 else if(key == SDL_SCANCODE_DOWN)  moveFocus(ctx, 0, 1);
                 else if(key == SDL_SCANCODE_LEFT)  moveFocus(ctx, -1, 0);
@@ -1051,7 +1095,7 @@ int main(int argc,char *argv[]) {
     }
     // Last-used Game Options, for Resume and for the next new game alike.
     if(ctx->save.hasOptions){
-        ctx->gameOptionsMenu.dealerSpeed = static_cast<GameOptionsMenu::DealerSpeed>(ctx->save.dealerSpeed);
+        ctx->gameOptionsMenu.dealerSpeed = ctx->save.dealerSpeed;
         ctx->gameOptionsMenu.faceDownDoubles = ctx->save.faceDownDoubles;
         ctx->gameOptionsMenu.hideInactiveHands = ctx->save.hideInactiveHands;
     }

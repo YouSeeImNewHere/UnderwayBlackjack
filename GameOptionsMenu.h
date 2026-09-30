@@ -2,9 +2,12 @@
 #include "Game.h"
 #include "DigitFont.h"
 #include "GameModeMenu.h"
+#include "SaveData.h"
 #include <string>
 #include <vector>
 #include <algorithm>
+#include <cmath>
+#include <cstdio>
 
 // Shown once, between GameModeMenu and SetupMenu -- dealer pacing and 2
 // house-rule toggles that change what's shown and when, not anything about
@@ -15,9 +18,9 @@
 class GameOptionsMenu
 {
 public:
-	enum class DealerSpeed{ Slow, Normal, Fast };
-
-	DealerSpeed dealerSpeed = DealerSpeed::Normal;
+	// The DEALER SPEED slider: 0 (slowest) to 100 (fastest). Saved as is
+	// (SaveData::dealerSpeed).
+	int dealerSpeed = SaveData::DEFAULT_DEALER_SPEED;
 	bool faceDownDoubles = false;
 	bool hideInactiveHands = false;
 
@@ -38,15 +41,48 @@ public:
 		return !isPlayersEdge(gameMode);
 	}
 
-	// Table::dealerSpeedFactor's units -- <1 is faster, >1 is slower. Wide
-	// enough gap between tiers that it's obvious on every single deal, not
-	// just the 2 rare dealer-only pauses this used to be limited to.
+	// Table::dealerSpeedFactor's units -- <1 is faster, >1 is slower.
+	// Exponential along the slider, so each step feels like the same
+	// change whether it's near the slow or the fast end: 2.5 (0.4x) at 0,
+	// about 1.0 at the default 40, 0.25 (4x) at 100.
 	float dealerSpeedFactor() const {
-		switch(dealerSpeed){
-			case DealerSpeed::Slow: return 2.2f;
-			case DealerSpeed::Fast: return 0.35f;
-			default: return 1.0f;
+		return SLOWEST_FACTOR * std::pow(FASTEST_FACTOR / SLOWEST_FACTOR, dealerSpeed / 100.0f);
+	}
+
+	// The speed as a multiple of normal, e.g. "1.5X".
+	std::string speedLabel() const {
+		char buf[16];
+		std::snprintf(buf, sizeof(buf), "%.1fX", 1.0f / dealerSpeedFactor());
+		return buf;
+	}
+
+	// Arrow keys on the highlighted slider (see mina.cpp).
+	void nudgeSpeed(int delta){
+		dealerSpeed = std::clamp(dealerSpeed + delta, 0, 100);
+	}
+
+	// focusRects() index of the slider -- mina.cpp gives it Left/Right
+	// instead of moving the highlight.
+	static constexpr int SLIDER_FOCUS_INDEX = 0;
+
+	// Dragging the slider: a press on it starts a drag that follows the
+	// pointer until release (handlePoint(), from mina.cpp's mouse/finger up).
+	void pointerDown(SDLState& state, float windowX, float windowY){
+		float x, y;
+		if(!SDL_RenderCoordinatesFromWindow(state.renderer, windowX, windowY, &x, &y))
+			return;
+		SDL_FPoint p{x, y};
+		SDL_FRect hit = sliderHitRect();
+		if(SDL_PointInRectFloat(&p, &hit)){
+			dragging = true;
+			setSpeedFromX(x);
 		}
+	}
+
+	void pointerMove(SDLState& state, float windowX, float windowY){
+		float x, y;
+		if(dragging && SDL_RenderCoordinatesFromWindow(state.renderer, windowX, windowY, &x, &y))
+			setSpeedFromX(x);
 	}
 
 	// A live demo card sliding down its own track, at whatever duration
@@ -74,9 +110,7 @@ public:
 		DigitFont::drawText(state, title, (1440.0f - titleW) / 2.0f, 50.0f, titlePixel, WHITE);
 
 		drawRowLabel(state, ROW_Y[0], "DEALER SPEED");
-		drawSpeedButton(state, speedButton(0), "SLOW", dealerSpeed == DealerSpeed::Slow);
-		drawSpeedButton(state, speedButton(1), "NORMAL", dealerSpeed == DealerSpeed::Normal);
-		drawSpeedButton(state, speedButton(2), "FAST", dealerSpeed == DealerSpeed::Fast);
+		drawSlider(state);
 
 		bool doublesAllowed = faceDownDoublesAllowed();
 		drawRowLabel(state, ROW_Y[1], doublesAllowed ? "FACE-DOWN DOUBLES" : "FACE-DOWN DOUBLES (N/A)");
@@ -114,6 +148,8 @@ public:
 
 	// True when BACK is hit -- mina.cpp decides where back goes.
 	bool handleBackPoint(SDLState& state, float windowX, float windowY){
+		if(dragging)
+			return false;
 		float x, y;
 		if(!SDL_RenderCoordinatesFromWindow(state.renderer, windowX, windowY, &x, &y))
 			return false;
@@ -125,7 +161,7 @@ public:
 
 	// Every enabled control, for mina.cpp's arrow-key navigation.
 	std::vector<SDL_FRect> focusRects(){
-		std::vector<SDL_FRect> rects{ speedButton(0), speedButton(1), speedButton(2) };
+		std::vector<SDL_FRect> rects{ sliderRect() }; // SLIDER_FOCUS_INDEX
 		if(faceDownDoublesAllowed())
 			rects.push_back(toggleButton(1));
 		rects.push_back(toggleButton(2));
@@ -145,13 +181,18 @@ public:
 
 		SDL_FPoint p{x, y};
 
-		SDL_FRect slow = speedButton(0), normal = speedButton(1), fast = speedButton(2);
-		if(SDL_PointInRectFloat(&p, &slow))
-			dealerSpeed = DealerSpeed::Slow;
-		else if(SDL_PointInRectFloat(&p, &normal))
-			dealerSpeed = DealerSpeed::Normal;
-		else if(SDL_PointInRectFloat(&p, &fast))
-			dealerSpeed = DealerSpeed::Fast;
+		// The end of a slider drag: wherever it's released, nothing else
+		// on the screen gets clicked.
+		if(dragging){
+			setSpeedFromX(x);
+			dragging = false;
+			return false;
+		}
+		SDL_FRect slider = sliderHitRect();
+		if(SDL_PointInRectFloat(&p, &slider)){
+			setSpeedFromX(x);
+			return false;
+		}
 
 		SDL_FRect faceDown = toggleButton(1);
 		if(faceDownDoublesAllowed() && SDL_PointInRectFloat(&p, &faceDown))
@@ -182,7 +223,7 @@ private:
 	static constexpr float ROW_Y[3] = {160.0f, 280.0f, 400.0f};
 
 	// Demo card track -- off to the right of the 3 rows above, clear of
-	// their controls (which end around CONTROL_X + 3*SPEED_BTN_W, ~1198).
+	// their controls (the slider ends at CONTROL_X + SLIDER_W, 1200).
 	static constexpr float DEMO_X = 1250.0f;
 	static constexpr float DEMO_TOP_Y = 150.0f;
 	static constexpr float DEMO_BOTTOM_Y = 480.0f;
@@ -213,26 +254,58 @@ private:
 		DigitFont::drawText(state, label, LABEL_X, y + (ROW_H - 5 * pixel) / 2.0f, pixel, WHITE);
 	}
 
-	static constexpr float SPEED_BTN_W = 130.0f;
-	static constexpr float SPEED_BTN_GAP = 16.0f;
+	static constexpr float SLOWEST_FACTOR = 2.5f;
+	static constexpr float FASTEST_FACTOR = 0.25f;
+	static constexpr float SLIDER_W = 440.0f;
+	static constexpr float KNOB_W = 36.0f;
+	bool dragging = false;
 
-	SDL_FRect speedButton(int index){
-		return SDL_FRect{ .x = CONTROL_X + index * (SPEED_BTN_W + SPEED_BTN_GAP), .y = ROW_Y[0], .w = SPEED_BTN_W, .h = ROW_H };
+	// The whole slider row: what arrow keys highlight.
+	SDL_FRect sliderRect(){
+		return SDL_FRect{ .x = CONTROL_X, .y = ROW_Y[0], .w = SLIDER_W, .h = ROW_H };
 	}
 
-	void drawSpeedButton(SDLState& state, const SDL_FRect& r, const std::string& label, bool selected){
-		SDL_SetRenderDrawColor(state.renderer, selected ? 60 : 70, selected ? 130 : 70, selected ? 70 : 80, 255);
-		SDL_RenderFillRect(state.renderer, &r);
-		SDL_SetRenderDrawColor(state.renderer, 255, 255, 255, 255);
-		SDL_RenderRect(state.renderer, &r);
+	// Where a press grabs the slider: its row plus some slack above and
+	// below, so a thumb doesn't have to land exactly on the thin track.
+	SDL_FRect sliderHitRect(){
+		return SDL_FRect{ .x = CONTROL_X - 20.0f, .y = ROW_Y[0] - 30.0f, .w = SLIDER_W + 40.0f, .h = ROW_H + 60.0f };
+	}
 
-		float pixel = 4.5f;
-		float maxW = r.w - 8.0f;
-		float w = DigitFont::textWidth(label, pixel);
-		if(w > maxW && w > 0.0f)
-			pixel *= maxW / w;
-		w = DigitFont::textWidth(label, pixel);
-		DigitFont::drawText(state, label, r.x + (r.w - w) / 2.0f, r.y + (r.h - 5 * pixel) / 2.0f, pixel, WHITE);
+	// The knob's center travels between these, so it never hangs off an end.
+	float trackStart(){ return CONTROL_X + KNOB_W / 2.0f; }
+	float trackEnd(){ return CONTROL_X + SLIDER_W - KNOB_W / 2.0f; }
+
+	void setSpeedFromX(float x){
+		float t = (x - trackStart()) / (trackEnd() - trackStart());
+		dealerSpeed = std::clamp((int)std::lround(t * 100.0f), 0, 100);
+	}
+
+	void drawSlider(SDLState& state){
+		float midY = ROW_Y[0] + ROW_H / 2.0f;
+		float knobX = trackStart() + (trackEnd() - trackStart()) * dealerSpeed / 100.0f;
+
+		SDL_FRect track{ .x = CONTROL_X, .y = midY - 6.0f, .w = SLIDER_W, .h = 12.0f };
+		SDL_SetRenderDrawColor(state.renderer, 70, 70, 80, 255);
+		SDL_RenderFillRect(state.renderer, &track);
+		SDL_FRect filled{ .x = CONTROL_X, .y = track.y, .w = knobX - CONTROL_X, .h = track.h };
+		SDL_SetRenderDrawColor(state.renderer, 60, 130, 70, 255);
+		SDL_RenderFillRect(state.renderer, &filled);
+		SDL_SetRenderDrawColor(state.renderer, 255, 255, 255, 255);
+		SDL_RenderRect(state.renderer, &track);
+
+		SDL_FRect knob{ .x = knobX - KNOB_W / 2.0f, .y = ROW_Y[0] + 4.0f, .w = KNOB_W, .h = ROW_H - 8.0f };
+		SDL_SetRenderDrawColor(state.renderer, 230, 230, 230, 255);
+		SDL_RenderFillRect(state.renderer, &knob);
+		SDL_SetRenderDrawColor(state.renderer, 40, 40, 40, 255);
+		SDL_RenderRect(state.renderer, &knob);
+
+		float pixel = 3.5f, textY = ROW_Y[0] + ROW_H + 14.0f;
+		SDL_Color dim{180, 200, 180, 255};
+		DigitFont::drawText(state, "SLOW", CONTROL_X, textY, pixel, dim);
+		DigitFont::drawText(state, "FAST", CONTROL_X + SLIDER_W - DigitFont::textWidth("FAST", pixel), textY, pixel, dim);
+		std::string value = speedLabel();
+		float valuePixel = 4.5f;
+		DigitFont::drawText(state, value, CONTROL_X + (SLIDER_W - DigitFont::textWidth(value, valuePixel)) / 2.0f, textY, valuePixel, WHITE);
 	}
 
 	static constexpr float TOGGLE_BTN_W = 160.0f;

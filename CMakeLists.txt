@@ -27,15 +27,16 @@ project(UnderwayBlackjack LANGUAGES C CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# Shown in TestFlight as "Version (Build)". Bump APP_VERSION for each new
-# release; the build number just has to go up on every upload (CI passes
-# the GitHub Actions run number).
+# Shown in TestFlight as "Version (Build)". CI sets APP_VERSION from the
+# latest vX.Y release tag; the build number just has to go up on every
+# upload (CI passes the GitHub Actions run number).
 set(APP_VERSION "1.0" CACHE STRING "User-facing version (CFBundleShortVersionString)")
 set(APP_BUILD_NUMBER "1" CACHE STRING "Build number (CFBundleVersion)")
 set(IOS_BUNDLE_ID "com.youseeimnewhere.underwayblackjack" CACHE STRING "iOS bundle identifier")
-# The version the game reports for its update check (UpdateCheck.h). The
-# Windows release workflow sets it from the tag (v1.1 -> 1.1); "dev" (the
-# default) never checks.
+# The version shown on the main menu, and used by the Windows update check
+# (UpdateCheck.h). The release workflows set it from the tag (v1.1 -> 1.1):
+# Windows and Android from the release's own tag, iOS from the latest one.
+# "dev" (the default) shows nothing and never checks.
 set(GAME_VERSION "dev" CACHE STRING "Game version for the in-game update check")
 set(IOS_TEAM_ID "" CACHE STRING "Apple Developer Team ID used for signing")
 

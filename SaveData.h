@@ -50,10 +50,13 @@ struct SaveData
 	// every re-buy) -- Person::getInitialBankroll()'s break-even point.
 	int totalBuyIns[5] = {500, 500, 500, 500, 500};
 
-	// GameOptionsMenu's choices (saveOptions()). dealerSpeed is
-	// GameOptionsMenu::DealerSpeed as an int: 0 slow, 1 normal, 2 fast.
+	// GameOptionsMenu's choices (saveOptions()). dealerSpeed is the
+	// slider's position, 0 (slowest) to 100 (fastest). Saved under a new
+	// key, dealerSpeedPct: the old "dealerSpeed" key held the 3 presets
+	// (0 slow, 1 normal, 2 fast) and is converted by speedFromPreset().
 	bool hasOptions = false;
-	int dealerSpeed = 1;
+	int dealerSpeed = DEFAULT_DEALER_SPEED;
+	static constexpr int DEFAULT_DEALER_SPEED = 40;
 	bool faceDownDoubles = false;
 	bool hideInactiveHands = false;
 
@@ -70,7 +73,9 @@ struct SaveData
 		numberOfPlayers = webGet(1, 1);
 		hasProgress = webGet(2, 0) != 0;
 		hasOptions = webGet(3, 0) != 0;
-		dealerSpeed = webGet(4, 1);
+		dealerSpeed = webGet(8, -1);
+		if(dealerSpeed < 0)
+			dealerSpeed = speedFromPreset(webGet(4, 1));
 		faceDownDoubles = webGet(5, 0) != 0;
 		hideInactiveHands = webGet(6, 0) != 0;
 		tutorialSeen = webGet(7, 0) != 0;
@@ -90,6 +95,7 @@ struct SaveData
 			return;
 
 		bool sawCurrent[5] = {false, false, false, false, false};
+		int legacyPreset = -1, speedPct = -1;
 		bool sawBuyIns[5] = {false, false, false, false, false};
 
 		std::string line;
@@ -115,7 +121,8 @@ struct SaveData
 			else if(key == "numberOfPlayers") numberOfPlayers = value;
 			else if(key == "hasProgress") hasProgress = value != 0;
 			else if(key == "hasOptions") hasOptions = value != 0;
-			else if(key == "dealerSpeed") dealerSpeed = value;
+			else if(key == "dealerSpeedPct") speedPct = value;
+			else if(key == "dealerSpeed") legacyPreset = value;
 			else if(key == "faceDownDoubles") faceDownDoubles = value != 0;
 			else if(key == "hideInactiveHands") hideInactiveHands = value != 0;
 			else if(key == "tutorialSeen") tutorialSeen = value != 0;
@@ -130,11 +137,12 @@ struct SaveData
 			if(!sawCurrent[i]) currentBankrolls[i] = bankrolls[i];
 			if(!sawBuyIns[i]) totalBuyIns[i] = bankrolls[i];
 		}
+		dealerSpeed = speedPct >= 0 ? speedPct : speedFromPreset(legacyPreset);
 #endif
 		if(numberOfPlayers < 1 || numberOfPlayers > 5)
 			numberOfPlayers = 1;
-		if(dealerSpeed < 0 || dealerSpeed > 2)
-			dealerSpeed = 1;
+		if(dealerSpeed < 0 || dealerSpeed > 100)
+			dealerSpeed = DEFAULT_DEALER_SPEED;
 	}
 
 	// Called once SetupMenu's GO is confirmed -- persists exactly what the
@@ -183,6 +191,16 @@ struct SaveData
 		write();
 	}
 
+	// The old SLOW/NORMAL/FAST presets as slider positions -- the same
+	// speeds they gave (see GameOptionsMenu::dealerSpeedFactor()).
+	static int speedFromPreset(int preset){
+		switch(preset){
+			case 0: return 6;
+			case 2: return 85;
+			default: return DEFAULT_DEALER_SPEED;
+		}
+	}
+
 	void saveTutorialSeen(){
 		tutorialSeen = true;
 		write();
@@ -208,7 +226,7 @@ private:
 			localStorage.setItem('underwayBlackjackPlayers', $2);
 			localStorage.setItem('underwayBlackjackHasProgress', $3);
 			localStorage.setItem('underwayBlackjackHasOptions', $4);
-			localStorage.setItem('underwayBlackjackDealerSpeed', $5);
+			localStorage.setItem('underwayBlackjackDealerSpeedPct', $5);
 			localStorage.setItem('underwayBlackjackFaceDownDoubles', $6);
 			localStorage.setItem('underwayBlackjackHideHands', $7);
 			localStorage.setItem('underwayBlackjackTutorialSeen', $8);
@@ -232,7 +250,7 @@ private:
 		out << "numberOfPlayers=" << numberOfPlayers << "\n";
 		out << "hasProgress=" << (hasProgress ? 1 : 0) << "\n";
 		out << "hasOptions=" << (hasOptions ? 1 : 0) << "\n";
-		out << "dealerSpeed=" << dealerSpeed << "\n";
+		out << "dealerSpeedPct=" << dealerSpeed << "\n";
 		out << "faceDownDoubles=" << (faceDownDoubles ? 1 : 0) << "\n";
 		out << "hideInactiveHands=" << (hideInactiveHands ? 1 : 0) << "\n";
 		out << "tutorialSeen=" << (tutorialSeen ? 1 : 0) << "\n";
@@ -253,7 +271,7 @@ private:
 	// literal) would split its argument and break the build.
 	static int webGet(int which, int def){
 		return EM_ASM_INT({
-			var keys = 'underwayBlackjackMode|underwayBlackjackPlayers|underwayBlackjackHasProgress|underwayBlackjackHasOptions|underwayBlackjackDealerSpeed|underwayBlackjackFaceDownDoubles|underwayBlackjackHideHands|underwayBlackjackTutorialSeen'.split('|');
+			var keys = 'underwayBlackjackMode|underwayBlackjackPlayers|underwayBlackjackHasProgress|underwayBlackjackHasOptions|underwayBlackjackDealerSpeed|underwayBlackjackFaceDownDoubles|underwayBlackjackHideHands|underwayBlackjackTutorialSeen|underwayBlackjackDealerSpeedPct'.split('|');
 			var v = localStorage.getItem(keys[$0]);
 			return v === null ? $1 : parseInt(v);
 		}, which, def);

@@ -153,8 +153,10 @@ Click the failed step to see its log.
 ## Versions
 
 - The build number is set automatically from the workflow run number.
-- To ship a new user-facing version (e.g. 1.1), change `APP_VERSION` in
-  `CMakeLists.txt`.
+- The version (shown in TestFlight and in the bottom-right corner of the
+  game's main menu) is the latest GitHub release tag: after publishing
+  release `v1.5`, the next TestFlight run is version 1.5. To upload a
+  version without making a GitHub release, push a tag like `ios-v1.5`.
 
 ## Building locally on a Mac (optional)
 
