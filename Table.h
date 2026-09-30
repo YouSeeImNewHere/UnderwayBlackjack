@@ -305,12 +305,20 @@ public:
 	// mina.cpp needs to claim its own finger the same way it already does
 	// for the pause button (see AppContext::uiClaimedFinger), to stop a
 	// tap here from also registering as a "hit" gesture.
-	// Directly below the pause button (same x/width, matching its 1364,8,
-	// 68x48 -- see mina.cpp's pauseButtonRect()), not off near the active
-	// hand HUD -- the two read as a pair of HUD buttons in the same corner
-	// now instead of being scattered.
+	// Directly below the pause button (same x/width as mina.cpp's
+	// pauseButtonRect()), so the two read as a pair of HUD buttons in the
+	// same corner. Both are big on purpose: a tap that misses them lands on
+	// the table, and any tap there is a HIT.
 	SDL_FRect quickTipButton(){
-		return SDL_FRect{ .x = 1364, .y = 64, .w = 68, .h = 48 };
+		return SDL_FRect{ .x = 1352, .y = 98, .w = 82, .h = 84 };
+	}
+
+	// The button plus a margin (edges of the screen, a strip toward the
+	// table, down to y 204), so a near miss still counts as TIP instead of
+	// falling through as a HIT. Starts where the pause button's margin ends
+	// (mina.cpp's pauseButtonHitRect()).
+	SDL_FRect quickTipHitRect(){
+		return SDL_FRect{ .x = 1330, .y = 94, .w = 110, .h = 110 };
 	}
 
 	bool isQuickTipButtonHit(SDLState& state, float windowX, float windowY){
@@ -319,8 +327,8 @@ public:
 			return false;
 
 		SDL_FPoint p{x, y};
-		SDL_FRect btn = quickTipButton();
-		return SDL_PointInRectFloat(&p, &btn);
+		SDL_FRect hit = quickTipHitRect();
+		return SDL_PointInRectFloat(&p, &hit);
 	}
 
 	void toggleQuickTip(){
@@ -1504,7 +1512,7 @@ private:
 		SDL_RenderRect(state.renderer, &btn);
 
 		std::string label = "TIP";
-		float pixel = 5.0f;
+		float pixel = 6.0f;
 		float maxW = btn.w - 8.0f;
 		float w = DigitFont::textWidth(label, pixel);
 		if(w > maxW && w > 0.0f)
@@ -2091,10 +2099,10 @@ private:
 	// number is whose instead of a single "P1 500  P2 500  P3 500" line.
 	void drawBankrolls(SDLState& state){
 		// Was 5.0f, clamped only to the canvas edge -- the right seat's
-		// bankroll sits close enough to the pause button (x 1364+) that
+		// bankroll sits close enough to the pause button (x 1352+) that
 		// at the new font's width it ran under/past it instead of just
 		// the canvas edge, hence the smaller size and the tighter
-		// right-side clamp (1350, not 1440) below.
+		// right-side clamp (1344, not 1440) below.
 		float pixel = 3.5f;
 
 		struct Label{ int playerIndex; float centerX, width, x; std::string text; SDL_Color color; };
@@ -2149,7 +2157,7 @@ private:
 		float GAP = 10.0f;
 		float prevRight = -1e9f;
 		for(Label& label : labels){
-			float x = std::max(10.0f, std::min(label.centerX - label.width / 2.0f, 1350.0f - label.width));
+			float x = std::max(10.0f, std::min(label.centerX - label.width / 2.0f, 1344.0f - label.width));
 			if(x < prevRight + GAP)
 				x = prevRight + GAP;
 			label.x = x;
@@ -3204,6 +3212,7 @@ private:
 					continue;
 
 				int payout = evaluateMatchBet(i, dealerDown, wager);
+				recordSideBet(Stats::MatchDown, wager, payout);
 				if(payout > 0){
 					queueChipPayout(i, payout);
 					matchDownResult[i] = HandResult::Win;
@@ -3310,6 +3319,8 @@ private:
 					continue;
 
 				HandResult mainResult = players[i].hands[0].getResult();
+				recordSideBet(Stats::LuckyStiff, wager,
+					mainResult == HandResult::Win ? wager * 6 : mainResult == HandResult::Push ? wager : 0);
 				if(mainResult == HandResult::Win){
 					queueChipPayout(i, wager + wager * 5);
 					sideBetResult[i] = HandResult::Win;
@@ -3460,6 +3471,11 @@ private:
 			case 2: return "DIAMONDS";
 			default: return "HEARTS";
 		}
+	}
+
+	void recordSideBet(Stats::SideBet bet, int wager, int credit){
+		if(stats)
+			stats->recordSideBet(bet, wager, credit);
 	}
 
 	// Announces a rare side-bet hit -- only the long-shot tiers, not every
@@ -3697,6 +3713,7 @@ private:
 					continue;
 
 				int payout = evaluateLuckyLadies(i, wager);
+				recordSideBet(Stats::LuckyLadies, wager, payout);
 				if(payout > 0){
 					queueChipPayout(i, payout);
 					sideBetResult[i] = HandResult::Win;
@@ -3720,6 +3737,7 @@ private:
 
 				Card& dealerUp = dealer.hands[0].cards[0];
 				int payout = evaluateMatchBet(i, dealerUp, wager);
+				recordSideBet(Stats::MatchUp, wager, payout);
 				bool allSuited = false;
 				int matches = matchCount(i, dealerUp, allSuited);
 				if(payout > 0){
@@ -3742,6 +3760,8 @@ private:
 
 				bool pending = false;
 				int payout = evaluateLuckyStiffImmediate(i, wager, pending);
+				if(!pending)
+					recordSideBet(Stats::LuckyStiff, wager, payout);
 				if(pending){
 					luckyStiffPending[i] = true;
 				} else if(payout > 0){

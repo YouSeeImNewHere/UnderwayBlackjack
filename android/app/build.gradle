@@ -24,7 +24,8 @@ android {
         resValue "string", "app_name", "Blackjack Variants"
         externalNativeBuild {
             cmake {
-                arguments "-DANDROID_PLATFORM=android-21", "-DANDROID_STL=c++_static"
+                // GAME_VERSION: shown on the main menu ("dev" shows nothing).
+                arguments "-DANDROID_PLATFORM=android-21", "-DANDROID_STL=c++_static", "-DGAME_VERSION=${appVersionName}"
                 // 64-bit ARM covers essentially every phone in use; x86_64
                 // is for the Android Studio emulator on an Intel/AMD PC.
                 abiFilters 'arm64-v8a', 'x86_64'

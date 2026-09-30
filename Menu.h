@@ -30,6 +30,8 @@ public:
 	// offer ("" = none), and this build's own version ("" for dev builds).
 	std::string updateVersion;
 	std::string currentVersion;
+	// True while the update downloads and installs.
+	bool updating = false;
 
 	void draw(SDLState& state, Resources& res){
 		SDL_SetRenderDrawColor(state.renderer, 20, 70, 35, 255);
@@ -52,7 +54,8 @@ public:
 		drawButton(state, controlsButton, SDL_Color{60, 90, 150, 255}, "CONTROLS");
 
 		if(!updateVersion.empty())
-			drawButton(state, updateButton, SDL_Color{190, 140, 30, 255}, "UPDATE TO V" + updateVersion);
+			drawButton(state, updateButton, updating ? SDL_Color{110, 90, 40, 255} : SDL_Color{190, 140, 30, 255},
+				updating ? std::string("UPDATING...") : "UPDATE TO V" + updateVersion);
 		if(!currentVersion.empty()){
 			std::string v = "V" + currentVersion;
 			DigitFont::drawText(state, v, 1440.0f - DigitFont::textWidth(v, 3.0f) - 16.0f, 690.0f, 3.0f, SDL_Color{150, 190, 150, 255});
@@ -87,7 +90,7 @@ public:
 			return usesTouchControls() ? MenuChoice::Gestures : MenuChoice::Keyboard;
 		if(SDL_PointInRectFloat(&p, &statsButton))
 			return MenuChoice::Stats;
-		if(!updateVersion.empty() && SDL_PointInRectFloat(&p, &updateButton))
+		if(!updateVersion.empty() && !updating && SDL_PointInRectFloat(&p, &updateButton))
 			return MenuChoice::Update;
 		if(SDL_PointInRectFloat(&p, &tutorialButton))
 			return MenuChoice::Tutorial;

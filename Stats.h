@@ -23,8 +23,25 @@ struct Stats
 		HandsPlayed, Wins, Losses, Pushes, Blackjacks, Busts, Surrenders,
 		Doubles, Splits, NetWinnings, BiggestWin, CurrentStreak, BestStreak,
 		JackpotHits, InsuranceTaken, DecisionsTotal, DecisionsCorrect,
+		// Per side bet (SideBet order), SIDE_BET_FIELDS each -- see
+		// recordSideBet(). Only ever append new fields after these.
+		LuckyLadiesBets, LuckyLadiesWagered, LuckyLadiesHits, LuckyLadiesWon, LuckyLadiesLost,
+		MatchUpBets, MatchUpWagered, MatchUpHits, MatchUpWon, MatchUpLost,
+		MatchDownBets, MatchDownWagered, MatchDownHits, MatchDownWon, MatchDownLost,
+		LuckyStiffBets, LuckyStiffWagered, LuckyStiffHits, LuckyStiffWon, LuckyStiffLost,
 		FieldCount
 	};
+
+	enum SideBet{ LuckyLadies, MatchUp, MatchDown, LuckyStiff, SideBetCount };
+
+	// Offsets within one side bet's block of fields.
+	enum SideBetField{ SideBets, SideWagered, SideHits, SideWon, SideLost, SIDE_BET_FIELDS };
+
+	static Field sideBetField(SideBet bet, SideBetField field){
+		return (Field)(LuckyLadiesBets + bet * SIDE_BET_FIELDS + field);
+	}
+
+	long long get(SideBet bet, SideBetField field) const { return values[sideBetField(bet, field)]; }
 
 	long long values[FieldCount] = {};
 
@@ -53,6 +70,21 @@ struct Stats
 		}
 	}
 
+	// One settled side bet. credit is everything paid back, stake included
+	// (0 on a loss, the stake alone on a push). Won is the profit on hits,
+	// Lost the stakes lost; both also count toward NetWinnings.
+	void recordSideBet(SideBet bet, long long wager, long long credit){
+		values[sideBetField(bet, SideBets)]++;
+		values[sideBetField(bet, SideWagered)] += wager;
+		if(credit > wager){
+			values[sideBetField(bet, SideHits)]++;
+			values[sideBetField(bet, SideWon)] += credit - wager;
+		} else if(credit < wager){
+			values[sideBetField(bet, SideLost)] += wager - credit;
+		}
+		values[NetWinnings] += credit - wager;
+	}
+
 	void recordDecision(bool matchedChart){
 		values[DecisionsTotal]++;
 		if(matchedChart)
@@ -70,7 +102,11 @@ struct Stats
 		static const char* KEYS[FieldCount] = {
 			"hands", "wins", "losses", "pushes", "blackjacks", "busts", "surrenders",
 			"doubles", "splits", "net", "biggestWin", "streak", "bestStreak",
-			"jackpots", "insurance", "decisions", "decisionsCorrect"
+			"jackpots", "insurance", "decisions", "decisionsCorrect",
+			"llBets", "llWagered", "llHits", "llWon", "llLost",
+			"muBets", "muWagered", "muHits", "muWon", "muLost",
+			"mdBets", "mdWagered", "mdHits", "mdWon", "mdLost",
+			"lsBets", "lsWagered", "lsHits", "lsWon", "lsLost"
 		};
 		return KEYS[f];
 	}
