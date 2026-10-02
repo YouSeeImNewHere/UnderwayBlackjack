@@ -31,7 +31,7 @@ Five ways to play 21: Standard, Lucky Ladies, Player's Edge (Spanish 21), Lucky 
 Blackjack Variants puts five casino blackjack games on one table.
 
 - Standard blackjack with 2 or 6 decks
-- Lucky Ladies: a side bet on your first two cards totaling 20, up to 200 to 1 for a matched 20 and a special callout for the Queen of Hearts pair
+- Lucky Ladies: a side bet on your first two cards totaling 20, up to 1000 to 1 for a Queen of Hearts pair against a dealer blackjack
 - Player's Edge: a Spanish 21 game where a player 21 always wins, with 5, 6 and 7 card 21 bonuses, redoubling, and Match Up / Match Down side bets
 - Lucky Stiff: an 8 deck game with a side bet on stiff hands
 - Free Bet Blackjack: free doubles on 9, 10 and 11 and free splits on most pairs, where a dealer 22 pushes

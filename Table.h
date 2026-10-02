@@ -247,10 +247,9 @@ public:
 		Hand& hand = p.hands[handIdx];
 		if(hand.getHandSize() < 2)
 			return false;
-		// A doubled Player's Edge hand only has stand/redouble left --
-		// outside what the chart covers.
-		if(hand.getDoubleCount() > 0)
-			return false;
+		// A doubled Player's Edge hand still gets a tip -- drawQuickTip()
+		// reads the chart through doubledAdvice(), since it can only
+		// stand, redouble or rescue from here.
 
 		int dealerUp = -1;
 		for(Card& c : dealer.hands[0].cards){
@@ -419,6 +418,7 @@ public:
 			sideBetResult[i] = HandResult::None;
 			matchUpResult[i] = HandResult::None;
 			matchDownResult[i] = HandResult::None;
+			matchDownResolved = false;
 			luckyStiffPending[i] = false;
 		}
 
@@ -646,7 +646,7 @@ public:
 		// the same frame would otherwise act on the hand as if it weren't
 		// coming -- e.g. surrendering or doubling a hand that's already
 		// been hit.
-		return tableIdle() && !activeHandNeedsSecondCard();
+		return tableIdle() && !activeHandNeedsSecondCard() && !activeHandIsTwentyOne();
 	}
 
 	// Nothing moving, queued, paused or pending between rounds.
@@ -664,6 +664,14 @@ public:
 		Person& p = players[activePlayer];
 		int h = p.getActiveHand();
 		return h < p.hands.size() && p.hands[h].isFromSplit() && p.hands[h].getHandSize() == 1;
+	}
+
+	bool activeHandIsTwentyOne(){
+		if(activePlayer >= numberOfPlayers)
+			return false;
+		Person& p = players[activePlayer];
+		int h = p.getActiveHand();
+		return h < p.hands.size() && p.hands[h].getHandTotal() == 21;
 	}
 
 	// For mina.cpp's save-after-every-round: true once a betting phase is
@@ -881,6 +889,13 @@ public:
 					onHit();
 					return;
 				}
+				// A hand already on 21 when its turn comes up (a natural,
+				// or a split hand's second card) plays itself out instead
+				// of waiting for input -- see checkBreak().
+				if(tableIdle() && activeHandIsTwentyOne()){
+					checkBreak();
+					return;
+				}
 				if(awaitingNewRound){
 					awaitingNewRound = false;
 
@@ -985,6 +1000,7 @@ public:
 			// at deal time.
 			addToRunningCount(dealer.hands[0].cards[1].getValue());
 			dealer.showCards();
+			resolveMatchDown();
 
 			pauseTimer = HOLE_CARD_REVEAL_PAUSE_DURATION * dealerSpeedFactor;
 			onPauseComplete = [this](){
@@ -1380,6 +1396,9 @@ private:
 	// Consumed in resolveRound(), reset false at the start of every round.
 	bool luckyStiffPending[5] = { false, false, false, false, false };
 
+	// Set once resolveMatchDown() has run this round.
+	bool matchDownResolved = false;
+
 	// True between rounds (including before the very first one) while the
 	// table's waiting on bets -- see startGame()/beginRound(). Drives both
 	// which input mina.cpp routes to (betting controls vs. gameplay
@@ -1526,6 +1545,26 @@ private:
 	// screen -- a glance, not a lookup. Closes itself the moment there's
 	// no longer a valid situation to show (hand resolved, turn moved on),
 	// same as the button itself.
+	bool activeHandDoubled(){
+		if(activePlayer >= numberOfPlayers)
+			return false;
+		Person& p = players[activePlayer];
+		int h = p.getActiveHand();
+		return h < p.hands.size() && p.hands[h].getDoubleCount() > 0;
+	}
+
+	// The chart's move for a hand that's already been doubled (Player's
+	// Edge only -- elsewhere a double ends the hand): hitting isn't
+	// allowed any more, so H becomes S; D means redouble while doubles
+	// are left; R means double-down rescue (see canSurrenderActiveHand()).
+	char doubledAdvice(char action){
+		if(action == 'H')
+			return 'S';
+		if(action == 'D' && !canDoubleActiveHand())
+			return 'S';
+		return action;
+	}
+
 	void drawQuickTip(SDLState& state){
 		int section, row, col;
 		if(!showQuickTip || awaitingBets || !getStrategySituation(section, row, col)){
@@ -1589,7 +1628,7 @@ private:
 			float lw = DigitFont::textWidth(colLabel, 4.0f);
 			DigitFont::drawText(state, colLabel, headerRect.x + (cellW - lw) / 2.0f, headerRect.y + (22.0f - 5 * 4.0f) / 2.0f, 4.0f, SDL_Color{255, 255, 255, 255});
 
-			char action = data[c];
+			char action = activeHandDoubled() ? doubledAdvice(data[c]) : data[c];
 			bool hl = (c == col);
 			SDL_Color fill = hl ? SDL_Color{255, 225, 60, 255} : StrategyChart::colorFor(action);
 			SDL_Color textColor = hl ? SDL_Color{20, 20, 20, 255} : SDL_Color{255, 255, 255, 255};
@@ -2528,6 +2567,10 @@ private:
 		if(!getStrategySituation(section, row, col))
 			return false;
 		advice = StrategyChart::rowData(section, row)[col];
+		if(activeHandDoubled()){
+			advice = doubledAdvice(advice);
+			return true;
+		}
 		if(advice == 'D' && !canDoubleActiveHand())
 			advice = (section == 1 && row >= 5) ? 'S' : 'H';
 		else if(advice == 'R' && !canSurrenderActiveHand()){
@@ -2781,7 +2824,13 @@ private:
 			return false;
 		Person& p = players[activePlayer];
 		int handIdx = p.getActiveHand();
-		if(handIdx >= p.hands.size() || p.hands.size() != 1)
+		if(handIdx >= p.hands.size())
+			return false;
+		// Player's Edge "double down rescue": a doubled hand can be
+		// surrendered, losing just the original bet (see onSurrender()).
+		if(isPlayersEdge(gameMode) && p.hands[handIdx].getDoubleCount() > 0)
+			return true;
+		if(p.hands.size() != 1)
 			return false;
 		return p.hands[handIdx].getHandSize() == 2;
 	}
@@ -2797,7 +2846,11 @@ private:
 		// the hand again.
 		{
 			Hand& hand = players[activePlayer].hands[players[activePlayer].getActiveHand()];
-			int refund = hand.getBet() / 2;
+			// A rescued double (Player's Edge) gives back everything but the
+			// original bet; a plain surrender gives back half.
+			int refund = hand.getDoubleCount() > 0
+				? hand.getBet() - (hand.getBet() >> hand.getDoubleCount())
+				: hand.getBet() / 2;
 			if(stats)
 				stats->recordHand(-(hand.getBet() - refund), false, false, false, false, true);
 			hand.setBet(0);
@@ -3004,6 +3057,7 @@ public:
 			sideBetResult[i] = HandResult::None;
 			matchUpResult[i] = HandResult::None;
 			matchDownResult[i] = HandResult::None;
+			matchDownResolved = false;
 			luckyStiffPending[i] = false;
 		}
 	}
@@ -3196,43 +3250,10 @@ private:
 			}
 		}
 
-		// Match Down can't be judged until the dealer's hole card is
-		// actually revealed (dealer.showCards(), called from dealDealer()
-		// before this ever runs) -- unlike Match Up/Lucky Ladies, which
-		// resolve right after the initial deal in resolveSideBets(), this
-		// one piggybacks on resolveRound()'s own timing instead.
-		if(isPlayersEdge(gameMode) && dealer.hands[0].getHandSize() >= 2){
-			Card& dealerDown = dealer.hands[0].cards[1];
-			for(int i = 0; i < numberOfPlayers; i++){
-				if(players[i].getBet() <= 0)
-					continue;
-
-				int wager = players[i].getMatchDownBet();
-				if(wager <= 0)
-					continue;
-
-				int payout = evaluateMatchBet(i, dealerDown, wager);
-				recordSideBet(Stats::MatchDown, wager, payout);
-				if(payout > 0){
-					queueChipPayout(i, payout);
-					matchDownResult[i] = HandResult::Win;
-
-					// A pair matching the hole card is three of a kind;
-					// if the up-card is that rank too, it's four.
-					bool allSuited = false;
-					if(matchCount(i, dealerDown, allSuited) == 2){
-						bool fourOfAKind = dealer.hands[0].cards[0].getValue() == dealerDown.getValue();
-						queueJackpotCallout(i,
-							fourOfAKind ? "FOUR OF A KIND!" : (allSuited ? "SUITED THREE OF A KIND!" : "THREE OF A KIND!"),
-							(fourOfAKind ? "FOUR " : "MATCH DOWN  ") + rankPlural(dealerDown.getValue()),
-							payout);
-					}
-				} else{
-					queueChipCollection(i, wager);
-					matchDownResult[i] = HandResult::Loss;
-				}
-			}
-		}
+		// Normally already settled the moment the hole card flipped
+		// (dealDealer()); this catches the dealer-blackjack path, where
+		// dealerPeek() reveals the hole card itself.
+		resolveMatchDown();
 
 		for(int i = 0; i < numberOfPlayers; i++){
 			for(Hand& hand : players[i].hands){
@@ -3335,6 +3356,52 @@ private:
 		}
 	}
 
+	// Match Down is judged against the dealer's hole card, so it settles
+	// the moment that card is turned over -- before the dealer draws
+	// (dealDealer()), or in dealerPeek()'s dealer-blackjack path via
+	// resolveRound(). Match Up and Lucky Ladies settle right after the
+	// initial deal (resolveSideBets()). Once per round.
+	void resolveMatchDown(){
+		if(matchDownResolved || !isPlayersEdge(gameMode) || dealer.hands[0].getHandSize() < 2)
+			return;
+		matchDownResolved = true;
+		{
+			Card& dealerDown = dealer.hands[0].cards[1];
+			for(int i = 0; i < numberOfPlayers; i++){
+				// Everyone dealt in, including a hand that's already busted
+				// or been paid on a 21 -- the side bet is separate.
+				if(!initialTwoCards[i].valid)
+					continue;
+
+				int wager = players[i].getMatchDownBet();
+				if(wager <= 0)
+					continue;
+
+				int payout = evaluateMatchBet(i, dealerDown, wager);
+				recordSideBet(Stats::MatchDown, wager, payout);
+				if(payout > 0){
+					queueChipPayout(i, payout);
+					matchDownResult[i] = HandResult::Win;
+
+					// A pair matching the hole card is three of a kind;
+					// if the up-card is that rank too, it's four.
+					bool allSuited = false;
+					if(matchCount(i, dealerDown, allSuited) == 2){
+						bool fourOfAKind = dealer.hands[0].cards[0].getValue() == dealerDown.getValue();
+						queueJackpotCallout(i,
+							fourOfAKind ? "FOUR OF A KIND!" : (allSuited ? "SUITED THREE OF A KIND!" : "THREE OF A KIND!"),
+							(fourOfAKind ? "FOUR " : "MATCH DOWN  ") + rankPlural(dealerDown.getValue()),
+							payout);
+					}
+				} else{
+					queueChipCollection(i, wager);
+					matchDownResult[i] = HandResult::Loss;
+				}
+			}
+		}
+
+	}
+
 	// Spanish 21's payout rules, used by resolveRound() in place of the
 	// standard branch above whenever isPlayersEdge(gameMode). The one
 	// defining difference: a player 21 always wins outright, no matter what
@@ -3360,6 +3427,12 @@ private:
 
 		if(total == 21){
 			int cardCount = hand.getHandSize();
+
+			// Washington's Player's Edge 21 rules: the 21 bonuses pay
+			// after splitting but not after doubling -- a doubled 21 is a
+			// plain 1:1 win (on the doubled bet).
+			if(hand.getDoubleCount() > 0)
+				return bet * 2;
 
 			std::vector<int> values, suits;
 			for(Card& c : hand.cards){
@@ -3480,7 +3553,7 @@ private:
 
 	// Announces a rare side-bet hit -- only the long-shot tiers, not every
 	// side-bet win, so it still means something when it shows up: Lucky
-	// Ladies' matched 20 (200:1, Queen of Hearts pair named as such),
+	// Ladies' matched 20 (19:1, a Queen of Hearts pair 125:1 or 1000:1),
 	// and Player's Edge three of a kind (a pair matching a dealer card)
 	// or four of a kind (a pair matching both). payout is the full credit
 	// coming back (wager + winnings).
@@ -3561,29 +3634,45 @@ private:
 		SDL_SetRenderDrawBlendMode(state.renderer, SDL_BLENDMODE_NONE);
 	}
 
-	// Lucky Ladies Pay Table B: a same-rank, same-suit pair of 10-value
-	// cards (10/J/Q/K) pays 200:1; any other suited 20 pays 25:1; any other
-	// 20 pays 10:1. Only the best-qualifying tier pays (checked highest to
-	// lowest), matching the "only the highest payout is paid" convention
-	// this bet is published under. Returns the total credit (wager +
-	// winnings), or 0 if the hand doesn't qualify at all.
+	// Lucky Ladies, the standard pay table (as dealt in Washington card
+	// rooms): any first-two-card 20 wins, soft 20 (A-9) included --
+	//   Queen of Hearts pair, dealer has blackjack   1000:1
+	//   Queen of Hearts pair                          125:1
+	//   matched 20 (same rank and suit)                19:1
+	//   suited 20                                       9:1
+	//   any other 20                                    4:1
+	// Only the best tier pays. Returns the total credit (wager +
+	// winnings), or 0 if the hand isn't a 20.
 	int evaluateLuckyLadies(int playerIndex, int wager){
 		const InitialTwoCards& c = initialTwoCards[playerIndex];
 		if(!c.valid)
 			return 0;
 
-		auto isTenValue = [](int v){ return v >= 10 && v <= 13; };
-		if(!isTenValue(c.value1) || !isTenValue(c.value2))
+		auto points = [](int v){ return v == 1 ? 11 : (v > 10 ? 10 : v); };
+		if(points(c.value1) + points(c.value2) != 20)
 			return 0;
 
 		bool suited = c.suit1 == c.suit2;
-		bool sameRank = c.value1 == c.value2;
+		bool matched = suited && c.value1 == c.value2;
+		bool queenOfHeartsPair = matched && c.value1 == 12 && c.suit1 == 3;
 
-		if(sameRank && suited)
-			return wager + wager * 200;
+		if(queenOfHeartsPair)
+			return wager + wager * (dealerHasBlackjack() ? 1000 : 125);
+		if(matched)
+			return wager + wager * 19;
 		if(suited)
-			return wager + wager * 25;
-		return wager + wager * 10;
+			return wager + wager * 9;
+		return wager + wager * 4;
+	}
+
+	// The dealer's two cards make a blackjack (hole card included, whether
+	// or not it's been turned over yet).
+	bool dealerHasBlackjack(){
+		if(dealer.hands[0].getHandSize() != 2)
+			return false;
+		auto tier = [](int v){ return v > 10 ? 10 : v; };
+		int a = tier(dealer.hands[0].cards[0].getValue()), b = tier(dealer.hands[0].cards[1].getValue());
+		return (a == 1 && b == 10) || (a == 10 && b == 1);
 	}
 
 	// Shared by Match Up (vs. the dealer's up-card) and Match Down (vs. the
@@ -3722,7 +3811,7 @@ private:
 					if(c.value1 == c.value2 && c.suit1 == c.suit2){
 						bool queenOfHearts = c.value1 == 12 && c.suit1 == 3;
 						queueJackpotCallout(i,
-							queenOfHearts ? "QUEEN OF HEARTS PAIR!" : "MATCHED TWENTY!",
+							queenOfHearts ? (dealerHasBlackjack() ? "QUEENS + DEALER BLACKJACK!" : "QUEEN OF HEARTS PAIR!") : "MATCHED TWENTY!",
 							"PAIR OF " + rankPlural(c.value1) + " OF " + suitName(c.suit1),
 							payout);
 					}
@@ -3844,6 +3933,12 @@ private:
 				skipZeroBetPlayers();
 			};
 		} else {
+			// Still dealing the opening cards (or waiting on the peek /
+			// insurance): nothing is decided yet. A natural plays out once
+			// its turn comes up (update()'s activeHandIsTwentyOne()).
+			if(awaitingPeek || awaitingInsurance)
+				return;
+
 			// A 21 -- natural or built up to over a few hits -- auto-stands
 			// instead of waiting on a hit/stand gesture: no legal move ever
 			// improves it and hitting again can only bust, so there's
@@ -3856,20 +3951,25 @@ private:
 			bool reachedTwentyOne = handIdx < players[activePlayer].hands.size()
 				&& players[activePlayer].hands[handIdx].getHandTotal() == 21;
 
-			// Player's Edge pays a 21 out right now, not once the whole
-			// round resolves -- its payout for a made 21 never actually
-			// depends on the dealer's hand (see spanish21Credit()'s
-			// total==21 branch), so there's no reason to make the player
-			// wait for the dealer to play out just to see money they've
-			// already won. Zeroing the hand's bet here is what keeps
-			// resolveRound() from paying it a second time later (it skips
-			// any hand with bet<=0, same as a surrendered one).
-			if(reachedTwentyOne && isPlayersEdge(gameMode)){
+			// Paid right now rather than once the whole round resolves:
+			// any Player's Edge 21 (its payout never depends on the
+			// dealer's hand -- see spanish21Credit()'s total==21 branch),
+			// and a natural blackjack in every game, the way a real dealer
+			// pays blackjacks as they come to them. By now the dealer has
+			// already peeked, so a natural can't be beaten. Zeroing the
+			// hand's bet is what keeps resolveRound() from paying it a
+			// second time (it skips any hand with bet<=0, same as a
+			// surrendered one).
+			bool natural = reachedTwentyOne
+				&& players[activePlayer].hands[handIdx].getHandSize() == 2
+				&& !players[activePlayer].hands[handIdx].isFromSplit();
+			if(reachedTwentyOne && players[activePlayer].hands[handIdx].getBet() > 0
+					&& (isPlayersEdge(gameMode) || natural)){
 				Hand& hand = players[activePlayer].hands[handIdx];
-				int credit = spanish21Credit(hand, 0, false, false);
+				int bet = hand.getBet();
+				int credit = isPlayersEdge(gameMode) ? spanish21Credit(hand, 0, false, false) : bet + bet * 3 / 2;
 				if(stats)
-					stats->recordHand(credit - hand.getBet(), true, false,
-						hand.getHandSize() == 2 && !hand.isFromSplit() && players[activePlayer].hands.size() == 1, false, false);
+					stats->recordHand(credit - bet, true, false, natural, false, false);
 				hand.setResult(HandResult::Win);
 				queueChipPayout(activePlayer, credit);
 				hand.setBet(0);
