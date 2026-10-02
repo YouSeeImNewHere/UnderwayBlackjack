@@ -246,6 +246,11 @@ public:
 		matchDownBet = amount;
 	}
 
+	void setMatchBets(int up, int down){
+		matchUpBet = up;
+		matchDownBet = down;
+	}
+
 	// The bet chosen for the round about to be dealt -- set during Table's
 	// betting phase (see Table::drawBetting()/handleBettingPoint()), before
 	// firstDeal() runs. Clamped to [0, bankroll].

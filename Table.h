@@ -456,6 +456,7 @@ public:
 	// whatever's actually left.
 	void clampBetsToBankroll(int playerIndex){
 		Person& p = players[playerIndex];
+		applyMatchBetRules(playerIndex);
 		int bankroll = p.getBankroll();
 		int mainBet = p.getBet();
 		int sideTotal = p.getSideBet() + p.getMatchUpBet() + p.getMatchDownBet();
@@ -465,6 +466,21 @@ public:
 
 		p.zeroSideBets();
 		p.setBetDirect(std::min(mainBet, bankroll));
+	}
+
+	// Player's Edge Match the Dealer limits (Clearwater's rules; Emerald
+	// Queen's Match Down needs a Match Up too): neither match bet can be
+	// more than the main bet, and Match Down can only be bet alongside a
+	// Match Up bet.
+	void applyMatchBetRules(int playerIndex){
+		if(!isPlayersEdge(gameMode))
+			return;
+		Person& p = players[playerIndex];
+		int up = std::min(p.getMatchUpBet(), p.getBet());
+		int down = std::min(p.getMatchDownBet(), p.getBet());
+		if(up <= 0)
+			down = 0;
+		p.setMatchBets(up, down);
 	}
 
 	// windowX/windowY: raw event coordinates in window space, same
@@ -493,6 +509,7 @@ public:
 
 			if(SDL_PointInRectFloat(&p, &row.lower)){
 				players[i].lowerBet(denom);
+				applyMatchBetRules(i);
 				sound(Sfx::Tap);
 				return;
 			}
@@ -520,12 +537,12 @@ public:
 				SideBetRow sb = sideBetRow(i, 0);
 				if(SDL_PointInRectFloat(&p, &sb.selMinus)){
 					players[i].lowerSideBet(denom);
-				sound(Sfx::Tap);
+					sound(Sfx::Tap);
 					return;
 				}
 				if(SDL_PointInRectFloat(&p, &sb.selPlus)){
 					players[i].raiseSideBet(denom);
-				sound(Sfx::ChipBet);
+					sound(Sfx::ChipBet);
 					clampBetsToBankroll(i);
 					return;
 				}
@@ -533,12 +550,13 @@ public:
 				SideBetRow up = sideBetRow(i, 0);
 				if(SDL_PointInRectFloat(&p, &up.selMinus)){
 					players[i].lowerMatchUpBet(denom);
-				sound(Sfx::Tap);
+					applyMatchBetRules(i);
+					sound(Sfx::Tap);
 					return;
 				}
 				if(SDL_PointInRectFloat(&p, &up.selPlus)){
 					players[i].raiseMatchUpBet(denom);
-				sound(Sfx::ChipBet);
+					sound(Sfx::ChipBet);
 					clampBetsToBankroll(i);
 					return;
 				}
@@ -546,12 +564,12 @@ public:
 				SideBetRow down = sideBetRow(i, 1);
 				if(SDL_PointInRectFloat(&p, &down.selMinus)){
 					players[i].lowerMatchDownBet(denom);
-				sound(Sfx::Tap);
+					sound(Sfx::Tap);
 					return;
 				}
 				if(SDL_PointInRectFloat(&p, &down.selPlus)){
 					players[i].raiseMatchDownBet(denom);
-				sound(Sfx::ChipBet);
+					sound(Sfx::ChipBet);
 					clampBetsToBankroll(i);
 					return;
 				}
