@@ -915,10 +915,12 @@ public:
 					players[it->playerIndex].credit(it->creditAmount);
 					queueBankrollChange(it->playerIndex, it->creditAmount, it->isPush);
 				} else{
-					// A collected (lost) bet only rejoins the tray once it
-					// actually arrives -- a payout already dropped its
-					// column the moment it was queued.
-					trayFillCount[it->columnIndex] = std::min(TRAY_FILL_COUNT, trayFillCount[it->columnIndex] + 1);
+					// A collected (lost) bet only goes into the tray once it
+					// actually arrives -- chip by chip, each in its own
+					// colour. A payout already took its chips out the
+					// moment it was queued.
+					for(int d : chipsFor(it->stake))
+						putInTray(d);
 				}
 
 				it = chipAnimations.erase(it);
@@ -1039,6 +1041,9 @@ public:
 						shoe.clear();
 						shuffling = true;
 						shuffleElapsed = 0.0f;
+						// A fresh shoe comes with a full tray.
+						for(int& fill : trayFillCount)
+							fill = TRAY_FILL_COUNT;
 						sound(Sfx::Shuffle);
 						return;
 					}
@@ -2490,23 +2495,30 @@ private:
 	// at the bottom), centered on (cx, cy) at its
 	// base. `amounts` lets a stack be built in layers -- the original bet
 	// and then each double on top of it.
+	// The chips (BET_DENOMS indexes) an amount is made of, the way a
+	// dealer would make it visible: starting from the biggest chip that
+	// goes in at least twice, so a 25 bet is five 5s rather than one lone
+	// chip. The same breakdown is drawn on the felt and taken from (or
+	// put back into) the tray.
+	static std::vector<int> chipsFor(int amount){
+		std::vector<int> chips;
+		int top = 4;
+		while(top > 0 && amount < 2 * BET_DENOMS[top])
+			top--;
+		for(int d = top; d >= 0 && amount > 0; d--){
+			while(amount >= BET_DENOMS[d] && chips.size() < 60){
+				chips.push_back(d);
+				amount -= BET_DENOMS[d];
+			}
+		}
+		return chips;
+	}
+
 	void drawChipStack(SDLState& state, Resources& res, float cx, float cy, const std::vector<int>& amounts, float size = 36.0f){
 		std::vector<int> chips;
 		for(int amount : amounts){
-			// Built the way a dealer would make it visible: starting from
-			// the biggest chip that goes in at least twice, so a 25 bet
-			// is a stack of five 5s rather than one lone chip.
-			int top = 4;
-			while(top > 0 && amount < 2 * BET_DENOMS[top])
-				top--;
-			for(int d = top; d >= 0 && amount > 0; d--){
-				while(amount >= BET_DENOMS[d]){
-					chips.push_back(d);
-					amount -= BET_DENOMS[d];
-					if(chips.size() > 60)
-						break;
-				}
-			}
+			std::vector<int> part = chipsFor(amount);
+			chips.insert(chips.end(), part.begin(), part.end());
 		}
 		if(chips.empty())
 			return;
@@ -2651,6 +2663,26 @@ private:
 		TRAY_FILL_COUNT, TRAY_FILL_COUNT, TRAY_FILL_COUNT, TRAY_FILL_COUNT,
 		TRAY_FILL_COUNT, TRAY_FILL_COUNT, TRAY_FILL_COUNT
 	};
+
+	// One chip of BET_DENOMS[denom] out of / into the tray: from the
+	// fullest column of that colour, into the emptiest.
+	void takeFromTray(int denom){
+		int best = -1;
+		for(int c = 0; c < 7; c++)
+			if(TRAY_COLUMN_DENOM[c] == denom && (best < 0 || trayFillCount[c] > trayFillCount[best]))
+				best = c;
+		if(best >= 0)
+			trayFillCount[best] = std::max(0, trayFillCount[best] - 1);
+	}
+
+	void putInTray(int denom){
+		int best = -1;
+		for(int c = 0; c < 7; c++)
+			if(TRAY_COLUMN_DENOM[c] == denom && (best < 0 || trayFillCount[c] < trayFillCount[best]))
+				best = c;
+		if(best >= 0)
+			trayFillCount[best] = std::min(TRAY_FILL_COUNT, trayFillCount[best] + 1);
+	}
 
 	// First column whose denomination matches -- used both to pick which
 	// column a payout/collection actually affects and, in drawChipTray(),
@@ -4254,16 +4286,6 @@ private:
 		}
 	}
 
-	// Largest BET_DENOMS entry that fits under an amount -- purely for
-	// visual variety in which chip icon flies, the amount itself isn't
-	// broken down into real chip counts the way the active-bet display is.
-	int denomIndexFor(int amount){
-		for(int d = 4; d >= 0; d--){
-			if(amount >= BET_DENOMS[d])
-				return d;
-		}
-		return 0;
-	}
 
 	// Stage lengths for ChipAnimation (seconds).
 	static constexpr float CHIPS_TO_SPOT = 0.75f;   // winnings tray -> beside the bet
@@ -4307,9 +4329,11 @@ private:
 	void queueChipPayout(int playerIndex, int credit, bool isPush, int stake, SDL_FPoint spot){
 		sound(Sfx::ChipsPay);
 		int winnings = isPush ? 0 : std::max(0, credit - stake);
-		int col = firstColumnForDenom(denomIndexFor(std::max(1, winnings)));
-		if(winnings > 0)
-			trayFillCount[col] = std::max(0, trayFillCount[col] - 1);
+		// Every chip of the winnings comes out of its own column.
+		std::vector<int> chips = chipsFor(winnings);
+		int col = firstColumnForDenom(chips.empty() ? 0 : chips.front());
+		for(int d : chips)
+			takeFromTray(d);
 
 		chipAnimations.push_back(ChipAnimation{
 			.kind = isPush ? ChipAnimation::Push : ChipAnimation::Win,
@@ -4330,7 +4354,8 @@ private:
 	// column only gets its layer back once the chips arrive.
 	void queueChipCollection(int playerIndex, int amount, SDL_FPoint spot){
 		sound(Sfx::ChipsTake);
-		int col = firstColumnForDenom(denomIndexFor(amount));
+		std::vector<int> chips = chipsFor(amount);
+		int col = firstColumnForDenom(chips.empty() ? 0 : chips.front());
 		chipAnimations.push_back(ChipAnimation{
 			.kind = ChipAnimation::Loss,
 			.spot = spot,
