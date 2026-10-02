@@ -37,6 +37,7 @@ struct Stats
 		LuckyStiffBets, LuckyStiffWagered, LuckyStiffHits, LuckyStiffWon, LuckyStiffLost,
 		Push22Bets, Push22Wagered, Push22Hits, Push22Won, Push22Lost,
 		PotOfGoldBets, PotOfGoldWagered, PotOfGoldHits, PotOfGoldWon, PotOfGoldLost,
+		CountQuizzes, CountQuizCorrect,
 		FieldCount
 	};
 
@@ -150,7 +151,8 @@ struct Stats
 			"mdBets", "mdWagered", "mdHits", "mdWon", "mdLost",
 			"lsBets", "lsWagered", "lsHits", "lsWon", "lsLost",
 			"p22Bets", "p22Wagered", "p22Hits", "p22Won", "p22Lost",
-			"pogBets", "pogWagered", "pogHits", "pogWon", "pogLost"
+			"pogBets", "pogWagered", "pogHits", "pogWon", "pogLost",
+			"countQuizzes", "countQuizCorrect"
 		};
 		return KEYS[f];
 	}

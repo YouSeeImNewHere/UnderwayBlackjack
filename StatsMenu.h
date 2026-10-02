@@ -55,6 +55,7 @@ public:
 		long long hands = stats.get(Stats::HandsPlayed);
 		long long wins = stats.get(Stats::Wins), losses = stats.get(Stats::Losses);
 		long long decisions = stats.get(Stats::DecisionsTotal);
+		long long quizzes = stats.get(Stats::CountQuizzes);
 
 		std::vector<std::pair<std::string, std::string>> left{
 			{"HANDS PLAYED", num(hands)},
@@ -66,6 +67,7 @@ public:
 			{"BUSTS", num(stats.get(Stats::Busts))},
 			{"SURRENDERS", num(stats.get(Stats::Surrenders))},
 			{"DOUBLES", num(stats.get(Stats::Doubles))},
+			{"COUNT QUIZ", quizzes > 0 ? percent(stats.get(Stats::CountQuizCorrect), quizzes) : "-"},
 		};
 		std::vector<std::pair<std::string, std::string>> right{
 			{"SPLITS", num(stats.get(Stats::Splits))},
@@ -77,6 +79,7 @@ public:
 			{"INSURANCE TAKEN", num(stats.get(Stats::InsuranceTaken))},
 			{"CHART MOVES", decisions > 0 ? percent(stats.get(Stats::DecisionsCorrect), decisions) : "-"},
 			{" OF DECISIONS", num(decisions)},
+			{" OF QUIZZES", num(quizzes)},
 		};
 
 		drawColumn(state, left, 150.0f);

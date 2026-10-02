@@ -350,6 +350,10 @@ public:
 		hands[activeHand].doubleBet();
 	}
 
+	void doubleActiveHandBetBy(int extra){
+		hands[activeHand].doubleBy(extra);
+	}
+
 	// Anchor point Table positions this seat's betting controls relative
 	// to -- the same point cards are dealt from for this seat.
 	Point getSeatAnchor(){

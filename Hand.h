@@ -106,9 +106,20 @@ public:
 	}
 
 	void doubleBet(){
-		bet *= 2;
+		doubleBy(bet);
+	}
+
+	// Doubling for less (Emerald Queen allows any amount up to the bet):
+	// adds `extra` on top. The bet before the first double is kept as
+	// getBaseBet(), for drawing the double's chips on top of it.
+	void doubleBy(int extra){
+		if(doubleCount == 0)
+			baseBet = bet;
+		bet += extra;
 		doubleCount++;
 	}
+
+	int getBaseBet() const{ return doubleCount > 0 ? baseBet : bet; }
 
 	// How many times this hand has been doubled (Player's Edge can
 	// redouble -- see Table::canDoubleActiveHand()/onHit()).
@@ -290,6 +301,7 @@ private:
 	std::set<int> aceLocations;
 	float baseRotation = 0;
 	int bet = 0;
+	int baseBet = 0;
 	int freeBetAmount = 0;
 	HandResult result = HandResult::None;
 

@@ -176,12 +176,16 @@ static void applyOptionsToTable(AppContext& ctx){
     ctx.table.setDealerSpeedFactor(ctx.gameOptionsMenu.dealerSpeedFactor());
     ctx.table.setFaceDownDoubles(ctx.gameOptionsMenu.faceDownDoubles);
     ctx.table.setHideInactiveHands(ctx.gameOptionsMenu.hideInactiveHands);
+    ctx.table.setAskDoubleAmount(ctx.gameOptionsMenu.doubleForLess);
+    ctx.table.setPracticeMode(ctx.gameOptionsMenu.practiceMode);
+    ctx.table.setCountQuiz(ctx.gameOptionsMenu.countQuiz);
 }
 
 static void saveOptions(AppContext& ctx){
     ctx.save.saveOptions(ctx.gameOptionsMenu.dealerSpeed,
         ctx.gameOptionsMenu.faceDownDoubles, ctx.gameOptionsMenu.hideInactiveHands,
-        ctx.gameOptionsMenu.soundEffects);
+        ctx.gameOptionsMenu.soundEffects, ctx.gameOptionsMenu.doubleForLess,
+        ctx.gameOptionsMenu.practiceMode, ctx.gameOptionsMenu.countQuiz);
 }
 
 // Shared by both mouse and touch handling below: applies whichever menu
@@ -883,6 +887,17 @@ static void mainLoopIteration(void *arg) {
                     ctx.focusIndex = -1;
                     handleMenuClick(ctx, event.tfinger.x * ctx.state.width, event.tfinger.y * ctx.state.height);
                 }
+            } else if(ctx.screen == AppScreen::Playing && ctx.table.isCountQuizShowing()){
+                if(event.type == SDL_EVENT_FINGER_UP)
+                    ctx.table.handleCountQuizPoint(ctx.state,
+                        event.tfinger.x * ctx.state.width,
+                        event.tfinger.y * ctx.state.height);
+            } else if(ctx.screen == AppScreen::Playing && ctx.table.isChoosingDouble()){
+                // Double-for-less panel: -/+/DOUBLE/CANCEL buttons.
+                if(event.type == SDL_EVENT_FINGER_UP)
+                    ctx.table.handleDoublePoint(ctx.state,
+                        event.tfinger.x * ctx.state.width,
+                        event.tfinger.y * ctx.state.height);
             } else if(ctx.screen == AppScreen::Playing && ctx.table.isAwaitingInsurance()){
                 // Insurance/even money prompt: YES/NO buttons, not gestures.
                 if(event.type == SDL_EVENT_FINGER_UP)
@@ -938,6 +953,10 @@ static void mainLoopIteration(void *arg) {
                     ctx.table.toggleQuickTip();
                 else if(ctx.screen == AppScreen::Playing && ctx.table.isCardCountToggleHit(ctx.state, event.button.x, event.button.y))
                     ctx.table.toggleCardCount();
+                else if(ctx.screen == AppScreen::Playing && ctx.table.isCountQuizShowing())
+                    ctx.table.handleCountQuizPoint(ctx.state, event.button.x, event.button.y);
+                else if(ctx.screen == AppScreen::Playing && ctx.table.isChoosingDouble())
+                    ctx.table.handleDoublePoint(ctx.state, event.button.x, event.button.y);
                 else if(ctx.screen == AppScreen::Playing && ctx.table.isAwaitingInsurance())
                     ctx.table.handleInsurancePoint(ctx.state, event.button.x, event.button.y);
                 else if(ctx.screen == AppScreen::Playing && ctx.table.isAwaitingBets())
@@ -956,6 +975,10 @@ static void mainLoopIteration(void *arg) {
 
             // Android's system Back arrives as AC_BACK -- same as Esc.
             if(key == SDL_SCANCODE_ESCAPE || key == SDL_SCANCODE_AC_BACK){
+                if(ctx.screen == AppScreen::Playing && ctx.pauseState == PauseState::None && ctx.table.isChoosingDouble()){
+                    ctx.table.cancelDoubleChoice();
+                    break;
+                }
                 goBack(ctx);
                 break;
             }
@@ -1137,6 +1160,9 @@ int main(int argc,char *argv[]) {
         ctx->gameOptionsMenu.faceDownDoubles = ctx->save.faceDownDoubles;
         ctx->gameOptionsMenu.hideInactiveHands = ctx->save.hideInactiveHands;
         ctx->gameOptionsMenu.soundEffects = ctx->save.soundEffects;
+        ctx->gameOptionsMenu.doubleForLess = ctx->save.doubleForLess;
+        ctx->gameOptionsMenu.practiceMode = ctx->save.practiceMode;
+        ctx->gameOptionsMenu.countQuiz = ctx->save.countQuiz;
     }
 
 #ifdef __EMSCRIPTEN__

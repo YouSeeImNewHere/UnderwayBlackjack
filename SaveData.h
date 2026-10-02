@@ -60,6 +60,9 @@ struct SaveData
 	bool faceDownDoubles = false;
 	bool hideInactiveHands = false;
 	bool soundEffects = true;
+	bool doubleForLess = false;
+	bool practiceMode = false;
+	bool countQuiz = false;
 
 	// HOW TO PLAY opens by itself until it's been closed once.
 	bool tutorialSeen = false;
@@ -81,6 +84,9 @@ struct SaveData
 		hideInactiveHands = webGet(6, 0) != 0;
 		tutorialSeen = webGet(7, 0) != 0;
 		soundEffects = webGet(9, 1) != 0;
+		doubleForLess = webGet(10, 0) != 0;
+		practiceMode = webGet(11, 0) != 0;
+		countQuiz = webGet(12, 0) != 0;
 		for(int i = 0; i < 5; i++){
 			bankrolls[i] = webGetSeat(0, i, 500);
 			initialBets[i] = webGetSeat(1, i, 25);
@@ -129,6 +135,9 @@ struct SaveData
 			else if(key == "hideInactiveHands") hideInactiveHands = value != 0;
 			else if(key == "tutorialSeen") tutorialSeen = value != 0;
 			else if(key == "soundEffects") soundEffects = value != 0;
+			else if(key == "doubleForLess") doubleForLess = value != 0;
+			else if(key == "practiceMode") practiceMode = value != 0;
+			else if(key == "countQuiz") countQuiz = value != 0;
 			else if(seat >= 0 && base == "bankroll") bankrolls[seat] = value;
 			else if(seat >= 0 && base == "bet") initialBets[seat] = value;
 			else if(seat >= 0 && base == "sideBet") sideBetSizes[seat] = value;
@@ -186,12 +195,15 @@ struct SaveData
 	// Whenever Game Options are applied (pre-game or from the pause menu).
 	// Kept even with no game saved, so the next new game starts from the
 	// player's last choices too.
-	void saveOptions(int speed, bool faceDown, bool hideHands, bool effects){
+	void saveOptions(int speed, bool faceDown, bool hideHands, bool effects, bool forLess, bool practice, bool quiz){
 		hasOptions = true;
 		dealerSpeed = speed;
 		faceDownDoubles = faceDown;
 		hideInactiveHands = hideHands;
 		soundEffects = effects;
+		doubleForLess = forLess;
+		practiceMode = practice;
+		countQuiz = quiz;
 		write();
 	}
 
@@ -238,6 +250,11 @@ private:
 		}, gameStarted ? 1 : 0, gameModeIndex, numberOfPlayers, hasProgress ? 1 : 0,
 		   hasOptions ? 1 : 0, dealerSpeed, faceDownDoubles ? 1 : 0, hideInactiveHands ? 1 : 0,
 		   tutorialSeen ? 1 : 0, soundEffects ? 1 : 0);
+		EM_ASM({
+			localStorage.setItem('underwayBlackjackDoubleForLess', $0);
+			localStorage.setItem('underwayBlackjackPracticeMode', $1);
+			localStorage.setItem('underwayBlackjackCountQuiz', $2);
+		}, doubleForLess ? 1 : 0, practiceMode ? 1 : 0, countQuiz ? 1 : 0);
 		for(int i = 0; i < 5; i++){
 			EM_ASM({
 				localStorage.setItem('underwayBlackjackBankroll' + $0, $1);
@@ -260,6 +277,9 @@ private:
 		out << "hideInactiveHands=" << (hideInactiveHands ? 1 : 0) << "\n";
 		out << "tutorialSeen=" << (tutorialSeen ? 1 : 0) << "\n";
 		out << "soundEffects=" << (soundEffects ? 1 : 0) << "\n";
+		out << "doubleForLess=" << (doubleForLess ? 1 : 0) << "\n";
+		out << "practiceMode=" << (practiceMode ? 1 : 0) << "\n";
+		out << "countQuiz=" << (countQuiz ? 1 : 0) << "\n";
 		for(int i = 0; i < 5; i++){
 			out << "bankroll" << i << "=" << bankrolls[i] << "\n";
 			out << "bet" << i << "=" << initialBets[i] << "\n";
@@ -277,7 +297,7 @@ private:
 	// literal) would split its argument and break the build.
 	static int webGet(int which, int def){
 		return EM_ASM_INT({
-			var keys = 'underwayBlackjackMode|underwayBlackjackPlayers|underwayBlackjackHasProgress|underwayBlackjackHasOptions|underwayBlackjackDealerSpeed|underwayBlackjackFaceDownDoubles|underwayBlackjackHideHands|underwayBlackjackTutorialSeen|underwayBlackjackDealerSpeedPct|underwayBlackjackSoundEffects'.split('|');
+			var keys = 'underwayBlackjackMode|underwayBlackjackPlayers|underwayBlackjackHasProgress|underwayBlackjackHasOptions|underwayBlackjackDealerSpeed|underwayBlackjackFaceDownDoubles|underwayBlackjackHideHands|underwayBlackjackTutorialSeen|underwayBlackjackDealerSpeedPct|underwayBlackjackSoundEffects|underwayBlackjackDoubleForLess|underwayBlackjackPracticeMode|underwayBlackjackCountQuiz'.split('|');
 			var v = localStorage.getItem(keys[$0]);
 			return v === null ? $1 : parseInt(v);
 		}, which, def);

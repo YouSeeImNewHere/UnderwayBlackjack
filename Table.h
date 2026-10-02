@@ -188,6 +188,8 @@ public:
 	void setDealerSpeedFactor(float factor){ dealerSpeedFactor = factor; }
 	void setFaceDownDoubles(bool value){ faceDownDoubles = value; }
 	void setHideInactiveHands(bool value){ hideInactiveHands = value; }
+	void setPracticeMode(bool value){ practiceMode = value; practiceHeld = 0; }
+	void setCountQuiz(bool value){ countQuizOn = value; }
 
 	// Called from mina.cpp once GameModeMenu picks a real mode (or a loaded
 	// save, for Resume) -- rebuilds the shoe from scratch at that deck
@@ -727,6 +729,9 @@ public:
 
 		drawChipAnimations(state, res);
 		drawInsurancePrompt(state);
+		drawDoublePanel(state);
+		drawPracticeNote(state);
+		drawCountQuiz(state);
 		drawJackpotCallout(state);
 	}
 
@@ -749,7 +754,8 @@ public:
 	// Nothing moving, queued, paused or pending between rounds.
 	bool tableIdle(){
 		return !cardAnimation.has_value() && dealQueue.empty() && pauseTimer <= 0.0f && !awaitingBets
-			&& !awaitingNewRound && !awaitingInitialDeal && !awaitingPeek && !awaitingInsurance && !shuffling;
+			&& !awaitingNewRound && !awaitingInitialDeal && !awaitingPeek && !awaitingInsurance && !shuffling
+			&& !choosingDouble;
 	}
 
 	// A split hand starts with just the one card it was split off with;
@@ -860,6 +866,34 @@ public:
 			// pressing GO on a menu and then dealing on release). Keep
 			// KeyboardMenu.h's list in sync with these bindings.
 			case SDL_EVENT_KEY_DOWN:
+				if(isCountQuizShowing()){
+					switch(event.key.scancode){
+						case SDL_SCANCODE_LEFT: case SDL_SCANCODE_DOWN: case SDL_SCANCODE_MINUS: case SDL_SCANCODE_KP_MINUS:
+							nudgeCountGuess(-1); break;
+						case SDL_SCANCODE_RIGHT: case SDL_SCANCODE_UP: case SDL_SCANCODE_EQUALS: case SDL_SCANCODE_KP_PLUS:
+							nudgeCountGuess(1); break;
+						case SDL_SCANCODE_RETURN: case SDL_SCANCODE_KP_ENTER: case SDL_SCANCODE_SPACE:
+							if(!event.key.repeat) confirmCountQuiz(); break;
+						case SDL_SCANCODE_BACKSPACE:
+							if(!event.key.repeat) skipCountQuiz(); break;
+						default: break;
+					}
+					break;
+				}
+				if(choosingDouble){
+					switch(event.key.scancode){
+						case SDL_SCANCODE_LEFT: case SDL_SCANCODE_MINUS: case SDL_SCANCODE_KP_MINUS:
+							nudgeDoubleChoice(-1); break;
+						case SDL_SCANCODE_RIGHT: case SDL_SCANCODE_EQUALS: case SDL_SCANCODE_KP_PLUS:
+							nudgeDoubleChoice(1); break;
+						case SDL_SCANCODE_D: case SDL_SCANCODE_RETURN: case SDL_SCANCODE_KP_ENTER: case SDL_SCANCODE_SPACE:
+							if(!event.key.repeat) confirmDoubleChoice(); break;
+						case SDL_SCANCODE_BACKSPACE:
+							if(!event.key.repeat) cancelDoubleChoice(); break;
+						default: break;
+					}
+					break;
+				}
 				if(!event.key.repeat && isAwaitingInsurance()){
 					if(event.key.scancode == SDL_SCANCODE_Y)
 						answerInsurance(true);
@@ -1073,6 +1107,13 @@ public:
 				// seen before the table moves on to the next round.
 				if(awaitingNewRound && !chipAnimations.empty())
 					return;
+				// Count quiz (Game Options): before the shoe is gathered
+				// up, ask for the running count; the shuffle waits for it.
+				if(awaitingNewRound && shoeNeedsReshuffle && countQuizOn && quizState != QuizState::Done){
+					if(quizState == QuizState::Off)
+						openCountQuiz();
+					return;
+				}
 				if(awaitingNewRound){
 					awaitingNewRound = false;
 
@@ -1085,6 +1126,7 @@ public:
 						// table, to the shuffle sound, before going back in
 						// the shoe -- see the shuffling branch above.
 						shoeNeedsReshuffle = false;
+						quizState = QuizState::Off;
 						discard.clear();
 						shoe.clear();
 						shuffling = true;
@@ -1285,6 +1327,55 @@ public:
 		}
 	}
 
+	// Double for less (Game Options, "DOUBLE FOR LESS: ASK"): Emerald
+	// Queen lets a double be any amount up to the bet. Not Player's Edge
+	// (its doubles are always the full amount) or a Free Bet free double.
+	void setAskDoubleAmount(bool ask){ askDoubleAmount = ask; }
+
+	bool isChoosingDouble() const{ return choosingDouble; }
+
+	bool canDoubleForLess(){
+		if(!askDoubleAmount || isPlayersEdge(gameMode) || !canDoubleActiveHand())
+			return false;
+		if(isFreeBet(gameMode) && isFreeDoubleEligible())
+			return false;
+		return players[activePlayer].getActiveHandBet() > doubleStep();
+	}
+
+	void openDoubleChoice(){
+		choosingDouble = true;
+		doubleChoice = doubleMax();
+		sound(Sfx::Tap);
+	}
+
+	void nudgeDoubleChoice(int dir){
+		doubleChoice = std::clamp(doubleChoice + dir * doubleStep(), std::min(doubleStep(), doubleMax()), doubleMax());
+		sound(Sfx::Tap);
+	}
+
+	void confirmDoubleChoice(){
+		choosingDouble = false;
+		sound(Sfx::Tap);
+		onDouble(doubleChoice);
+	}
+
+	void cancelDoubleChoice(){
+		choosingDouble = false;
+		sound(Sfx::Tap);
+	}
+
+	void handleDoublePoint(SDLState& state, float windowX, float windowY){
+		float x, y;
+		if(!SDL_RenderCoordinatesFromWindow(state.renderer, windowX, windowY, &x, &y))
+			return;
+		SDL_FPoint p{x, y};
+		SDL_FRect minus = doubleMinusButton(), plus = doublePlusButton(), ok = insuranceYesButton(), cancel = insuranceNoButton();
+		if(SDL_PointInRectFloat(&p, &minus)) nudgeDoubleChoice(-1);
+		else if(SDL_PointInRectFloat(&p, &plus)) nudgeDoubleChoice(1);
+		else if(SDL_PointInRectFloat(&p, &ok)) confirmDoubleChoice();
+		else if(SDL_PointInRectFloat(&p, &cancel)) cancelDoubleChoice();
+	}
+
 	// Tap/click on the insurance prompt's YES/NO.
 	void handleInsurancePoint(SDLState& state, float windowX, float windowY){
 		float x, y;
@@ -1301,7 +1392,210 @@ public:
 		}
 	}
 
+	// Count quiz panel (see openCountQuiz()).
+	bool isCountQuizShowing() const{ return quizState == QuizState::Asking || quizState == QuizState::Answered; }
+
+	void nudgeCountGuess(int dir){
+		if(quizState != QuizState::Asking)
+			return;
+		quizGuess = std::clamp(quizGuess + dir, -99, 99);
+		sound(Sfx::Tap);
+	}
+
+	// CHECK while asking, CONTINUE once answered.
+	void confirmCountQuiz(){
+		sound(Sfx::Tap);
+		if(quizState == QuizState::Asking){
+			quizState = QuizState::Answered;
+			if(stats){
+				stats->bump(Stats::CountQuizzes);
+				if(quizGuess == runningCount)
+					stats->bump(Stats::CountQuizCorrect);
+			}
+		} else if(quizState == QuizState::Answered){
+			quizState = QuizState::Done;
+		}
+	}
+
+	void skipCountQuiz(){
+		if(!isCountQuizShowing())
+			return;
+		sound(Sfx::Tap);
+		quizState = QuizState::Done;
+	}
+
+	void handleCountQuizPoint(SDLState& state, float windowX, float windowY){
+		float x, y;
+		if(!SDL_RenderCoordinatesFromWindow(state.renderer, windowX, windowY, &x, &y))
+			return;
+		SDL_FPoint p{x, y};
+		SDL_FRect minus = doubleMinusButton(), plus = doublePlusButton(), ok = insuranceYesButton(), skip = insuranceNoButton();
+		if(quizState == QuizState::Asking){
+			if(SDL_PointInRectFloat(&p, &minus)) nudgeCountGuess(-1);
+			else if(SDL_PointInRectFloat(&p, &plus)) nudgeCountGuess(1);
+			else if(SDL_PointInRectFloat(&p, &ok)) confirmCountQuiz();
+			else if(SDL_PointInRectFloat(&p, &skip)) skipCountQuiz();
+		} else if(SDL_PointInRectFloat(&p, &ok) || SDL_PointInRectFloat(&p, &skip)){
+			confirmCountQuiz();
+		}
+	}
+
+	int getRunningCount() const{ return runningCount; }
+
 private:
+	bool practiceMode = false;
+	char practiceHeld = 0, practiceAdvice = 0;
+	int practicePlayer = 0, practiceHand = 0, practiceHandSize = 0;
+
+	enum class QuizState{ Off, Asking, Answered, Done };
+	bool countQuizOn = false;
+	QuizState quizState = QuizState::Off;
+	int quizGuess = 0;
+
+	void openCountQuiz(){
+		quizState = QuizState::Asking;
+		quizGuess = 0;
+	}
+
+	static const char* moveName(char move){
+		switch(move){
+			case 'H': return "HIT";
+			case 'S': return "STAND";
+			case 'D': return "DOUBLE";
+			case 'P': return "SPLIT";
+			case 'R': return "SURRENDER";
+			default: return "?";
+		}
+	}
+
+	static std::string signedCount(int v){ return v > 0 ? "+" + std::to_string(v) : std::to_string(v); }
+
+	// Practice mode's note, while a move is being held back.
+	void drawPracticeNote(SDLState& state){
+		if(!practiceHeld)
+			return;
+		if(awaitingBets || activePlayer != practicePlayer || activePlayer >= numberOfPlayers){
+			practiceHeld = 0;
+			return;
+		}
+		Person& p = players[activePlayer];
+		int h = p.getActiveHand();
+		if(h != practiceHand || h >= p.hands.size() || p.hands[h].getHandSize() != practiceHandSize){
+			practiceHeld = 0;
+			return;
+		}
+		std::string line1 = std::string("CHART SAYS ") + moveName(practiceAdvice);
+		std::string line2 = std::string(moveName(practiceHeld)) + " AGAIN TO PLAY IT ANYWAY";
+		float p1 = 6.0f, p2 = 3.5f;
+		float boxW = std::max(DigitFont::textWidth(line1, p1), DigitFont::textWidth(line2, p2)) + 48.0f;
+		float boxY = showQuickTip ? 232.0f : 75.0f;
+		SDL_FRect box{ .x = 720.0f - boxW / 2.0f, .y = boxY, .w = boxW, .h = 84.0f };
+		SDL_SetRenderDrawColor(state.renderer, 40, 20, 10, 240);
+		SDL_RenderFillRect(state.renderer, &box);
+		SDL_SetRenderDrawColor(state.renderer, 255, 170, 40, 255);
+		for(int k = 0; k < 2; k++){
+			SDL_FRect ring{ box.x - k, box.y - k, box.w + 2 * k, box.h + 2 * k };
+			SDL_RenderRect(state.renderer, &ring);
+		}
+		DigitFont::drawText(state, line1, 720.0f - DigitFont::textWidth(line1, p1) / 2.0f, box.y + 12.0f, p1, SDL_Color{255, 225, 80, 255});
+		DigitFont::drawText(state, line2, 720.0f - DigitFont::textWidth(line2, p2) / 2.0f, box.y + 56.0f, p2, SDL_Color{230, 230, 230, 255});
+	}
+
+	void drawCountQuiz(SDLState& state){
+		if(!isCountQuizShowing())
+			return;
+		SDL_FRect panel = insurancePanel();
+		SDL_SetRenderDrawColor(state.renderer, 15, 25, 18, 255);
+		SDL_RenderFillRect(state.renderer, &panel);
+		SDL_SetRenderDrawColor(state.renderer, 255, 210, 40, 255);
+		for(int k = 0; k < 3; k++){
+			SDL_FRect ring{ panel.x - k, panel.y - k, panel.w + 2 * k, panel.h + 2 * k };
+			SDL_RenderRect(state.renderer, &ring);
+		}
+		SDL_Color white{255, 255, 255, 255};
+		SDL_FRect ok = insuranceYesButton(), skip = insuranceNoButton();
+		float b = 5.5f;
+
+		if(quizState == QuizState::Asking){
+			std::string q = "SHUFFLE! RUNNING COUNT?";
+			DigitFont::drawText(state, q, panel.x + (panel.w - DigitFont::textWidth(q, 5.0f)) / 2.0f, panel.y + 14.0f, 5.0f, white);
+			SDL_FRect minus = doubleMinusButton(), plus = doublePlusButton();
+			drawButton(state, minus, SDL_Color{70, 70, 80, 255});
+			drawButton(state, plus, SDL_Color{70, 70, 80, 255});
+			DigitFont::drawText(state, "-", minus.x + (minus.w - 3 * 5.0f) / 2.0f, minus.y + (minus.h - 25.0f) / 2.0f, 5.0f, white);
+			DigitFont::drawText(state, "+", plus.x + (plus.w - DigitFont::textWidth("+", 5.0f)) / 2.0f, plus.y + (plus.h - 25.0f) / 2.0f, 5.0f, white);
+			std::string v = signedCount(quizGuess);
+			DigitFont::drawText(state, v, 720.0f - DigitFont::textWidth(v, 6.0f) / 2.0f, 329.0f, 6.0f, SDL_Color{255, 225, 80, 255});
+			drawButton(state, ok, SDL_Color{60, 130, 70, 255});
+			drawButton(state, skip, SDL_Color{80, 80, 80, 255});
+			DigitFont::drawText(state, "CHECK", ok.x + (ok.w - DigitFont::textWidth("CHECK", b)) / 2.0f, ok.y + (ok.h - 5 * b) / 2.0f, b, white);
+			DigitFont::drawText(state, "SKIP", skip.x + (skip.w - DigitFont::textWidth("SKIP", b)) / 2.0f, skip.y + (skip.h - 5 * b) / 2.0f, b, white);
+			return;
+		}
+
+		bool right = quizGuess == runningCount;
+		std::string q = right ? "CORRECT!" : "NOT QUITE";
+		DigitFont::drawText(state, q, panel.x + (panel.w - DigitFont::textWidth(q, 6.0f)) / 2.0f, panel.y + 14.0f, 6.0f,
+			right ? SDL_Color{110, 230, 110, 255} : SDL_Color{240, 110, 90, 255});
+		std::string sub = "YOU SAID " + signedCount(quizGuess) + ", COUNT WAS " + signedCount(runningCount);
+		DigitFont::drawText(state, sub, panel.x + (panel.w - DigitFont::textWidth(sub, 4.0f)) / 2.0f, 330.0f, 4.0f, SDL_Color{230, 230, 230, 255});
+		SDL_FRect cont{ .x = 720.0f - 130.0f, .y = ok.y, .w = 260.0f, .h = ok.h };
+		drawButton(state, cont, SDL_Color{60, 130, 70, 255});
+		DigitFont::drawText(state, "CONTINUE", cont.x + (cont.w - DigitFont::textWidth("CONTINUE", b)) / 2.0f, cont.y + (cont.h - 5 * b) / 2.0f, b, white);
+	}
+
+	bool askDoubleAmount = false;
+	bool choosingDouble = false;
+	int doubleChoice = 0;
+
+	// Steps of the biggest chip that fits into the bet five times (a $25
+	// bet doubles in $5s, $500 in $100s), at least $1.
+	int doubleStep(){
+		int bet = players[activePlayer].getActiveHandBet();
+		int step = 1;
+		for(int denom : BET_DENOMS)
+			if(denom * 5 <= bet)
+				step = denom;
+		return step;
+	}
+	int doubleMax(){
+		Person& p = players[activePlayer];
+		return std::min(p.getActiveHandBet(), p.getBankroll());
+	}
+
+	SDL_FRect doubleMinusButton(){ return SDL_FRect{ .x = 540, .y = 322, .w = 60, .h = 44 }; }
+	SDL_FRect doublePlusButton(){ return SDL_FRect{ .x = 840, .y = 322, .w = 60, .h = 44 }; }
+
+	void drawDoublePanel(SDLState& state){
+		if(!choosingDouble)
+			return;
+		SDL_FRect panel = insurancePanel();
+		SDL_SetRenderDrawColor(state.renderer, 15, 25, 18, 255);
+		SDL_RenderFillRect(state.renderer, &panel);
+		SDL_SetRenderDrawColor(state.renderer, 255, 210, 40, 255);
+		for(int k = 0; k < 3; k++){
+			SDL_FRect ring{ panel.x - k, panel.y - k, panel.w + 2 * k, panel.h + 2 * k };
+			SDL_RenderRect(state.renderer, &ring);
+		}
+		std::string q = "DOUBLE FOR";
+		DigitFont::drawText(state, q, panel.x + (panel.w - DigitFont::textWidth(q, 5.0f)) / 2.0f, panel.y + 14.0f, 5.0f, SDL_Color{255, 255, 255, 255});
+
+		SDL_FRect minus = doubleMinusButton(), plus = doublePlusButton();
+		drawButton(state, minus, SDL_Color{70, 70, 80, 255});
+		drawButton(state, plus, SDL_Color{70, 70, 80, 255});
+		DigitFont::drawText(state, "-", minus.x + (minus.w - 3 * 5.0f) / 2.0f, minus.y + (minus.h - 25.0f) / 2.0f, 5.0f, SDL_Color{255, 255, 255, 255});
+		DigitFont::drawText(state, "+", plus.x + (plus.w - DigitFont::textWidth("+", 5.0f)) / 2.0f, plus.y + (plus.h - 25.0f) / 2.0f, 5.0f, SDL_Color{255, 255, 255, 255});
+		std::string v = std::to_string(doubleChoice) + (doubleChoice == doubleMax() ? " FULL" : "");
+		DigitFont::drawText(state, v, 720.0f - DigitFont::textWidth(v, 6.0f) / 2.0f, 329.0f, 6.0f, SDL_Color{255, 225, 80, 255});
+
+		SDL_FRect ok = insuranceYesButton(), cancel = insuranceNoButton();
+		drawButton(state, ok, SDL_Color{60, 130, 70, 255});
+		drawButton(state, cancel, SDL_Color{110, 60, 60, 255});
+		float b = 5.5f;
+		DigitFont::drawText(state, "DOUBLE", ok.x + (ok.w - DigitFont::textWidth("DOUBLE", b)) / 2.0f, ok.y + (ok.h - 5 * b) / 2.0f, b, SDL_Color{255, 255, 255, 255});
+		DigitFont::drawText(state, "CANCEL", cancel.x + (cancel.w - DigitFont::textWidth("CANCEL", b)) / 2.0f, cancel.y + (cancel.h - 5 * b) / 2.0f, b, SDL_Color{255, 255, 255, 255});
+	}
+
 	SDL_FRect insurancePanel(){ return SDL_FRect{ .x = 440, .y = 270, .w = 560, .h = 180 }; }
 	SDL_FRect insuranceYesButton(){ return SDL_FRect{ .x = 510, .y = 374, .w = 190, .h = 56 }; }
 	SDL_FRect insuranceNoButton(){ return SDL_FRect{ .x = 740, .y = 374, .w = 190, .h = 56 }; }
@@ -2582,11 +2876,15 @@ private:
 		return chips;
 	}
 
-	void drawChipStack(SDLState& state, Resources& res, float cx, float cy, const std::vector<int>& amounts, float size = 36.0f){
+	// goldLayers marks layers drawn as gold free-bet chips (Free Bet's
+	// free doubles and splits -- money the house put up, not the player).
+	void drawChipStack(SDLState& state, Resources& res, float cx, float cy, const std::vector<int>& amounts, float size = 36.0f, const std::vector<bool>& goldLayers = {}){
 		std::vector<int> chips;
-		for(int amount : amounts){
-			std::vector<int> part = chipsFor(amount);
+		std::vector<bool> gold;
+		for(size_t l = 0; l < amounts.size(); l++){
+			std::vector<int> part = chipsFor(amounts[l]);
 			chips.insert(chips.end(), part.begin(), part.end());
+			gold.insert(gold.end(), part.size(), l < goldLayers.size() && goldLayers[l]);
 		}
 		if(chips.empty())
 			return;
@@ -2596,9 +2894,14 @@ private:
 		float edgeH = std::min(6.0f, 48.0f / std::max<size_t>(1, chips.size()));
 		float baseY = cy + 10.0f;
 		for(size_t k = 0; k < chips.size(); k++){
-			SDL_FRect src{ .x = chips[k] * CHIP_SRC_SIZE, .y = 0.0f, .w = CHIP_SRC_SIZE, .h = CHIP_EDGE_SRC_H };
+			// A gold chip is the white chip's slice, tinted.
+			SDL_FRect src{ .x = (gold[k] ? 0 : chips[k]) * CHIP_SRC_SIZE, .y = 0.0f, .w = CHIP_SRC_SIZE, .h = CHIP_EDGE_SRC_H };
 			SDL_FRect dst{ .x = cx - size / 2.0f, .y = baseY - (k + 1) * edgeH, .w = size, .h = edgeH };
+			if(gold[k])
+				SDL_SetTextureColorMod(res.chips, 255, 196, 40);
 			SDL_RenderTexture(state.renderer, res.chips, &src, &dst);
+			if(gold[k])
+				SDL_SetTextureColorMod(res.chips, 255, 255, 255);
 		}
 	}
 
@@ -2673,13 +2976,27 @@ private:
 				if(bet <= 0 || hand.getResult() != HandResult::None || hand.isChipsCollected())
 					continue;
 				std::vector<int> layers;
-				int doubles = hand.getDoubleCount();
-				int base = bet >> doubles;
-				layers.push_back(base);
-				for(int k = 0; k < doubles; k++)
-					layers.push_back(base << k);
+				std::vector<bool> gold;
+				int free = hand.getFreeBetAmount();
+				if(free > 0){
+					// Free Bet: the real money, with the house's free part
+					// on top in gold.
+					layers = { bet - free, free };
+					gold = { false, true };
+				} else{
+					int doubles = hand.getDoubleCount();
+					int base = hand.getBaseBet();
+					layers.push_back(base);
+					// each double's chips stacked on the original bet
+					int added = base;
+					for(int k = 0; k < doubles; k++){
+						int step = (k == doubles - 1) ? bet - added : added;
+						layers.push_back(step);
+						added += step;
+					}
+				}
 				SDL_FPoint c = betSpot(i, h);
-				drawChipStack(state, res, c.x, c.y, layers);
+				drawChipStack(state, res, c.x, c.y, layers, 36.0f, gold);
 			}
 		}
 	}
@@ -2980,6 +3297,31 @@ private:
 			default: break;
 		}
 
+		// Practice mode: a move the chart disagrees with is held back once
+		// with a note saying what the chart wants; making the same move
+		// again on the same hand plays it anyway (and scores it).
+		if(legal && practiceMode){
+			char advice;
+			if(chartAdvice(advice) && advice != action){
+				Person& p = players[activePlayer];
+				int h = p.getActiveHand();
+				int size = h < p.hands.size() ? p.hands[h].getHandSize() : 0;
+				bool repeat = practiceHeld == action && practicePlayer == activePlayer
+					&& practiceHand == h && practiceHandSize == size;
+				if(!repeat){
+					practiceHeld = action;
+					practiceAdvice = advice;
+					practicePlayer = activePlayer;
+					practiceHand = h;
+					practiceHandSize = size;
+					sound(Sfx::Tap);
+					return;
+				}
+			}
+		}
+		if(legal)
+			practiceHeld = 0;
+
 		if(legal && stats){
 			char advice;
 			if(chartAdvice(advice))
@@ -2989,7 +3331,12 @@ private:
 		switch(action){
 			case 'H': onHit(); break;
 			case 'S': onStand(); break;
-			case 'D': onDouble(); break;
+			case 'D':
+				if(canDoubleForLess())
+					openDoubleChoice();
+				else
+					onDouble();
+			break;
 			case 'P': onSplit(); break;
 			case 'R': onSurrender(); break;
 			default: break;
@@ -3201,7 +3548,8 @@ private:
 		onHit();
 	}
 
-	void onDouble(){
+	// amount: how much to add -- the full bet unless doubling for less.
+	void onDouble(int amount = -1){
 		if(!canDoubleActiveHand())
 			return;
 		if(stats)
@@ -3217,13 +3565,14 @@ private:
 		// (addFreeBetAmount(), after doubleActiveHandBet() so it adds to
 		// -- not gets wiped by -- any free amount this hand already had
 		// from a free split).
-		int betAmount = players[activePlayer].getActiveHandBet();
+		int fullAmount = players[activePlayer].getActiveHandBet();
 		bool free = isFreeBet(gameMode) && isFreeDoubleEligible();
+		int betAmount = (!free && amount > 0) ? std::min(amount, fullAmount) : fullAmount;
 		if(!free){
 			players[activePlayer].deductFromBankroll(betAmount);
 			queueBankrollChange(activePlayer, -betAmount);
 		}
-		players[activePlayer].doubleActiveHandBet();
+		players[activePlayer].doubleActiveHandBetBy(betAmount);
 		if(free){
 			int handIdx = players[activePlayer].getActiveHand();
 			players[activePlayer].hands[handIdx].addFreeBetAmount(betAmount);
@@ -3507,6 +3856,8 @@ public:
 		awaitingInsurance = false;
 		insuranceQueue.clear();
 		shoeNeedsReshuffle = false;
+		quizState = QuizState::Off;
+		practiceHeld = 0;
 		runningCount = 0;
 
 		for(int i = 0; i < 5; i++){
