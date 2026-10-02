@@ -5,12 +5,10 @@
 #include <random>
 #include "Sound.h"
 
-// Plays the game's sounds through SDL's own audio (no extra library): the
-// one-shot effects in Sound.h and a looping casino background. Each sound
-// is a WAV from sounds/ (tools/make_sounds.py), loaded once at start and
-// converted to the device's format. A handful of voices let sounds
-// overlap -- a deal and a chip payout at once -- and the background loop
-// has a voice of its own, topped up from update() every frame.
+// Plays the game's sound effects (Sound.h) through SDL's own audio (no
+// extra library). Each sound is a WAV from sounds/ (tools/make_sounds.py),
+// loaded once at start and converted to the device's format. A handful of
+// voices let sounds overlap -- a deal and a chip payout at once.
 //
 // The WAVs ship next to the game's PNGs, so they're looked up by bare
 // name first, then under sounds/ (running from a source checkout, e.g.
@@ -19,7 +17,6 @@ class Audio
 {
 public:
 	bool effectsOn = true;
-	bool ambienceOn = true;
 
 	void init(){
 		if(!SDL_InitSubSystem(SDL_INIT_AUDIO))
@@ -44,17 +41,11 @@ public:
 					if(!c.data.empty())
 						clips[s].push_back(std::move(c));
 				}
-		ambience = load("sfx-ambience");
 
 		for(SDL_AudioStream*& v : voices){
 			v = SDL_CreateAudioStream(&deviceSpec, &deviceSpec);
 			if(v)
 				SDL_BindAudioStream(device, v);
-		}
-		ambienceVoice = SDL_CreateAudioStream(&deviceSpec, &deviceSpec);
-		if(ambienceVoice){
-			SDL_BindAudioStream(device, ambienceVoice);
-			SDL_SetAudioStreamGain(ambienceVoice, AMBIENCE_GAIN);
 		}
 	}
 
@@ -78,30 +69,6 @@ public:
 			SDL_PutAudioStreamData(voice, clip.data.data(), (int)clip.data.size());
 	}
 
-	// Every frame: keeps a couple of seconds of the background loop queued.
-	void update(){
-		if(!ambienceVoice || ambience.data.empty())
-			return;
-		if(!ambienceOn){
-			SDL_ClearAudioStream(ambienceVoice);
-			return;
-		}
-		int bytesPerSecond = SDL_AUDIO_FRAMESIZE(deviceSpec) * deviceSpec.freq;
-		while(SDL_GetAudioStreamQueued(ambienceVoice) < bytesPerSecond * 2){
-			// Feed it in 1-second chunks, wrapping at the end of the loop.
-			int chunk = std::min<int>(bytesPerSecond, (int)ambience.data.size() - ambiencePos);
-			chunk -= chunk % SDL_AUDIO_FRAMESIZE(deviceSpec);
-			if(chunk <= 0){
-				ambiencePos = 0;
-				continue;
-			}
-			SDL_PutAudioStreamData(ambienceVoice, ambience.data.data() + ambiencePos, chunk);
-			ambiencePos += chunk;
-			if(ambiencePos >= (int)ambience.data.size())
-				ambiencePos = 0;
-		}
-	}
-
 	// The app going to the background on a phone: stop all sound, then
 	// pick back up on return.
 	void pause(bool paused){
@@ -117,16 +84,12 @@ private:
 	struct Clip{ std::vector<Uint8> data; };
 
 	static constexpr int VOICE_COUNT = 8;
-	static constexpr float AMBIENCE_GAIN = 0.35f;
 
 	SDL_AudioDeviceID device = 0;
 	SDL_AudioSpec deviceSpec{};
 	std::vector<Clip> clips[(int)Sfx::Count];
 	Uint64 lastPlayed[(int)Sfx::Count] = {};
 	SDL_AudioStream* voices[VOICE_COUNT] = {};
-	SDL_AudioStream* ambienceVoice = nullptr;
-	Clip ambience;
-	int ambiencePos = 0;
 	std::minstd_rand rng{12345};
 
 	Clip load(const std::string& name){

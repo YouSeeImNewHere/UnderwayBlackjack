@@ -23,9 +23,8 @@ public:
 	int dealerSpeed = SaveData::DEFAULT_DEALER_SPEED;
 	bool faceDownDoubles = false;
 	bool hideInactiveHands = false;
-	// SOUND row: card/chip effects, and the casino background loop.
+	// SOUND row: card and chip sound effects.
 	bool soundEffects = true;
-	bool ambience = true;
 
 	// Set by mina.cpp right before this screen shows (from GameModeMenu's
 	// pick, pre-game, or Table::getGameMode() when reopened from the pause
@@ -131,8 +130,7 @@ public:
 		drawToggleButton(state, toggleButton(2), hideInactiveHands);
 
 		drawRowLabel(state, ROW_Y[3], "SOUND");
-		drawLabeledToggle(state, soundButton(0), soundEffects ? "EFFECTS ON" : "EFFECTS OFF", soundEffects);
-		drawLabeledToggle(state, soundButton(1), ambience ? "CASINO ON" : "CASINO OFF", ambience);
+		drawToggleButton(state, toggleButton(3), soundEffects);
 
 		drawSpeedDemo(state, res);
 
@@ -172,8 +170,7 @@ public:
 		if(faceDownDoublesAllowed())
 			rects.push_back(toggleButton(1));
 		rects.push_back(toggleButton(2));
-		rects.push_back(soundButton(0));
-		rects.push_back(soundButton(1));
+		rects.push_back(toggleButton(3));
 		rects.push_back(backButton());
 		rects.push_back(confirmButton());
 		return rects;
@@ -211,11 +208,9 @@ public:
 		if(SDL_PointInRectFloat(&p, &hideHands))
 			hideInactiveHands = !hideInactiveHands;
 
-		SDL_FRect effectsButton = soundButton(0), ambienceButton = soundButton(1);
-		if(SDL_PointInRectFloat(&p, &effectsButton))
+		SDL_FRect soundButton = toggleButton(3);
+		if(SDL_PointInRectFloat(&p, &soundButton))
 			soundEffects = !soundEffects;
-		if(SDL_PointInRectFloat(&p, &ambienceButton))
-			ambience = !ambience;
 
 		SDL_FRect confirm = confirmButton();
 		if(SDL_PointInRectFloat(&p, &confirm))
@@ -338,26 +333,6 @@ private:
 		std::string label = on ? "ON" : "OFF";
 		float pixel = 6.0f;
 		float w = DigitFont::textWidth(label, pixel);
-		DigitFont::drawText(state, label, r.x + (r.w - w) / 2.0f, r.y + (r.h - 5 * pixel) / 2.0f, pixel, WHITE);
-	}
-
-	// The SOUND row's two switches, side by side.
-	SDL_FRect soundButton(int index){
-		return SDL_FRect{ .x = CONTROL_X + index * 226.0f, .y = ROW_Y[3], .w = 210.0f, .h = ROW_H };
-	}
-
-	void drawLabeledToggle(SDLState& state, const SDL_FRect& r, const std::string& label, bool on){
-		SDL_SetRenderDrawColor(state.renderer, on ? 60 : 80, on ? 130 : 80, on ? 70 : 80, 255);
-		SDL_RenderFillRect(state.renderer, &r);
-		SDL_SetRenderDrawColor(state.renderer, 255, 255, 255, 255);
-		SDL_RenderRect(state.renderer, &r);
-
-		float pixel = 4.0f;
-		float w = DigitFont::textWidth(label, pixel);
-		if(w > r.w - 16.0f){
-			pixel *= (r.w - 16.0f) / w;
-			w = DigitFont::textWidth(label, pixel);
-		}
 		DigitFont::drawText(state, label, r.x + (r.w - w) / 2.0f, r.y + (r.h - 5 * pixel) / 2.0f, pixel, WHITE);
 	}
 

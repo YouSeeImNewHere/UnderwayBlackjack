@@ -181,7 +181,7 @@ static void applyOptionsToTable(AppContext& ctx){
 static void saveOptions(AppContext& ctx){
     ctx.save.saveOptions(ctx.gameOptionsMenu.dealerSpeed,
         ctx.gameOptionsMenu.faceDownDoubles, ctx.gameOptionsMenu.hideInactiveHands,
-        ctx.gameOptionsMenu.soundEffects, ctx.gameOptionsMenu.ambience);
+        ctx.gameOptionsMenu.soundEffects);
 }
 
 // Shared by both mouse and touch handling below: applies whichever menu
@@ -993,11 +993,9 @@ static void mainLoopIteration(void *arg) {
             || (ctx.screen == AppScreen::Playing && ctx.pauseState == PauseState::Options))
         ctx.gameOptionsMenu.update(deltaTime);
 
-    // Game Options' SOUND switches take effect as soon as they're
-    // flipped (BACK restores the menu's old values, and with them these).
+    // Game Options' SOUND switch takes effect as soon as it's flipped
+    // (BACK restores the menu's old value, and with it this).
     ctx.audio.effectsOn = ctx.gameOptionsMenu.soundEffects;
-    ctx.audio.ambienceOn = ctx.gameOptionsMenu.ambience;
-    ctx.audio.update();
 
     switch(ctx.update.installState()){
         case UpdateCheck::Install::Done:
@@ -1120,7 +1118,6 @@ int main(int argc,char *argv[]) {
         ctx->gameOptionsMenu.faceDownDoubles = ctx->save.faceDownDoubles;
         ctx->gameOptionsMenu.hideInactiveHands = ctx->save.hideInactiveHands;
         ctx->gameOptionsMenu.soundEffects = ctx->save.soundEffects;
-        ctx->gameOptionsMenu.ambience = ctx->save.ambience;
     }
 
 #ifdef __EMSCRIPTEN__

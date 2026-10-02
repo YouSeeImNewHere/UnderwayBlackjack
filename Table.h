@@ -557,6 +557,10 @@ public:
 		// cards land on top of it rather than the other way around.
 		drawChipTray(state, res);
 
+		// Part of the table too: under the cards, flying cards and bet
+		// controls alike.
+		drawSideBetCircles(state);
+
 		for(int i = 0; i < discard.size(); i++){
 			discard[i].draw(state,res);
 		}
@@ -643,7 +647,6 @@ public:
 		drawHandTotals(state);
 		drawBankrolls(state);
 		drawHandResults(state);
-		drawSideBetCircles(state);
 
 		if(awaitingBets)
 			drawBetting(state);
@@ -2285,20 +2288,21 @@ private:
 		}
 	}
 
-	// During a round, each side bet sits as a small black chip-circle on a
-	// corner of its seat's betting spot showing the amount -- top right for
-	// the first side bet (Lucky Ladies, Lucky Stiff, Match Up), top left
-	// for a second one (Match Down) -- and turns green on a win, red on a
-	// loss, grey on a push once it's settled. "Top" is toward the dealer,
-	// whatever way the seat faces.
+	// Each side bet sits as a small black chip-circle just outside the top
+	// corner of its seat's betting spot, showing the amount, whenever it's
+	// set -- top right for the first side bet (Lucky Ladies, Lucky Stiff,
+	// Match Up), top left for a second one (Match Down). Once a round
+	// settles it, it turns green on a win, red on a loss, grey on a push,
+	// until the next betting phase. "Top" is toward the dealer, whatever
+	// way the seat faces.
 	void drawSideBetCircles(SDLState& state){
-		if(awaitingBets || !hasAnySideBet(gameMode) || dealer.hands[0].getHandSize() == 0)
+		if(!hasAnySideBet(gameMode))
 			return;
 
 		for(int i = 0; i < numberOfPlayers; i++){
-			if(!initialTwoCards[i].valid)
+			// Mid-round, only seats that were dealt in.
+			if(!awaitingBets && players[i].getBet() <= 0 && !initialTwoCards[i].valid)
 				continue;
-
 			if(isPlayersEdge(gameMode)){
 				drawSideBetCircle(state, i, true, players[i].getMatchUpBet(), matchUpResult[i]);
 				drawSideBetCircle(state, i, false, players[i].getMatchDownBet(), matchDownResult[i]);
@@ -2311,16 +2315,20 @@ private:
 	void drawSideBetCircle(SDLState& state, int playerIndex, bool topRight, int amount, HandResult result){
 		if(amount <= 0)
 			return;
+		if(awaitingBets)
+			result = HandResult::None;
 
-		// The spot's corner in the seat's own frame (the first card's
-		// top-left is the origin, cards run +x, the dealer is -y), rotated
-		// the same way the seat's cards are.
+		// Just outside the spot's outer border, over its top corner, in the
+		// seat's own frame (the first card's top-left is the origin, cards
+		// run +x, the dealer is -y; the border sits about SPOT_MARGIN out
+		// from the card), rotated the same way the seat's cards are.
 		constexpr float PI = 3.14159265358979323846f;
 		constexpr float RADIUS = 21.0f;
+		constexpr float SPOT_MARGIN = 12.0f;
 		float rad = players[playerIndex].calcOffset().rotation * PI / 180.0f;
 		float cosT = std::cos(rad), sinT = std::sin(rad);
-		float localX = topRight ? cardWidth + 6.0f : -6.0f;
-		float localY = -6.0f;
+		float localX = topRight ? cardWidth + SPOT_MARGIN - RADIUS : -SPOT_MARGIN + RADIUS;
+		float localY = -SPOT_MARGIN - RADIUS - 4.0f;
 		Point anchor = players[playerIndex].getSeatAnchor();
 		float cx = anchor.x + (localX * cosT - localY * sinT);
 		float cy = anchor.y + (localX * sinT + localY * cosT);

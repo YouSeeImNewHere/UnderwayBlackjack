@@ -46,7 +46,7 @@ Learn as you play:
 
 Real casino rules: the dealer checks for blackjack, insurance and even money, late surrender, split and re-split up to four hands, and the dealer hits soft 17.
 
-Play with taps and swipes, or with a keyboard: arrow keys work in every menu. Casino sounds and table ambience can be switched off in Game Options. Your game saves after every round.
+Play with taps and swipes, or with a keyboard: arrow keys work in every menu. Card and chip sounds can be switched off in Game Options. Your game saves after every round.
 
 For entertainment only. There are no purchases and no real money, and nothing you win can be exchanged for money or prizes.
 ```
