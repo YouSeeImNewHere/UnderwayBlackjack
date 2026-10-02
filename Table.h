@@ -673,7 +673,6 @@ public:
 		if(awaitingBets)
 			drawBetting(state);
 		else{
-			drawActiveBet(state, res);
 			drawQuickTipButton(state);
 			drawQuickTip(state);
 		}
@@ -1871,7 +1870,7 @@ private:
 	// top-right corner, both corners rotated by the card's own actual
 	// on-table rotation (matches SDL_RenderTextureRotated's own
 	// top-left-pivot, clockwise-in-Y-down convention -- the same one
-	// already worked out for betRow()/drawActiveBet()'s seat footprints).
+	// already worked out for betRow()'s seat footprints).
 	// DigitFont/SDL_RenderFillRect can't rotate directly, so the label is
 	// first drawn to a small off-screen texture at its natural size, then
 	// that whole texture is rotated in one shot with the same primitive
@@ -2621,90 +2620,10 @@ private:
 		SDL_RenderGeometry(state.renderer, nullptr, verts, SEGMENTS + 2, indices, SEGMENTS * 3);
 	}
 
-	// Under the ACTIVE HAND HUD box (bottom right), during actual play
-	// (not betting): the active player's bet total plus a small stack of
-	// chip icons from Chips.png -- greedily broken down into BET_DENOMS
-	// (largest first), same denominations/order as the betting phase's own
-	// chip-size selector. One shared spot rather than drawn per-seat on
-	// the board, which just cluttered it. Chips.png is a 150x33 strip, 5
-	// chips of 30x30 each starting at y=3 (the first 3 rows are unused for
-	// now, per Chips.png's own header/padding).
+	// Chips.png is a 150x33 strip: 5 chips of 30x30 starting at y=3, with
+	// each chip's edge-on slice in rows 0-2 (drawChipStack(), the tray).
 	static constexpr float CHIP_SRC_SIZE = 30.0f;
 	static constexpr float CHIP_SRC_Y = 3.0f;
-
-	void drawActiveBet(SDLState& state, Resources& res){
-		if(awaitingBets || activePlayer >= numberOfPlayers)
-			return;
-
-		// Same guard as drawHandTotals(): a player's own activeHand can be
-		// momentarily stale (out of range for their own hands vector)
-		// right as the table hands off between players -- reading through
-		// it here without checking is the exact crash that hit before.
-		Person& p = players[activePlayer];
-		if(p.getActiveHand() >= p.hands.size())
-			return;
-
-		// The active *hand's* bet, not the player's original round bet --
-		// a double or split can make them diverge (see onDouble()/onSplit()).
-		int bet = p.getActiveHandBet();
-		if(bet <= 0)
-			return;
-
-		float centerX = activeHandTotalBox.x + activeHandTotalBox.w / 2.0f;
-		float topY = activeHandTotalBox.y + activeHandTotalBox.h;
-
-		int counts[5];
-		int remaining = bet;
-		for(int d = 4; d >= 0; d--){
-			counts[d] = remaining / BET_DENOMS[d];
-			remaining -= counts[d] * BET_DENOMS[d];
-		}
-
-		std::string betText = std::to_string(bet);
-		float textPixel = 5.0f;
-		float textW = DigitFont::textWidth(betText, textPixel);
-
-		float chipSize = 28.0f;
-		float chipGap = 4.0f;
-		int chipKinds = 0;
-		for(int d = 0; d < 5; d++)
-			if(counts[d] > 0)
-				chipKinds++;
-
-		float chipsW = chipKinds > 0 ? (chipKinds * chipSize + (chipKinds - 1) * chipGap) : 0.0f;
-		float betweenGap = chipKinds > 0 ? 10.0f : 0.0f;
-
-		float blockW = textW + betweenGap + chipsW;
-		float blockH = std::max(5 * textPixel, chipSize);
-
-		float blockX = std::max(10.0f, std::min(centerX - blockW / 2.0f, 1440.0f - blockW - 10.0f));
-		float blockY = std::min(topY + 12.0f, 720.0f - blockH - 10.0f);
-
-		DigitFont::drawText(state, betText, blockX, blockY + (blockH - 5 * textPixel) / 2.0f, textPixel, SDL_Color{255, 255, 255, 255});
-
-		float chipX = blockX + textW + betweenGap;
-		for(int d = 4; d >= 0; d--){
-			if(counts[d] <= 0)
-				continue;
-
-			SDL_FRect src{ .x = d * CHIP_SRC_SIZE, .y = CHIP_SRC_Y, .w = CHIP_SRC_SIZE, .h = CHIP_SRC_SIZE };
-
-			// Up to 3 layered copies per denomination (capped regardless of
-			// actual count) for a stacked look instead of a "x N" label.
-			int stackHeight = std::min(counts[d], 3);
-			for(int s = 0; s < stackHeight; s++){
-				SDL_FRect dst{
-					.x = chipX,
-					.y = blockY + (blockH - chipSize) / 2.0f - s * 4.0f,
-					.w = chipSize,
-					.h = chipSize
-				};
-				SDL_RenderTexture(state.renderer, res.chips, &src, &dst);
-			}
-
-			chipX += chipSize + chipGap;
-		}
-	}
 
 	// A 7-column chip tray: 1s, two columns of 5s, two of 25s, one of
 	// 100s, one of 500s. Column X positions were given directly; the Y
@@ -2713,9 +2632,7 @@ private:
 	// from Table.png's actual gray column art, so the stack sits flush
 	// with its top and fills exactly to its bottom. Filled downward with
 	// the *edge-on* chip slice -- Chips.png rows 0-2, a chip lying flat as
-	// it would sit in a real tray, not the circular top-down coin (rows
-	// 3-32) used everywhere a single resting chip is shown
-	// (drawActiveBet(), drawChipAnimations()).
+	// it would sit in a real tray (the same slices drawChipStack() uses).
 	static constexpr int TRAY_COLUMN_DENOM[7] = {0, 1, 1, 2, 2, 3, 4};
 	static constexpr float TRAY_COLUMN_X[7] = {586, 626, 666, 706, 746, 786, 826};
 	static constexpr float TRAY_TOP_Y = 57.0f;
