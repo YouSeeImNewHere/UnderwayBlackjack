@@ -694,6 +694,37 @@ public:
 		return h < p.hands.size() && p.hands[h].isFromSplit() && p.hands[h].getHandSize() == 1;
 	}
 
+	// Pays a 21 on the spot: a natural blackjack 3:2 (Player's Edge:
+	// spanish21Credit(), its bonuses and Super Bonus). Zeroing the hand's
+	// bet is what keeps resolveRound() from paying it a second time (it
+	// skips any hand with bet<=0, same as a surrendered one).
+	void payTwentyOne(int playerIndex, int handIdx){
+		Hand& hand = players[playerIndex].hands[handIdx];
+		int bet = hand.getBet();
+		if(bet <= 0 || hand.getHandTotal() != 21)
+			return;
+		bool natural = hand.getHandSize() == 2 && !hand.isFromSplit();
+		int credit = isPlayersEdge(gameMode) ? spanish21Credit(hand, 0, false, false) : bet + bet * 3 / 2;
+		if(isPlayersEdge(gameMode))
+			credit += superBonus(playerIndex, hand);
+		if(stats)
+			stats->recordHand(credit - bet, true, false, natural, false, false);
+		hand.setResult(HandResult::Win);
+		queueChipPayout(playerIndex, credit);
+		hand.setBet(0);
+	}
+
+	// Right after the dealer's peek (no dealer blackjack), every natural
+	// at the table is paid at once, the way a dealer pays blackjacks
+	// before anyone plays -- not left waiting for that seat's turn.
+	void payNaturals(){
+		for(int i = 0; i < numberOfPlayers; i++){
+			Person& p = players[i];
+			if(p.hands.size() == 1 && p.hands[0].getHandSize() == 2 && !p.hands[0].isFromSplit())
+				payTwentyOne(i, 0);
+		}
+	}
+
 	bool activeHandIsTwentyOne(){
 		if(activePlayer >= numberOfPlayers)
 			return false;
@@ -919,6 +950,8 @@ public:
 					awaitingPeek = false;
 					if(dealerPeek())
 						return;
+					payNaturals();
+					skipZeroBetPlayers();
 				}
 
 				if(tableIdle() && activeHandNeedsSecondCard()){
@@ -4138,31 +4171,12 @@ private:
 			bool reachedTwentyOne = handIdx < players[activePlayer].hands.size()
 				&& players[activePlayer].hands[handIdx].getHandTotal() == 21;
 
-			// Paid right now rather than once the whole round resolves:
-			// any Player's Edge 21 (its payout never depends on the
-			// dealer's hand -- see spanish21Credit()'s total==21 branch),
-			// and a natural blackjack in every game, the way a real dealer
-			// pays blackjacks as they come to them. By now the dealer has
-			// already peeked, so a natural can't be beaten. Zeroing the
-			// hand's bet is what keeps resolveRound() from paying it a
-			// second time (it skips any hand with bet<=0, same as a
-			// surrendered one).
-			bool natural = reachedTwentyOne
-				&& players[activePlayer].hands[handIdx].getHandSize() == 2
-				&& !players[activePlayer].hands[handIdx].isFromSplit();
-			if(reachedTwentyOne && players[activePlayer].hands[handIdx].getBet() > 0
-					&& (isPlayersEdge(gameMode) || natural)){
-				Hand& hand = players[activePlayer].hands[handIdx];
-				int bet = hand.getBet();
-				int credit = isPlayersEdge(gameMode) ? spanish21Credit(hand, 0, false, false) : bet + bet * 3 / 2;
-				if(isPlayersEdge(gameMode))
-					credit += superBonus(activePlayer, hand);
-				if(stats)
-					stats->recordHand(credit - bet, true, false, natural, false, false);
-				hand.setResult(HandResult::Win);
-				queueChipPayout(activePlayer, credit);
-				hand.setBet(0);
-			}
+			// Any Player's Edge 21 is paid the moment it's made (its
+			// payout never depends on the dealer's hand -- see
+			// spanish21Credit()'s total==21 branch). Naturals were already
+			// paid right after the peek (payNaturals()).
+			if(reachedTwentyOne && isPlayersEdge(gameMode))
+				payTwentyOne(activePlayer, handIdx);
 
 			// Standard blackjack only allows one double per hand, which is
 			// why a double has always force-stood here -- Player's Edge
