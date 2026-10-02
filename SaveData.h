@@ -61,8 +61,9 @@ struct SaveData
 	bool hideInactiveHands = false;
 	bool soundEffects = true;
 	bool doubleForLess = false;
-	bool practiceMode = false;
-	bool countQuiz = false;
+	// A training game (GameModeMenu's Training) on top of gameModeIndex:
+	// 0 none, 1 practice, 2 count quiz.
+	int training = 0;
 
 	// HOW TO PLAY opens by itself until it's been closed once.
 	bool tutorialSeen = false;
@@ -85,8 +86,7 @@ struct SaveData
 		tutorialSeen = webGet(7, 0) != 0;
 		soundEffects = webGet(9, 1) != 0;
 		doubleForLess = webGet(10, 0) != 0;
-		practiceMode = webGet(11, 0) != 0;
-		countQuiz = webGet(12, 0) != 0;
+		training = webGet(11, 0);
 		for(int i = 0; i < 5; i++){
 			bankrolls[i] = webGetSeat(0, i, 500);
 			initialBets[i] = webGetSeat(1, i, 25);
@@ -136,8 +136,7 @@ struct SaveData
 			else if(key == "tutorialSeen") tutorialSeen = value != 0;
 			else if(key == "soundEffects") soundEffects = value != 0;
 			else if(key == "doubleForLess") doubleForLess = value != 0;
-			else if(key == "practiceMode") practiceMode = value != 0;
-			else if(key == "countQuiz") countQuiz = value != 0;
+			else if(key == "training") training = value;
 			else if(seat >= 0 && base == "bankroll") bankrolls[seat] = value;
 			else if(seat >= 0 && base == "bet") initialBets[seat] = value;
 			else if(seat >= 0 && base == "sideBet") sideBetSizes[seat] = value;
@@ -161,9 +160,10 @@ struct SaveData
 	// player configured (game mode from GameModeMenu, players/bankrolls/
 	// side-bet size from SetupMenu) so Resume can reconstruct it on a
 	// future launch. Starts a fresh game, so any old progress is dropped.
-	void saveGameConfig(int modeIndex, int players, const int bankrollValues[5], const int betValues[5], const int sideBetValues[5]){
+	void saveGameConfig(int modeIndex, int trainingGame, int players, const int bankrollValues[5], const int betValues[5], const int sideBetValues[5]){
 		gameStarted = true;
 		gameModeIndex = modeIndex;
+		training = trainingGame;
 		numberOfPlayers = players;
 		hasProgress = false;
 		for(int i = 0; i < 5; i++){
@@ -195,15 +195,13 @@ struct SaveData
 	// Whenever Game Options are applied (pre-game or from the pause menu).
 	// Kept even with no game saved, so the next new game starts from the
 	// player's last choices too.
-	void saveOptions(int speed, bool faceDown, bool hideHands, bool effects, bool forLess, bool practice, bool quiz){
+	void saveOptions(int speed, bool faceDown, bool hideHands, bool effects, bool forLess){
 		hasOptions = true;
 		dealerSpeed = speed;
 		faceDownDoubles = faceDown;
 		hideInactiveHands = hideHands;
 		soundEffects = effects;
 		doubleForLess = forLess;
-		practiceMode = practice;
-		countQuiz = quiz;
 		write();
 	}
 
@@ -252,9 +250,8 @@ private:
 		   tutorialSeen ? 1 : 0, soundEffects ? 1 : 0);
 		EM_ASM({
 			localStorage.setItem('underwayBlackjackDoubleForLess', $0);
-			localStorage.setItem('underwayBlackjackPracticeMode', $1);
-			localStorage.setItem('underwayBlackjackCountQuiz', $2);
-		}, doubleForLess ? 1 : 0, practiceMode ? 1 : 0, countQuiz ? 1 : 0);
+			localStorage.setItem('underwayBlackjackTraining', $1);
+		}, doubleForLess ? 1 : 0, training);
 		for(int i = 0; i < 5; i++){
 			EM_ASM({
 				localStorage.setItem('underwayBlackjackBankroll' + $0, $1);
@@ -278,8 +275,7 @@ private:
 		out << "tutorialSeen=" << (tutorialSeen ? 1 : 0) << "\n";
 		out << "soundEffects=" << (soundEffects ? 1 : 0) << "\n";
 		out << "doubleForLess=" << (doubleForLess ? 1 : 0) << "\n";
-		out << "practiceMode=" << (practiceMode ? 1 : 0) << "\n";
-		out << "countQuiz=" << (countQuiz ? 1 : 0) << "\n";
+		out << "training=" << training << "\n";
 		for(int i = 0; i < 5; i++){
 			out << "bankroll" << i << "=" << bankrolls[i] << "\n";
 			out << "bet" << i << "=" << initialBets[i] << "\n";
@@ -297,7 +293,7 @@ private:
 	// literal) would split its argument and break the build.
 	static int webGet(int which, int def){
 		return EM_ASM_INT({
-			var keys = 'underwayBlackjackMode|underwayBlackjackPlayers|underwayBlackjackHasProgress|underwayBlackjackHasOptions|underwayBlackjackDealerSpeed|underwayBlackjackFaceDownDoubles|underwayBlackjackHideHands|underwayBlackjackTutorialSeen|underwayBlackjackDealerSpeedPct|underwayBlackjackSoundEffects|underwayBlackjackDoubleForLess|underwayBlackjackPracticeMode|underwayBlackjackCountQuiz'.split('|');
+			var keys = 'underwayBlackjackMode|underwayBlackjackPlayers|underwayBlackjackHasProgress|underwayBlackjackHasOptions|underwayBlackjackDealerSpeed|underwayBlackjackFaceDownDoubles|underwayBlackjackHideHands|underwayBlackjackTutorialSeen|underwayBlackjackDealerSpeedPct|underwayBlackjackSoundEffects|underwayBlackjackDoubleForLess|underwayBlackjackTraining'.split('|');
 			var v = localStorage.getItem(keys[$0]);
 			return v === null ? $1 : parseInt(v);
 		}, which, def);

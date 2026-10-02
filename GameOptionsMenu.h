@@ -28,11 +28,6 @@ public:
 	// DOUBLE FOR LESS row: pressing double asks how much (up to the bet)
 	// instead of always doubling the full bet.
 	bool doubleForLess = false;
-	// PRACTICE MODE row: a move the strategy chart disagrees with is held
-	// once with a "CHART SAYS ..." note; doing it again plays it anyway.
-	bool practiceMode = false;
-	// COUNT QUIZ row: before each shuffle, ask for the running count.
-	bool countQuiz = false;
 
 	// Set by mina.cpp right before this screen shows (from GameModeMenu's
 	// pick, pre-game, or Table::getGameMode() when reopened from the pause
@@ -143,12 +138,6 @@ public:
 		drawRowLabel(state, ROW_Y[4], "DOUBLE FOR LESS");
 		drawToggleButton(state, toggleButton(4), doubleForLess);
 
-		drawRowLabel(state, ROW_Y[5], "PRACTICE MODE");
-		drawToggleButton(state, toggleButton(5), practiceMode);
-
-		drawRowLabel(state, ROW_Y[6], "COUNT QUIZ");
-		drawToggleButton(state, toggleButton(6), countQuiz);
-
 		drawSpeedDemo(state, res);
 
 		SDL_FRect go = confirmButton();
@@ -189,8 +178,6 @@ public:
 		rects.push_back(toggleButton(2));
 		rects.push_back(toggleButton(3));
 		rects.push_back(toggleButton(4));
-		rects.push_back(toggleButton(5));
-		rects.push_back(toggleButton(6));
 		rects.push_back(backButton());
 		rects.push_back(confirmButton());
 		return rects;
@@ -236,14 +223,6 @@ public:
 		if(SDL_PointInRectFloat(&p, &lessButton))
 			doubleForLess = !doubleForLess;
 
-		SDL_FRect practiceButton = toggleButton(5);
-		if(SDL_PointInRectFloat(&p, &practiceButton))
-			practiceMode = !practiceMode;
-
-		SDL_FRect quizButton = toggleButton(6);
-		if(SDL_PointInRectFloat(&p, &quizButton))
-			countQuiz = !countQuiz;
-
 		SDL_FRect confirm = confirmButton();
 		if(SDL_PointInRectFloat(&p, &confirm))
 			return true;
@@ -257,12 +236,12 @@ private:
 	static constexpr SDL_Color WHITE{255, 255, 255, 255};
 
 	// Same left-caption/right-controls shape as SetupMenu's stepper rows,
-	// just 7 rows instead of a per-player block -- LABEL_X is where a
+	// just 5 rows instead of a per-player block -- LABEL_X is where a
 	// row's caption starts, CONTROL_X where its buttons start.
 	static constexpr float LABEL_X = 380.0f;
 	static constexpr float CONTROL_X = 760.0f;
-	static constexpr float ROW_H = 58.0f;
-	static constexpr float ROW_Y[7] = {110.0f, 222.0f, 288.0f, 354.0f, 420.0f, 486.0f, 552.0f};
+	static constexpr float ROW_H = 64.0f;
+	static constexpr float ROW_Y[5] = {130.0f, 250.0f, 330.0f, 410.0f, 490.0f};
 
 	// Demo card track -- off to the right of the 3 rows above, clear of
 	// their controls (the slider ends at CONTROL_X + SLIDER_W, 1200).
@@ -371,11 +350,11 @@ private:
 	// GO and BACK sit side by side, the pair centered.
 	SDL_FRect confirmButton(){
 		float w = 260.0f, h = 56.0f;
-		return SDL_FRect{ .x = 720.0f + 10.0f, .y = 636.0f, .w = w, .h = h };
+		return SDL_FRect{ .x = 720.0f + 10.0f, .y = 600.0f, .w = w, .h = h };
 	}
 
 	SDL_FRect backButton(){
 		float w = 200.0f, h = 56.0f;
-		return SDL_FRect{ .x = 720.0f - 10.0f - w, .y = 636.0f, .w = w, .h = h };
+		return SDL_FRect{ .x = 720.0f - 10.0f - w, .y = 600.0f, .w = w, .h = h };
 	}
 };

@@ -190,7 +190,7 @@ public:
 	void setFaceDownDoubles(bool value){ faceDownDoubles = value; }
 	void setHideInactiveHands(bool value){ hideInactiveHands = value; }
 	void setPracticeMode(bool value){ practiceMode = value; practiceHeld = 0; }
-	void setCountQuiz(bool value){ countQuizOn = value; }
+	void setCountQuiz(bool value){ countQuizOn = value; quizState = QuizState::Off; }
 
 	// Called from mina.cpp once GameModeMenu picks a real mode (or a loaded
 	// save, for Resume) -- rebuilds the shoe from scratch at that deck
@@ -377,6 +377,9 @@ public:
 	}
 
 	bool isCardCountToggleHit(SDLState& state, float windowX, float windowY){
+		// The count quiz game hides the count -- it's the answer.
+		if(countQuizOn)
+			return false;
 		float x, y;
 		if(!SDL_RenderCoordinatesFromWindow(state.renderer, windowX, windowY, &x, &y))
 			return false;
@@ -392,6 +395,8 @@ public:
 	}
 
 	void drawCardCountToggleButton(SDLState& state){
+		if(countQuizOn)
+			return;
 		SDL_FRect btn = cardCountToggleButton();
 		SDL_SetRenderDrawColor(state.renderer, showCardCount ? 90 : 70, showCardCount ? 150 : 70, showCardCount ? 110 : 140, 255);
 		SDL_RenderFillRect(state.renderer, &btn);
@@ -751,6 +756,7 @@ public:
 		drawInsurancePrompt(state);
 		drawDoublePanel(state);
 		drawPracticeNote(state);
+		drawTrainingTag(state);
 		drawRoundSummary(state);
 		drawCountQuiz(state);
 		drawJackpotCallout(state);
@@ -1133,15 +1139,17 @@ public:
 				// seen before the table moves on to the next round.
 				if(awaitingNewRound && !chipAnimations.empty())
 					return;
-				// Count quiz (Game Options): before the shoe is gathered
-				// up, ask for the running count; the shuffle waits for it.
-				if(awaitingNewRound && shoeNeedsReshuffle && countQuizOn && quizState != QuizState::Done){
+				// The count quiz game: after every round, once its chips
+				// have landed, ask for the running count before betting
+				// (or the shuffle) goes on.
+				if(awaitingNewRound && countQuizOn && quizState != QuizState::Done){
 					if(quizState == QuizState::Off)
 						openCountQuiz();
 					return;
 				}
 				if(awaitingNewRound){
 					awaitingNewRound = false;
+					quizState = QuizState::Off;
 
 					// Every card from the just-finished round has landed
 					// in discard by this point (dealQueue's empty, nothing
@@ -1152,7 +1160,6 @@ public:
 						// table, to the shuffle sound, before going back in
 						// the shoe -- see the shuffling branch above.
 						shoeNeedsReshuffle = false;
-						quizState = QuizState::Off;
 						discard.clear();
 						shoe.clear();
 						shuffling = true;
@@ -1527,6 +1534,15 @@ private:
 	}
 
 	static std::string signedCount(int v){ return v > 0 ? "+" + std::to_string(v) : std::to_string(v); }
+
+	// Which training game this is, under the TIP button.
+	void drawTrainingTag(SDLState& state){
+		if(!practiceMode && !countQuizOn)
+			return;
+		std::string tag = practiceMode ? "PRACTICE" : "COUNT QUIZ";
+		float pixel = 2.6f;
+		DigitFont::drawText(state, tag, 1432.0f - DigitFont::textWidth(tag, pixel), 190.0f, pixel, SDL_Color{255, 225, 80, 255});
+	}
 
 	// Practice mode's note, while a move is being held back.
 	void drawPracticeNote(SDLState& state){
@@ -3179,7 +3195,7 @@ private:
 	// decks so "decks remaining" isn't inflated by counting a deck that's
 	// missing 4 cards as if it still had 52.
 	void drawCardCountStats(SDLState& state){
-		if(!showCardCount)
+		if(!showCardCount || countQuizOn)
 			return;
 
 		float cardsPerDeck = isPlayersEdge(gameMode) ? 48.0f : 52.0f;

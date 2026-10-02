@@ -91,6 +91,7 @@ struct AppContext {
     AppScreen screen = AppScreen::Menu;
     // Remembered between GameModeMenu and applySetupComplete().
     GameMode chosenMode = GameMode::TwoDeck;
+    Training chosenTraining = Training::None;
     // Which mode's rules AppScreen::GameModeAbout is currently showing --
     // set right before switching to that screen, read by the draw
     // dispatch below. Reuses the same AboutMenu instance PauseState::About
@@ -177,15 +178,19 @@ static void applyOptionsToTable(AppContext& ctx){
     ctx.table.setFaceDownDoubles(ctx.gameOptionsMenu.faceDownDoubles);
     ctx.table.setHideInactiveHands(ctx.gameOptionsMenu.hideInactiveHands);
     ctx.table.setAskDoubleAmount(ctx.gameOptionsMenu.doubleForLess);
-    ctx.table.setPracticeMode(ctx.gameOptionsMenu.practiceMode);
-    ctx.table.setCountQuiz(ctx.gameOptionsMenu.countQuiz);
+}
+
+// PRACTICE / COUNT QUIZ (GameModeMenu): which training game, if any, the
+// table plays on top of the chosen mode.
+static void applyTraining(AppContext& ctx, Training training){
+    ctx.table.setPracticeMode(training == Training::Practice);
+    ctx.table.setCountQuiz(training == Training::CountQuiz);
 }
 
 static void saveOptions(AppContext& ctx){
     ctx.save.saveOptions(ctx.gameOptionsMenu.dealerSpeed,
         ctx.gameOptionsMenu.faceDownDoubles, ctx.gameOptionsMenu.hideInactiveHands,
-        ctx.gameOptionsMenu.soundEffects, ctx.gameOptionsMenu.doubleForLess,
-        ctx.gameOptionsMenu.practiceMode, ctx.gameOptionsMenu.countQuiz);
+        ctx.gameOptionsMenu.soundEffects, ctx.gameOptionsMenu.doubleForLess);
 }
 
 // Shared by both mouse and touch handling below: applies whichever menu
@@ -195,6 +200,7 @@ static void saveOptions(AppContext& ctx){
 static void applyMenuChoice(AppContext& ctx, MenuChoice choice){
     switch(choice){
         case MenuChoice::Start:
+            ctx.gameModeMenu.training = Training::None;
             ctx.screen = AppScreen::GameMode;
         break;
 
@@ -205,6 +211,7 @@ static void applyMenuChoice(AppContext& ctx, MenuChoice choice){
                 ctx.table.restoreProgress(ctx.save.currentBankrolls, ctx.save.totalBuyIns);
             ctx.gameOptionsMenu.setGameMode(static_cast<GameMode>(ctx.save.gameModeIndex));
             applyOptionsToTable(ctx);
+            applyTraining(ctx, static_cast<Training>(ctx.save.training));
             ctx.table.startGame();
             ctx.screen = AppScreen::Playing;
         break;
@@ -222,6 +229,7 @@ static void applyMenuChoice(AppContext& ctx, MenuChoice choice){
             ctx.save.clear();
             ctx.table.resetForNewGame();
             ctx.setupMenu = SetupMenu();
+            ctx.gameModeMenu.training = Training::None;
             ctx.screen = AppScreen::GameMode;
         break;
 
@@ -265,6 +273,7 @@ static void applyGameModeChoice(AppContext& ctx, GameMode mode){
         return;
 
     ctx.chosenMode = mode;
+    ctx.chosenTraining = ctx.gameModeMenu.training;
     ctx.setupMenu.setGameMode(mode);
     ctx.gameOptionsMenu.setGameMode(mode);
     ctx.screen = AppScreen::GameOptions;
@@ -294,7 +303,8 @@ static void applySetupComplete(AppContext& ctx){
 
     ctx.table.configureGameMode(ctx.chosenMode);
     ctx.table.configurePlayers(ctx.setupMenu.numberOfPlayers, bankrolls, initialBets, sideBetSizes);
-    ctx.save.saveGameConfig(static_cast<int>(ctx.chosenMode), ctx.setupMenu.numberOfPlayers, bankrolls, initialBets, sideBetSizes);
+    applyTraining(ctx, ctx.chosenTraining);
+    ctx.save.saveGameConfig(static_cast<int>(ctx.chosenMode), static_cast<int>(ctx.chosenTraining), ctx.setupMenu.numberOfPlayers, bankrolls, initialBets, sideBetSizes);
     ctx.table.startGame();
     ctx.screen = AppScreen::Playing;
 }
@@ -458,6 +468,9 @@ static void goBack(AppContext& ctx){
         ctx.screen = AppScreen::Menu;
         return;
     case AppScreen::GameMode:
+        if(ctx.gameModeMenu.leaveTraining())
+            return;
+        [[fallthrough]];
     case AppScreen::Gestures:
     case AppScreen::Keyboard:
     case AppScreen::Stats:
@@ -1161,8 +1174,6 @@ int main(int argc,char *argv[]) {
         ctx->gameOptionsMenu.hideInactiveHands = ctx->save.hideInactiveHands;
         ctx->gameOptionsMenu.soundEffects = ctx->save.soundEffects;
         ctx->gameOptionsMenu.doubleForLess = ctx->save.doubleForLess;
-        ctx->gameOptionsMenu.practiceMode = ctx->save.practiceMode;
-        ctx->gameOptionsMenu.countQuiz = ctx->save.countQuiz;
     }
 
 #ifdef __EMSCRIPTEN__
