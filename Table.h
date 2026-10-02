@@ -2283,6 +2283,19 @@ private:
 	// allowed any more, so H becomes S; D means redouble while doubles
 	// are left; R means double-down rescue (see canSurrenderActiveHand()).
 	char doubledAdvice(char action){
+		// Player's Edge double-down rescue, as published: give up a doubled
+		// hard 12-16 vs 8-A, or 17 vs an Ace.
+		if(isPlayersEdge(gameMode) && canSurrenderActiveHand() && dealer.hands[0].getHandSize() > 0){
+			Person& p = players[activePlayer];
+			int h = p.getActiveHand();
+			if(h < p.hands.size() && !p.hands[h].isSoftTotal()){
+				int total = p.hands[h].getHandTotal();
+				int up = dealer.hands[0].cards[0].getValue();
+				bool upHigh = up == 1 || up >= 8;
+				if((total >= 12 && total <= 16 && upHigh) || (total == 17 && up == 1))
+					return 'R';
+			}
+		}
 		if(action == 'H')
 			return 'S';
 		if(action == 'D' && !canDoubleActiveHand())
@@ -2372,7 +2385,7 @@ private:
 		float tableX = boxX + 20.0f;
 		// A hard 18+ stands against everything (the chart's "17" row,
 		// which it's read off, surrenders 17 vs an Ace).
-		const char* data = hard18 ? "SSSSSSSSSS" : StrategyChart::rowData(section, row);
+		const char* data = hard18 ? "SSSSSSSSSS" : chartRow(section, row);
 
 		for(int c = 0; c < 10; c++){
 			SDL_FRect headerRect{ .x = tableX + c * stride, .y = rowY, .w = cellW, .h = 22.0f };
@@ -3626,12 +3639,14 @@ private:
 	// 6-7-8 / 7-7-7 bonus plays (StrategyChart::cardLimit()/bonusRule()).
 	// why, when given, says which of those changed the chart's letter.
 	char chartLetter(int section, int row, int col, std::string* why = nullptr){
-		char letter = StrategyChart::rowData(section, row)[col];
+		char letter = chartRow(section, row)[col];
 		Person& p = players[activePlayer];
 		int h = p.getActiveHand();
 		if(h >= p.hands.size())
 			return letter;
 		Hand& hand = p.hands[h];
+		if(why && activeHandIsFree())
+			*why = "FREE HAND - NOTHING OF YOURS AT RISK";
 		int n = hand.getHandSize();
 
 		// The hard chart's last row is "17", and 18+ is read off it too --
@@ -3662,6 +3677,25 @@ private:
 			}
 		}
 		return letter;
+	}
+
+	// Free Bet: a split-off hand riding entirely on the free bet.
+	bool activeHandIsFree(){
+		if(!isFreeBet(gameMode) || activePlayer >= numberOfPlayers)
+			return false;
+		Person& p = players[activePlayer];
+		int h = p.getActiveHand();
+		return h < p.hands.size() && p.hands[h].isFromSplit() && p.hands[h].getBet() > 0
+			&& p.hands[h].getFreeBetAmount() >= p.hands[h].getBet();
+	}
+
+	// The chart row the active hand reads: Free Bet's free-hand chart for
+	// a free hand, otherwise the game's own.
+	const char* chartRow(int section, int row){
+		if(activeHandIsFree())
+			if(const char* free = StrategyChart::freeHandRowData(section, row))
+				return free;
+		return StrategyChart::rowData(section, row);
 	}
 
 	// Player's Edge (Spanish 21): once doubled, a hand only draws more

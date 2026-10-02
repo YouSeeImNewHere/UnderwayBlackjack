@@ -91,6 +91,14 @@ public:
 		return PAIR_LABELS[row];
 	}
 
+	// Free Bet's free-hand row (see FREEBET_FREE_*), or nullptr when the
+	// regular chart applies.
+	static const char* freeHandRowData(int section, int row){
+		if(activeChart != 2 || section == 2)
+			return nullptr;
+		return section == 0 ? FREEBET_FREE_HARD[row] : FREEBET_FREE_SOFT[row];
+	}
+
 	static const char* rowData(int section, int row){
 		const ChartSet& chart = CHARTS[activeChart];
 		if(section == 0) return chart.hard[row];
@@ -131,6 +139,8 @@ public:
 			activeChart = 1;
 		else if(isFreeBet(mode))
 			activeChart = 2;
+		else if(deckCountFor(mode) <= 2)
+			activeChart = 3;
 		else
 			activeChart = 0;
 	}
@@ -168,11 +178,11 @@ private:
 	// Standard: verified against wizardofodds.com's multi-deck (4-8 deck)
 	// strategy notes: their S17 baseline surrenders hard 15 vs. 10 and
 	// hard 16 (not a pair of 8s) vs. 9/10/A, and their H17 deltas on top of
-	// that are "surrender 15/pair-8s/17 vs. A", "double 11 vs. A", "double
+	// that are "surrender 15/17 vs. A", "double 11 vs. A", "double
 	// soft 18 vs. 2", "double soft 19 vs. 6". (17 vs. A and 8s vs. A were
-	// described but missing from the rows until now.) No total-dependent
-	// difference exists between double-deck and multi-deck at this level,
-	// so this one chart covers both 2-deck and 6-deck games.
+	// described but missing from the rows until now.) Used for the shoe
+	// games (6 and 8 decks, double after split allowed); the 2-deck games
+	// have their own chart (DOUBLE_DECK_*).
 	//
 	// Every set was also cross-checked with an infinite-deck expected-
 	// value solver run against this game's exact rules for that family --
@@ -207,33 +217,30 @@ private:
 		"DDDDDDDDHH",
 		"PPPPPHHHHH",
 		"PPPPPPHHHH",
-		"PPPPPPPPPR",
+		"PPPPPPPPPP", // 8s: split even vs A (surrender only without DAS)
 		"PPPPPSPPSS",
 		"SSSSSSSSSS",
 		"PPPPPPPPPP"
 	};
 
-	// Player's Edge (Spanish 21, dealer hits soft 17): computed by the
-	// solver described above with the 48-card deck, player 21 always
-	// winning, 5/6/7+ card 21 bonuses, doubling on any number of cards,
-	// redoubling up to 3 times (no plain hits on a doubled hand), dealer
-	// peek and late surrender. Agrees with the published Spanish 21 H17
-	// guidance checked so far: soft 17 hits vs 2-3 and doubles vs 4-6,
-	// soft 18 stands vs 2/3/7/8 and doubles vs 4-6, 16 vs. A surrenders,
-	// 4s/5s/10s are never split, aces always are. Two-card decisions only
-	// -- the published charts' card-count exceptions (e.g. "hit with 4+
-	// cards") aren't modelled.
+	// Player's Edge (Spanish 21, dealer hits soft 17): the published
+	// Spanish 21 H17 basic strategy (wizardofodds.com), cell for cell,
+	// including its card-count limits (SPANISH_HARD_CARDS/SOFT_CARDS) and
+	// 6-7-8 / suited 7-7-7 bonus plays (SPANISH_HARD_BONUS, bonusRule()).
+	// Player's Edge pays the same 21 bonuses that chart assumes. Pairs of
+	// 4s and 5s are never split (played as hard 8 and hard 10), and 17 vs
+	// an Ace surrenders with 2 cards, otherwise hits.
 	static constexpr const char* SPANISH_HARD[10] = {
-		"HHHDDHHHHH",
-		"HDDDDHHHHH",
-		"DDDDDDDHHH",
-		"DDDDDDDHHH",
-		"HHHHHHHHHH",
-		"HHHHSHHHHH",
-		"HHSSSHHHHH",
-		"SSSSSHHHHH",
-		"SSSSSHHHHR",
-		"SSSSSSSSSR"
+		"HHHHHHHHHH", // 8 (and less)
+		"HHHHDHHHHH", // 9
+		"DDDDDDDHHH", // 10
+		"DDDDDDDDDD", // 11
+		"HHHHHHHHHH", // 12
+		"HHHHSHHHHH", // 13
+		"HHSSSHHHHH", // 14
+		"SSSSSHHHHH", // 15
+		"SSSSSHHHHR", // 16
+		"SSSSSSSSSR"  // 17
 	};
 	// Card-count limits (see cardLimit()), rows/cols as SPANISH_HARD/SOFT.
 	static constexpr const char* SPANISH_HARD_CARDS[10] = {
@@ -266,26 +273,26 @@ private:
 		"0000000000"  // A9
 	};
 	static constexpr const char* SPANISH_SOFT[8] = {
-		"HDDDDHHHHH",
-		"HDDDDHHHHH",
-		"HHDDDHHHHH",
-		"HHDDDHHHHH",
-		"HHDDDHHHHH",
-		"SSDDDSSHHH",
-		"SSSSSSSSSS",
-		"SSSSSSSSSS"
+		"HHHHHHHHHH", // A2
+		"HHHHHHHHHH", // A3
+		"HHHHDHHHHH", // A4
+		"HHHDDHHHHH", // A5
+		"HHDDDHHHHH", // A6
+		"SSDDDSSHHH", // A7
+		"SSSSSSSSSS", // A8
+		"SSSSSSSSSS"  // A9
 	};
 	static constexpr const char* SPANISH_PAIRS[10] = {
-		"HPPPPPHHHH",
-		"HPPPPPPHHH",
-		"HHHDDHHHHH",
-		"DDDDDDDHHH",
-		"HHPPPHHHHH",
-		"PPPPPPHHHH",
-		"PPPPPPPPPR",
-		"SPPPPSPPSS",
-		"SSSSSSSSSS",
-		"PPPPPPPPPP"
+		"PPPPPPPHHH", // 2s
+		"PPPPPPPHHH", // 3s
+		"HHHHHHHHHH", // 4s: never split, hard 8
+		"DDDDDDDHHH", // 5s: never split, hard 10
+		"HHPPPHHHHH", // 6s
+		"PPPPPPHHHH", // 7s (suited 7s vs 7 hit, see bonusRule())
+		"PPPPPPPPPR", // 8s
+		"SPPPPSPPSS", // 9s
+		"SSSSSSSSSS", // 10s
+		"PPPPPPPPPP"  // As
 	};
 
 	// Free Bet (6 decks, dealer hits soft 17): computed by the same solver
@@ -311,11 +318,36 @@ private:
 		"HHHHHHHHHH",
 		"HHHHHHHHHH",
 		"HHHHHHHHHH",
-		"HHHHHHHHHH",
-		"HHHHDHHHHH",
+		"HHHHDHHHHH", // A5: double vs 6
+		"HHHDDHHHHH", // A6: double vs 5-6
 		"SSSDDSSHHH",
 		"SSSSSSSSSS",
 		"SSSSSSSSSS"
+	};
+	// The free hand -- a split-off hand riding on the free bet, nothing
+	// of the player's own at stake -- plays more aggressively
+	// (wizardofodds.com's Free Bet "free hand" chart). Pairs are the same.
+	static constexpr const char* FREEBET_FREE_HARD[10] = {
+		"HHHHHHHHHH", // 8
+		"DDDDDDDDDD", // 9 (free double)
+		"DDDDDDDDDD", // 10
+		"DDDDDDDDDD", // 11
+		"HHHSSHHHHH", // 12
+		"HSSSSHHHHH", // 13
+		"HSSSSHHHHH", // 14
+		"SSSSSHHHHH", // 15
+		"SSSSSHHHHH", // 16
+		"SSSSSHHHSH"  // 17
+	};
+	static constexpr const char* FREEBET_FREE_SOFT[8] = {
+		"HHHHHHHHHH", // A2
+		"HHHHHHHHHH", // A3
+		"HHHHHHHHHH", // A4
+		"HHHHDHHHHH", // A5
+		"HHHDDHHHHH", // A6
+		"HHDDDSHHHH", // A7
+		"SSSDDSSSSS", // A8
+		"SSSSDSSSSS"  // A9
 	};
 	static constexpr const char* FREEBET_PAIRS[10] = {
 		"PPPPPPPPPP",
@@ -330,10 +362,50 @@ private:
 		"PPPPPPPPPP"
 	};
 
-	static constexpr ChartSet CHARTS[3] = {
+	// Double deck (2 Deck and Lucky Ladies 2 Deck: dealer hits soft 17,
+	// no double after split, late surrender): wizardofodds.com's published
+	// double-deck H17 chart, with its "only if double after split" splits
+	// played as hits and 8s vs an Ace surrendered (no DAS).
+	static constexpr const char* DOUBLE_DECK_HARD[10] = {
+		"HHHHHHHHHH", // 8
+		"DDDDDHHHHH", // 9
+		"DDDDDDDDHH", // 10
+		"DDDDDDDDDD", // 11
+		"HHSSSHHHHH", // 12
+		"SSSSSHHHHH", // 13
+		"SSSSSHHHHH", // 14
+		"SSSSSHHHRR", // 15
+		"SSSSSHHHRR", // 16
+		"SSSSSSSSSR"  // 17
+	};
+	static constexpr const char* DOUBLE_DECK_SOFT[8] = {
+		"HHHDDHHHHH", // A2
+		"HHDDDHHHHH", // A3
+		"HHDDDHHHHH", // A4
+		"HHDDDHHHHH", // A5
+		"HDDDDHHHHH", // A6
+		"DDDDDSSHHH", // A7
+		"SSSSDSSSSS", // A8
+		"SSSSSSSSSS"  // A9
+	};
+	static constexpr const char* DOUBLE_DECK_PAIRS[10] = {
+		"HHPPPPHHHH", // 2s
+		"HHPPPPHHHH", // 3s
+		"HHHHHHHHHH", // 4s
+		"DDDDDDDDHH", // 5s
+		"PPPPPHHHHH", // 6s
+		"PPPPPPHHHH", // 7s
+		"PPPPPPPPPR", // 8s
+		"PPPPPSPPSS", // 9s
+		"SSSSSSSSSS", // 10s
+		"PPPPPPPPPP"  // As
+	};
+
+	static constexpr ChartSet CHARTS[4] = {
 		{ "STANDARD", STANDARD_HARD, STANDARD_SOFT, STANDARD_PAIRS },
 		{ "SPANISH 21", SPANISH_HARD, SPANISH_SOFT, SPANISH_PAIRS },
-		{ "FREE BET", FREEBET_HARD, FREEBET_SOFT, FREEBET_PAIRS }
+		{ "FREE BET", FREEBET_HARD, FREEBET_SOFT, FREEBET_PAIRS },
+		{ "DOUBLE DECK", DOUBLE_DECK_HARD, DOUBLE_DECK_SOFT, DOUBLE_DECK_PAIRS }
 	};
 
 	inline static int activeChart = 0;
