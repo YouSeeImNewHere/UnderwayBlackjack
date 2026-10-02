@@ -1007,6 +1007,10 @@ public:
 					checkBreak();
 					return;
 				}
+				// Let every payout and collection finish where it can be
+				// seen before the table moves on to the next round.
+				if(awaitingNewRound && !chipAnimations.empty())
+					return;
 				if(awaitingNewRound){
 					awaitingNewRound = false;
 
@@ -4330,10 +4334,10 @@ private:
 	}
 
 	// Stage lengths for ChipAnimation (seconds).
-	static constexpr float CHIPS_TO_SPOT = 0.45f;   // winnings tray -> beside the bet
-	static constexpr float CHIPS_HOLD = 0.55f;      // both stacks sit on the felt
-	static constexpr float CHIPS_TO_BANKROLL = 0.5f;
-	static constexpr float CHIPS_TO_TRAY = 0.45f;
+	static constexpr float CHIPS_TO_SPOT = 0.75f;   // winnings tray -> beside the bet
+	static constexpr float CHIPS_HOLD = 1.1f;       // both stacks sit on the felt
+	static constexpr float CHIPS_TO_BANKROLL = 0.75f;
+	static constexpr float CHIPS_TO_TRAY = 0.75f;
 
 	float chipAnimationLength(const ChipAnimation& a) const {
 		switch(a.kind){
