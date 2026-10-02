@@ -500,7 +500,22 @@ static void goBack(AppContext& ctx){
 // gameplay), in window coordinates -- the one place mouse, touch and
 // arrow-key "Enter" all route through, so each screen's buttons behave
 // identically however they were pressed.
+static std::vector<SDL_FRect> currentFocusRects(AppContext& ctx);
+
 static void handleMenuClick(AppContext& ctx, float wx, float wy){
+    // A soft tap for anything that's a button on this screen.
+    {
+        float lx, ly;
+        if(SDL_RenderCoordinatesFromWindow(ctx.state.renderer, wx, wy, &lx, &ly)){
+            SDL_FPoint p{lx, ly};
+            for(const SDL_FRect& r : currentFocusRects(ctx))
+                if(SDL_PointInRectFloat(&p, &r)){
+                    ctx.audio.play(Sfx::Tap);
+                    break;
+                }
+        }
+    }
+
     switch(ctx.screen){
     case AppScreen::Menu:
         applyMenuChoice(ctx, ctx.menu.handlePoint(ctx.state, wx, wy));
@@ -841,8 +856,10 @@ static void mainLoopIteration(void *arg) {
                     if(event.type == SDL_EVENT_FINGER_UP){
                         float wx = event.tfinger.x * ctx.state.width;
                         float wy = event.tfinger.y * ctx.state.height;
-                        if(ctx.uiClaimedButton == ClaimedUIButton::Pause && isPauseButtonHit(ctx, wx, wy))
+                        if(ctx.uiClaimedButton == ClaimedUIButton::Pause && isPauseButtonHit(ctx, wx, wy)){
+                            ctx.audio.play(Sfx::Tap);
                             ctx.pauseState = PauseState::Menu;
+                        }
                         else if(ctx.uiClaimedButton == ClaimedUIButton::Tip && ctx.table.isQuickTipButtonHit(ctx.state, wx, wy))
                             ctx.table.toggleQuickTip();
                         else if(ctx.uiClaimedButton == ClaimedUIButton::CardCount && ctx.table.isCardCountToggleHit(ctx.state, wx, wy))
@@ -913,8 +930,10 @@ static void mainLoopIteration(void *arg) {
                 if(inMenu(ctx)){
                     ctx.focusIndex = -1;
                     handleMenuClick(ctx, event.button.x, event.button.y);
-                } else if(ctx.screen == AppScreen::Playing && isPauseButtonHit(ctx, event.button.x, event.button.y))
+                } else if(ctx.screen == AppScreen::Playing && isPauseButtonHit(ctx, event.button.x, event.button.y)){
+                    ctx.audio.play(Sfx::Tap);
                     ctx.pauseState = PauseState::Menu;
+                }
                 else if(ctx.screen == AppScreen::Playing && ctx.table.isQuickTipButtonHit(ctx.state, event.button.x, event.button.y))
                     ctx.table.toggleQuickTip();
                 else if(ctx.screen == AppScreen::Playing && ctx.table.isCardCountToggleHit(ctx.state, event.button.x, event.button.y))

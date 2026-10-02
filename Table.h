@@ -335,6 +335,7 @@ public:
 
 	void toggleQuickTip(){
 		showQuickTip = !showQuickTip;
+		sound(Sfx::Tap);
 	}
 
 	// Directly above the discard pile it toggles the overlay on (matching
@@ -359,6 +360,7 @@ public:
 
 	void toggleCardCount(){
 		showCardCount = !showCardCount;
+		sound(Sfx::Tap);
 	}
 
 	void drawCardCountToggleButton(SDLState& state){
@@ -473,8 +475,10 @@ public:
 		for(int i = 0; i < numberOfPlayers; i++){
 			if(players[i].getBankroll() <= 0){
 				SDL_FRect buyIn = buyInButton(i);
-				if(SDL_PointInRectFloat(&p, &buyIn))
+				if(SDL_PointInRectFloat(&p, &buyIn)){
 					players[i].rebuy();
+					sound(Sfx::Tap);
+				}
 				continue;
 			}
 
@@ -483,6 +487,7 @@ public:
 
 			if(SDL_PointInRectFloat(&p, &row.lower)){
 				players[i].lowerBet(denom);
+				sound(Sfx::Tap);
 				return;
 			}
 			if(SDL_PointInRectFloat(&p, &row.raise)){
@@ -493,10 +498,12 @@ public:
 			}
 			if(SDL_PointInRectFloat(&p, &row.selMinus)){
 				chipIndex[i] = std::max(0, chipIndex[i] - 1);
+				sound(Sfx::Tap);
 				return;
 			}
 			if(SDL_PointInRectFloat(&p, &row.selPlus)){
 				chipIndex[i] = std::min(4, chipIndex[i] + 1);
+				sound(Sfx::Tap);
 				return;
 			}
 
@@ -507,6 +514,7 @@ public:
 				SideBetRow sb = sideBetRow(i, 0);
 				if(SDL_PointInRectFloat(&p, &sb.selMinus)){
 					players[i].lowerSideBet(denom);
+				sound(Sfx::Tap);
 					return;
 				}
 				if(SDL_PointInRectFloat(&p, &sb.selPlus)){
@@ -519,6 +527,7 @@ public:
 				SideBetRow up = sideBetRow(i, 0);
 				if(SDL_PointInRectFloat(&p, &up.selMinus)){
 					players[i].lowerMatchUpBet(denom);
+				sound(Sfx::Tap);
 					return;
 				}
 				if(SDL_PointInRectFloat(&p, &up.selPlus)){
@@ -531,6 +540,7 @@ public:
 				SideBetRow down = sideBetRow(i, 1);
 				if(SDL_PointInRectFloat(&p, &down.selMinus)){
 					players[i].lowerMatchDownBet(denom);
+				sound(Sfx::Tap);
 					return;
 				}
 				if(SDL_PointInRectFloat(&p, &down.selPlus)){
@@ -543,8 +553,10 @@ public:
 		}
 
 		SDL_FRect deal = dealButton();
-		if(SDL_PointInRectFloat(&p, &deal))
+		if(SDL_PointInRectFloat(&p, &deal)){
+			sound(Sfx::Tap);
 			beginRound();
+		}
 	}
 
 	void draw(SDLState& state, Resources& res){
@@ -559,7 +571,8 @@ public:
 
 		// Part of the table too: under the cards, flying cards and bet
 		// controls alike.
-		drawSideBetCircles(state);
+		drawSideBetCircles(state, res);
+		drawMainBetChips(state, res);
 
 		for(int i = 0; i < discard.size(); i++){
 			discard[i].draw(state,res);
@@ -627,6 +640,9 @@ public:
 		// dealer hand
 		dealer.draw(state,res,false);
 
+		if(shuffling)
+			drawShuffle(state, res);
+
 		if(cardAnimation.has_value()) {
 			CardAnimation& animation = cardAnimation.value();
 
@@ -680,7 +696,7 @@ public:
 	// Nothing moving, queued, paused or pending between rounds.
 	bool tableIdle(){
 		return !cardAnimation.has_value() && dealQueue.empty() && pauseTimer <= 0.0f && !awaitingBets
-			&& !awaitingNewRound && !awaitingInitialDeal && !awaitingPeek && !awaitingInsurance;
+			&& !awaitingNewRound && !awaitingInitialDeal && !awaitingPeek && !awaitingInsurance && !shuffling;
 	}
 
 	// A split hand starts with just the one card it was split off with;
@@ -904,6 +920,19 @@ public:
 				++it;
 		}
 
+		// A fresh shoe being shuffled (drawShuffle()): betting opens once
+		// the shuffle's done and the new shoe is in place.
+		if(shuffling){
+			shuffleElapsed += deltaTime;
+			if(shuffleElapsed < SHUFFLE_DURATION)
+				return;
+			shuffling = false;
+			makeShoe();
+			runningCount = 0;
+			openBettingPhase();
+			return;
+		}
+
 		// Hold everything -- no dealing, no resolving -- until a pending
 		// pause (bust shown, or dealer's finished hand) has run its course.
 		if(pauseTimer > 0.0f){
@@ -973,11 +1002,16 @@ public:
 					// is animating) -- safe to sweep it and cut a fresh
 					// shoe before opening bets on the next round.
 					if(shoeNeedsReshuffle){
+						// The discards are gathered up and shuffled on the
+						// table, to the shuffle sound, before going back in
+						// the shoe -- see the shuffling branch above.
 						shoeNeedsReshuffle = false;
 						discard.clear();
-						makeShoe();
+						shoe.clear();
+						shuffling = true;
+						shuffleElapsed = 0.0f;
 						sound(Sfx::Shuffle);
-						runningCount = 0;
+						return;
 					}
 
 					openBettingPhase();
@@ -1052,7 +1086,7 @@ public:
 		// Every player can be done before the deal even finishes (all
 		// naturals, or nobody betting) -- the dealer still has to peek
 		// first (update()), or a dealer blackjack would be settled twice.
-		if(awaitingInitialDeal || awaitingPeek || awaitingInsurance || awaitingNewRound)
+		if(awaitingInitialDeal || awaitingPeek || awaitingInsurance || awaitingNewRound || shuffling)
 			return;
 
 		if(cardAnimation.has_value() || !dealQueue.empty() || pauseTimer > 0.0f)
@@ -1129,16 +1163,23 @@ public:
 		return awaitingInsurance && !cardAnimation.has_value() && dealQueue.empty();
 	}
 
-	// The current seat's answer. Insurance: half the bet goes up now (paid
-	// back 3x by dealerPeek() on a dealer blackjack). Even money (the seat
-	// has a blackjack): paid 1:1 right now and the hand is settled, so a
-	// dealer blackjack can't push it.
+	// One answer for the whole table -- every seat offered insurance takes
+	// it (or not) together. Insurance: half the bet goes up now (paid back
+	// 3x by dealerPeek() on a dealer blackjack). Even money (the seat has a
+	// blackjack): paid 1:1 right now and the hand is settled, so a dealer
+	// blackjack can't push it.
 	void answerInsurance(bool yes){
 		if(!isAwaitingInsurance() || insuranceQueue.empty())
 			return;
 
-		int i = insuranceQueue.front();
-		insuranceQueue.erase(insuranceQueue.begin());
+		std::vector<int> seats = insuranceQueue;
+		insuranceQueue.clear();
+		for(int i : seats)
+			answerInsuranceFor(i, yes);
+		awaitingInsurance = false;
+	}
+
+	void answerInsuranceFor(int i, bool yes){
 		Person& p = players[i];
 
 		if(yes){
@@ -1160,9 +1201,6 @@ public:
 				}
 			}
 		}
-
-		if(insuranceQueue.empty())
-			awaitingInsurance = false;
 	}
 
 	// Tap/click on the insurance prompt's YES/NO.
@@ -1172,10 +1210,13 @@ public:
 			return;
 		SDL_FPoint p{x, y};
 		SDL_FRect yes = insuranceYesButton(), no = insuranceNoButton();
-		if(SDL_PointInRectFloat(&p, &yes))
+		if(SDL_PointInRectFloat(&p, &yes)){
+			sound(Sfx::Tap);
 			answerInsurance(true);
-		else if(SDL_PointInRectFloat(&p, &no))
+		} else if(SDL_PointInRectFloat(&p, &no)){
+			sound(Sfx::Tap);
 			answerInsurance(false);
+		}
 	}
 
 private:
@@ -1186,8 +1227,16 @@ private:
 	void drawInsurancePrompt(SDLState& state){
 		if(!isAwaitingInsurance() || insuranceQueue.empty())
 			return;
-		int i = insuranceQueue.front();
-		bool evenMoney = playerHasBlackjack(i);
+		// Totals for everyone being asked: what insurance costs the table,
+		// and how many blackjacks would take even money instead.
+		int cost = 0, blackjacks = 0;
+		for(int i : insuranceQueue){
+			if(playerHasBlackjack(i))
+				blackjacks++;
+			else
+				cost += players[i].hands[0].getBet() / 2;
+		}
+		bool evenMoney = cost == 0;
 
 		SDL_FRect panel = insurancePanel();
 		SDL_SetRenderDrawColor(state.renderer, 15, 25, 18, 255);
@@ -1198,14 +1247,14 @@ private:
 			SDL_RenderRect(state.renderer, &ring);
 		}
 
-		std::string q = "P" + std::to_string(i + 1) + (evenMoney ? "  EVEN MONEY?" : "  INSURANCE?");
+		std::string q = evenMoney ? "EVEN MONEY?" : "TABLE INSURANCE?";
 		float qPixel = 5.5f;
 		float qW = DigitFont::textWidth(q, qPixel);
 		DigitFont::drawText(state, q, panel.x + (panel.w - qW) / 2.0f, panel.y + 18.0f, qPixel, SDL_Color{255, 255, 255, 255});
 
-		int bet = players[i].hands[0].getBet();
-		std::string sub = evenMoney ? "TAKE " + std::to_string(bet) + " NOW"
-			: "COSTS " + std::to_string(bet / 2) + ", PAYS 2:1";
+		std::string sub = evenMoney ? "BLACKJACKS PAID 1:1 NOW"
+			: "COSTS " + std::to_string(cost) + ", PAYS 2:1"
+				+ (blackjacks > 0 ? ", BLACKJACKS EVEN MONEY" : "");
 		float subPixel = 4.0f;
 		float subW = DigitFont::textWidth(sub, subPixel);
 		DigitFont::drawText(state, sub, panel.x + (panel.w - subW) / 2.0f, panel.y + 18.0f + 5 * qPixel + 18.0f, subPixel, SDL_Color{210, 210, 210, 255});
@@ -1475,6 +1524,11 @@ private:
 	// Set once resolveMatchDown() has run this round.
 	bool matchDownResolved = false;
 
+	// Between rounds, while a fresh shoe is shuffled on the table.
+	static constexpr float SHUFFLE_DURATION = 2.9f; // the shuffle sound's length
+	bool shuffling = false;
+	float shuffleElapsed = 0.0f;
+
 	// True between rounds (including before the very first one) while the
 	// table's waiting on bets -- see startGame()/beginRound(). Drives both
 	// which input mina.cpp routes to (betting controls vs. gameplay
@@ -1642,11 +1696,18 @@ private:
 	}
 
 	void drawQuickTip(SDLState& state){
-		int section, row, col;
-		if(!showQuickTip || awaitingBets || !getStrategySituation(section, row, col)){
+		// Once turned on, TIP stays on from hand to hand until it's turned
+		// off or every player's hand has been played (the dealer's turn);
+		// between hands -- a card still landing -- it just isn't drawn.
+		if(!showQuickTip)
+			return;
+		if(awaitingBets || activePlayer >= numberOfPlayers){
 			showQuickTip = false;
 			return;
 		}
+		int section, row, col;
+		if(!getStrategySituation(section, row, col))
+			return;
 
 		float cellW = 46.0f, cellH = 40.0f, gap = 5.0f;
 		float stride = cellW + gap;
@@ -2321,67 +2382,193 @@ private:
 		}
 	}
 
-	// Each side bet sits as a small black chip-circle just outside the top
-	// corner of its seat's betting spot, showing the amount, whenever it's
-	// set -- top right for the first side bet (Lucky Ladies, Lucky Stiff,
-	// Match Up), top left for a second one (Match Down). Once a round
-	// settles it, it turns green on a win, red on a loss, grey on a push,
-	// until the next betting phase. "Top" is toward the dealer, whatever
-	// way the seat faces.
-	void drawSideBetCircles(SDLState& state){
+	// The shuffle, in the middle of the table: the gathered cards split
+	// into two halves and riffle back together, twice, then the squared-up
+	// deck slides into the shoe. Card backs only -- it's a pile of cards,
+	// not anything the player needs to read.
+	void drawShuffle(SDLState& state, Resources& res){
+		constexpr float CX = 720.0f, CY = 285.0f;
+		constexpr int LAYERS = 7;
+		constexpr float SPREAD = 170.0f, RIFFLE = 1.15f, GATHER = 0.6f;
+		auto pile = [&](float x, float y, int layers){
+			for(int k = 0; k < layers; k++){
+				SDL_FRect dst{ .x = x - cardWidth / 2.0f + k * 1.5f, .y = y - k * 2.0f, .w = cardWidth, .h = cardHeight };
+				SDL_RenderTexture(state.renderer, res.allCards, &backOFCard, &dst);
+			}
+		};
+		auto ease = [](float t){ t = std::clamp(t, 0.0f, 1.0f); return t * t * (3.0f - 2.0f * t); };
+
+		float t = shuffleElapsed;
+		float riffleEnd = SHUFFLE_DURATION - GATHER;
+		if(t < riffleEnd){
+			float c = std::fmod(t, RIFFLE) / RIFFLE;
+			if(c < 0.25f){
+				// split: the deck comes apart into two halves
+				float off = SPREAD * ease(c / 0.25f);
+				pile(CX - off, CY, LAYERS / 2 + 1);
+				pile(CX + off, CY, LAYERS / 2 + 1);
+			} else if(c < 0.8f){
+				// riffle: cards drop alternately off each half onto the middle
+				float r = (c - 0.25f) / 0.55f;
+				int dropped = (int)(r * LAYERS * 2);
+				int left = std::max(1, LAYERS - (dropped + 1) / 2), right = std::max(1, LAYERS - dropped / 2);
+				pile(CX - SPREAD, CY, left);
+				pile(CX + SPREAD, CY, right);
+				pile(CX, CY, std::max(1, dropped / 2));
+				// the card in the air
+				float f = std::fmod(r * LAYERS * 2, 1.0f);
+				float fromX = (dropped % 2 == 0) ? CX - SPREAD : CX + SPREAD;
+				SDL_FRect dst{ .x = fromX + (CX - fromX) * f - cardWidth / 2.0f, .y = CY - 20.0f * std::sin(f * 3.14159f), .w = cardWidth, .h = cardHeight };
+				double angle = (dropped % 2 == 0 ? -8.0 : 8.0) * (1.0 - f);
+				SDL_RenderTextureRotated(state.renderer, res.allCards, &backOFCard, &dst, angle, nullptr, SDL_FLIP_NONE);
+			} else{
+				// square up the riffled deck
+				pile(CX, CY, LAYERS);
+			}
+		} else{
+			// slide the squared deck over into the shoe
+			float g = ease((t - riffleEnd) / GATHER);
+			float x = CX + (shoePosition.x + cardWidth / 2.0f - CX) * g;
+			float y = CY + (shoePosition.y - CY) * g;
+			pile(x, y, LAYERS);
+		}
+	}
+
+	// A spot on the table in a seat's own frame -- the first card's
+	// top-left is the origin, cards run +x, the dealer is -y -- for hand
+	// number `hand` (split hands step sideways, see Person::calcOffset()),
+	// turned into screen coordinates the way the seat's cards are rotated.
+	SDL_FPoint seatPoint(int playerIndex, int hand, float localX, float localY){
+		constexpr float PI = 3.14159265358979323846f;
+		offSets adj = players[playerIndex].calcOffset();
+		float rad = adj.rotation * PI / 180.0f;
+		float cosT = std::cos(rad), sinT = std::sin(rad);
+		Point anchor = players[playerIndex].getSeatAnchor();
+		return SDL_FPoint{
+			anchor.x + adj.xMoveHand * hand + (localX * cosT - localY * sinT),
+			anchor.y + adj.yMoveHand * hand + (localX * sinT + localY * cosT)
+		};
+	}
+
+	// How far a betting spot's outer border sits out from its first card.
+	static constexpr float SPOT_MARGIN = 12.0f;
+
+	// A stack of chips for an amount, broken into BET_DENOMS (bigger chips
+	// at the bottom), centered on (cx, cy) at its
+	// base. `amounts` lets a stack be built in layers -- the original bet
+	// and then each double on top of it.
+	void drawChipStack(SDLState& state, Resources& res, float cx, float cy, const std::vector<int>& amounts, float size = 36.0f){
+		std::vector<int> chips;
+		for(int amount : amounts){
+			// Built the way a dealer would make it visible: starting from
+			// the biggest chip that goes in at least twice, so a 25 bet
+			// is a stack of five 5s rather than one lone chip.
+			int top = 4;
+			while(top > 0 && amount < 2 * BET_DENOMS[top])
+				top--;
+			for(int d = top; d >= 0 && amount > 0; d--){
+				while(amount >= BET_DENOMS[d]){
+					chips.push_back(d);
+					amount -= BET_DENOMS[d];
+					if(chips.size() > 60)
+						break;
+				}
+			}
+		}
+		if(chips.empty())
+			return;
+		// Seen from a low angle, like chips on a felt: each chip's edge
+		// (Chips.png's thin strips, the same ones the tray is drawn from)
+		// piled up from the base, and the top chip's face squashed into an
+		// oval on top. Taller stacks pack tighter so they stay a sensible
+		// height.
+		float faceH = size * 0.6f;
+		float edgeH = std::min(6.0f, 48.0f / std::max<size_t>(1, chips.size()));
+		float baseY = cy + faceH / 2.0f;
+		for(size_t k = 0; k < chips.size(); k++){
+			SDL_FRect src{ .x = chips[k] * CHIP_SRC_SIZE, .y = 0.0f, .w = CHIP_SRC_SIZE, .h = CHIP_EDGE_SRC_H };
+			SDL_FRect dst{ .x = cx - size / 2.0f, .y = baseY - (k + 1) * edgeH, .w = size, .h = edgeH };
+			SDL_RenderTexture(state.renderer, res.chips, &src, &dst);
+		}
+		SDL_FRect faceSrc{ .x = chips.back() * CHIP_SRC_SIZE, .y = CHIP_SRC_Y, .w = CHIP_SRC_SIZE, .h = CHIP_SRC_SIZE };
+		SDL_FRect faceDst{ .x = cx - size / 2.0f, .y = baseY - chips.size() * edgeH - faceH / 2.0f, .w = size, .h = faceH };
+		SDL_RenderTexture(state.renderer, res.chips, &faceSrc, &faceDst);
+	}
+
+	// Each seat's side-bet circles, printed on the felt like a real table:
+	// cut into the top corners of the betting spot -- top right for the
+	// first side bet (Lucky Ladies, Lucky Stiff, Match Up), top left for
+	// a second one (Match Down). The bet sits in it as a stack of chips.
+	// Once a round settles it, the circle turns green on a win, red on a
+	// loss, grey on a push, until the next betting phase. "Top" is toward
+	// the dealer, whatever way the seat faces.
+	void drawSideBetCircles(SDLState& state, Resources& res){
 		if(!hasAnySideBet(gameMode))
 			return;
 
 		for(int i = 0; i < numberOfPlayers; i++){
 			// Mid-round, only seats that were dealt in.
-			if(!awaitingBets && players[i].getBet() <= 0 && !initialTwoCards[i].valid)
-				continue;
+			bool inRound = awaitingBets || players[i].getBet() > 0 || initialTwoCards[i].valid;
 			if(isPlayersEdge(gameMode)){
-				drawSideBetCircle(state, i, true, players[i].getMatchUpBet(), matchUpResult[i]);
-				drawSideBetCircle(state, i, false, players[i].getMatchDownBet(), matchDownResult[i]);
+				drawSideBetCircle(state, res, i, true, inRound ? players[i].getMatchUpBet() : 0, matchUpResult[i]);
+				drawSideBetCircle(state, res, i, false, inRound ? players[i].getMatchDownBet() : 0, matchDownResult[i]);
 			} else{
-				drawSideBetCircle(state, i, true, players[i].getSideBet(), sideBetResult[i]);
+				drawSideBetCircle(state, res, i, true, inRound ? players[i].getSideBet() : 0, sideBetResult[i]);
 			}
 		}
 	}
 
-	void drawSideBetCircle(SDLState& state, int playerIndex, bool topRight, int amount, HandResult result){
-		if(amount <= 0)
-			return;
-		if(awaitingBets)
+	void drawSideBetCircle(SDLState& state, Resources& res, int playerIndex, bool topRight, int amount, HandResult result){
+		constexpr float RADIUS = 25.0f;
+		if(awaitingBets || amount <= 0)
 			result = HandResult::None;
 
-		// Just outside the spot's outer border, over its top corner, in the
-		// seat's own frame (the first card's top-left is the origin, cards
-		// run +x, the dealer is -y; the border sits about SPOT_MARGIN out
-		// from the card), rotated the same way the seat's cards are.
-		constexpr float PI = 3.14159265358979323846f;
-		constexpr float RADIUS = 21.0f;
-		constexpr float SPOT_MARGIN = 12.0f;
-		float rad = players[playerIndex].calcOffset().rotation * PI / 180.0f;
-		float cosT = std::cos(rad), sinT = std::sin(rad);
-		float localX = topRight ? cardWidth + SPOT_MARGIN - RADIUS : -SPOT_MARGIN + RADIUS;
-		float localY = -SPOT_MARGIN - RADIUS - 4.0f;
-		Point anchor = players[playerIndex].getSeatAnchor();
-		float cx = anchor.x + (localX * cosT - localY * sinT);
-		float cy = anchor.y + (localX * sinT + localY * cosT);
+		// Centered just past the spot's corner, so it cuts into the
+		// border a little.
+		float out = SPOT_MARGIN + 4.0f;
+		SDL_FPoint c = seatPoint(playerIndex, 0, topRight ? cardWidth + out : -out, -out);
 
-		SDL_FColor fill{0.05f, 0.05f, 0.05f, 1.0f};
-		if(result == HandResult::Win) fill = SDL_FColor{0.15f, 0.62f, 0.25f, 1.0f};
-		else if(result == HandResult::Loss) fill = SDL_FColor{0.75f, 0.16f, 0.16f, 1.0f};
-		else if(result == HandResult::Push) fill = SDL_FColor{0.45f, 0.45f, 0.45f, 1.0f};
-		fillCircle(state, cx, cy, RADIUS + 2.0f, SDL_FColor{1.0f, 1.0f, 1.0f, 1.0f});
-		fillCircle(state, cx, cy, RADIUS, fill);
+		SDL_FColor ring{0.92f, 0.92f, 0.85f, 1.0f};
+		SDL_FColor felt{0.18f, 0.30f, 0.12f, 1.0f};
+		if(result == HandResult::Win) felt = SDL_FColor{0.15f, 0.62f, 0.25f, 1.0f};
+		else if(result == HandResult::Loss) felt = SDL_FColor{0.75f, 0.16f, 0.16f, 1.0f};
+		else if(result == HandResult::Push) felt = SDL_FColor{0.45f, 0.45f, 0.45f, 1.0f};
+		fillCircle(state, c.x, c.y, RADIUS + 2.0f, ring);
+		fillCircle(state, c.x, c.y, RADIUS, felt);
 
-		std::string text = std::to_string(amount);
-		float pixel = 3.0f;
-		float w = DigitFont::textWidth(text, pixel);
-		float maxW = RADIUS * 2.0f - 8.0f;
-		if(w > maxW){
-			pixel *= maxW / w;
-			w = DigitFont::textWidth(text, pixel);
+		if(amount > 0)
+			drawChipStack(state, res, c.x, c.y + 4.0f, { amount });
+	}
+
+	// Each hand's main bet as chips on the bottom-left corner of its
+	// betting spot. Split hands each get their own stack beside their
+	// cards; a double stacks its chips on top of the original bet.
+	void drawMainBetChips(SDLState& state, Resources& res){
+		float out = SPOT_MARGIN + 4.0f;
+		for(int i = 0; i < numberOfPlayers; i++){
+			Person& p = players[i];
+			if(awaitingBets){
+				if(p.getBankroll() > 0 && p.getBet() > 0){
+					SDL_FPoint c = seatPoint(i, 0, -out, cardHeight + out);
+					drawChipStack(state, res, c.x, c.y, { p.getBet() });
+				}
+				continue;
+			}
+			for(int h = 0; h < (int)p.hands.size(); h++){
+				Hand& hand = p.hands[h];
+				int bet = hand.getBet();
+				if(bet <= 0 || hand.getHandSize() == 0)
+					continue;
+				std::vector<int> layers;
+				int doubles = hand.getDoubleCount();
+				int base = bet >> doubles;
+				layers.push_back(base);
+				for(int k = 0; k < doubles; k++)
+					layers.push_back(base << k);
+				SDL_FPoint c = seatPoint(i, h, -out, cardHeight + out);
+				drawChipStack(state, res, c.x, c.y, layers);
+			}
 		}
-		DigitFont::drawText(state, text, cx - w / 2.0f, cy - 5 * pixel / 2.0f, pixel, SDL_Color{255, 255, 255, 255});
 	}
 
 	static void fillCircle(SDLState& state, float cx, float cy, float r, SDL_FColor color){
@@ -3227,6 +3414,7 @@ public:
 
 		activePlayer = 0;
 		awaitingBets = false;
+		shuffling = false;
 		awaitingNewRound = false;
 		awaitingInitialDeal = false;
 		awaitingPeek = false;

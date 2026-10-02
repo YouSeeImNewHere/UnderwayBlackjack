@@ -33,6 +33,7 @@ public:
 			{ "sfx-chips-take", nullptr, nullptr },
 			{ "sfx-chip-bet", nullptr, nullptr },
 			{ "sfx-shuffle", nullptr, nullptr },
+			{ "sfx-tap", nullptr, nullptr },
 		};
 		for(int s = 0; s < (int)Sfx::Count; s++)
 			for(const char* name : NAMES[s])

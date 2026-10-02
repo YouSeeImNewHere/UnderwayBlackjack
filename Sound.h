@@ -11,6 +11,7 @@ enum class Sfx{
 	ChipsTake,  // a lost bet is collected
 	ChipBet,    // a bet or side bet goes up during betting
 	Shuffle,    // a fresh shoe
+	Tap,        // any button
 	Count
 };
 

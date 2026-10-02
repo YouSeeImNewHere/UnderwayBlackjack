@@ -50,4 +50,13 @@ EFFECTS = [
 for out, src, peak in EFFECTS:
     save(out, trim(load(src)), peak)
 
+# A soft "tock" for buttons: two short decaying tones, like tapping a
+# wooden tabletop, kept quiet so it sits under the card and chip sounds.
+n = int(0.07 * SR)
+t = np.arange(n) / SR
+tap = (np.sin(2 * np.pi * 1320 * t) * np.exp(-t * 90)
+       + 0.6 * np.sin(2 * np.pi * 660 * t) * np.exp(-t * 60))
+tap[:int(0.002 * SR)] *= np.linspace(0, 1, int(0.002 * SR))
+save('sfx-tap', tap, peak=0.45)
+
 print('wrote', sorted(os.listdir(OUT)))
