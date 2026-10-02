@@ -13,6 +13,7 @@
 #include "StrategyChart.h"
 #include "GameModeMenu.h"
 #include "Stats.h"
+#include "Sound.h"
 
 struct CardAnimation {
 	Card card;
@@ -484,6 +485,7 @@ public:
 			}
 			if(SDL_PointInRectFloat(&p, &row.raise)){
 				players[i].raiseBet(denom);
+				sound(Sfx::ChipBet);
 				clampBetsToBankroll(i);
 				return;
 			}
@@ -507,6 +509,7 @@ public:
 				}
 				if(SDL_PointInRectFloat(&p, &sb.selPlus)){
 					players[i].raiseSideBet(denom);
+				sound(Sfx::ChipBet);
 					clampBetsToBankroll(i);
 					return;
 				}
@@ -518,6 +521,7 @@ public:
 				}
 				if(SDL_PointInRectFloat(&p, &up.selPlus)){
 					players[i].raiseMatchUpBet(denom);
+				sound(Sfx::ChipBet);
 					clampBetsToBankroll(i);
 					return;
 				}
@@ -529,6 +533,7 @@ public:
 				}
 				if(SDL_PointInRectFloat(&p, &down.selPlus)){
 					players[i].raiseMatchDownBet(denom);
+				sound(Sfx::ChipBet);
 					clampBetsToBankroll(i);
 					return;
 				}
@@ -703,6 +708,10 @@ public:
 
 	// Lifetime stats (Stats.h), owned and saved by mina.cpp; null in tests.
 	void setStats(Stats* s){ stats = s; }
+
+	// Sound effects (Sound.h): mina.cpp hands in Audio::play(); unset in
+	// tests, so the table just stays silent.
+	void setSoundPlayer(SoundPlayer player){ soundPlayer = std::move(player); }
 	int getPlayerBankroll(int i){ return players[i].getBankroll(); }
 	int getPlayerTotalBuyIns(int i){ return players[i].getInitialBankroll(); }
 
@@ -925,6 +934,7 @@ public:
 						shoeNeedsReshuffle = false;
 						discard.clear();
 						makeShoe();
+						sound(Sfx::Shuffle);
 						runningCount = 0;
 					}
 
@@ -1018,6 +1028,7 @@ public:
 			// at deal time.
 			addToRunningCount(dealer.hands[0].cards[1].getValue());
 			dealer.showCards();
+			sound(Sfx::Flip);
 			resolveMatchDown();
 
 			pauseTimer = HOLE_CARD_REVEAL_PAUSE_DURATION * dealerSpeedFactor;
@@ -1200,6 +1211,7 @@ private:
 		if(!dealerHand.cards[1].getShown()){
 			addToRunningCount(dealerHand.cards[1].getValue());
 			dealer.showCards();
+			sound(Sfx::Flip);
 		}
 
 		jackpotCallouts.push_back(JackpotCallout{ .title = "DEALER BLACKJACK", .detail = "" });
@@ -1380,6 +1392,8 @@ private:
 	// (half its bet); it pays 2:1 if the dealer turns out to have
 	// blackjack, and is simply lost otherwise.
 	Stats* stats = nullptr;
+	SoundPlayer soundPlayer;
+	void sound(Sfx sfx){ if(soundPlayer) soundPlayer(sfx); }
 
 	bool awaitingInsurance = false;
 	bool insuranceOffered = false;
@@ -3025,6 +3039,8 @@ private:
 		dealQueue.pop();
 
 		Card card = request.card;
+		if(request.from.x == shoePosition.x && request.from.y == shoePosition.y)
+			sound(Sfx::Deal);
 
 		if(request.removeFromHand){
 			if(request.isDealer)
@@ -3358,16 +3374,20 @@ private:
 		// *already* shown when it lands, so a still-hidden one would
 		// otherwise never get counted at all, silently throwing the count
 		// off for the rest of the shoe).
+		bool revealedDouble = false;
 		for(int i = 0; i < numberOfPlayers; i++){
 			for(Hand& hand : players[i].hands){
 				for(Card& c : hand.cards){
 					if(!c.getShown()){
 						addToRunningCount(c.getValue());
 						c.showCard(true);
+						revealedDouble = true;
 					}
 				}
 			}
 		}
+		if(revealedDouble)
+			sound(Sfx::Flip);
 
 		// Normally already settled the moment the hole card flipped
 		// (dealDealer()); this catches the dealer-blackjack path, where
@@ -4031,6 +4051,7 @@ private:
 	// immediately -- that chip is visibly leaving right now, not once it
 	// lands on the other end.
 	void queueChipPayout(int playerIndex, int credit, bool isPush = false){
+		sound(Sfx::ChipsPay);
 		int denomIndex = denomIndexFor(credit);
 		int col = firstColumnForDenom(denomIndex);
 		trayFillCount[col] = std::max(0, trayFillCount[col] - 1);
@@ -4057,6 +4078,7 @@ private:
 	// (see update()) -- it hasn't reached the tray yet when it leaves the
 	// player's seat.
 	void queueChipCollection(int playerIndex, int amount){
+		sound(Sfx::ChipsTake);
 		int denomIndex = denomIndexFor(amount);
 		int col = firstColumnForDenom(denomIndex);
 

@@ -23,6 +23,9 @@ public:
 	int dealerSpeed = SaveData::DEFAULT_DEALER_SPEED;
 	bool faceDownDoubles = false;
 	bool hideInactiveHands = false;
+	// SOUND row: card/chip effects, and the casino background loop.
+	bool soundEffects = true;
+	bool ambience = true;
 
 	// Set by mina.cpp right before this screen shows (from GameModeMenu's
 	// pick, pre-game, or Table::getGameMode() when reopened from the pause
@@ -127,6 +130,10 @@ public:
 		drawRowLabel(state, ROW_Y[2], "HIDE HANDS TIL YOUR TURN");
 		drawToggleButton(state, toggleButton(2), hideInactiveHands);
 
+		drawRowLabel(state, ROW_Y[3], "SOUND");
+		drawLabeledToggle(state, soundButton(0), soundEffects ? "EFFECTS ON" : "EFFECTS OFF", soundEffects);
+		drawLabeledToggle(state, soundButton(1), ambience ? "CASINO ON" : "CASINO OFF", ambience);
+
 		drawSpeedDemo(state, res);
 
 		SDL_FRect go = confirmButton();
@@ -165,6 +172,8 @@ public:
 		if(faceDownDoublesAllowed())
 			rects.push_back(toggleButton(1));
 		rects.push_back(toggleButton(2));
+		rects.push_back(soundButton(0));
+		rects.push_back(soundButton(1));
 		rects.push_back(backButton());
 		rects.push_back(confirmButton());
 		return rects;
@@ -202,6 +211,12 @@ public:
 		if(SDL_PointInRectFloat(&p, &hideHands))
 			hideInactiveHands = !hideInactiveHands;
 
+		SDL_FRect effectsButton = soundButton(0), ambienceButton = soundButton(1);
+		if(SDL_PointInRectFloat(&p, &effectsButton))
+			soundEffects = !soundEffects;
+		if(SDL_PointInRectFloat(&p, &ambienceButton))
+			ambience = !ambience;
+
 		SDL_FRect confirm = confirmButton();
 		if(SDL_PointInRectFloat(&p, &confirm))
 			return true;
@@ -215,12 +230,12 @@ private:
 	static constexpr SDL_Color WHITE{255, 255, 255, 255};
 
 	// Same left-caption/right-controls shape as SetupMenu's stepper rows,
-	// just 3 rows instead of a per-player block -- LABEL_X is where a
+	// just 4 rows instead of a per-player block -- LABEL_X is where a
 	// row's caption starts, CONTROL_X where its buttons start.
 	static constexpr float LABEL_X = 380.0f;
 	static constexpr float CONTROL_X = 760.0f;
 	static constexpr float ROW_H = 70.0f;
-	static constexpr float ROW_Y[3] = {160.0f, 280.0f, 400.0f};
+	static constexpr float ROW_Y[4] = {150.0f, 270.0f, 360.0f, 450.0f};
 
 	// Demo card track -- off to the right of the 3 rows above, clear of
 	// their controls (the slider ends at CONTROL_X + SLIDER_W, 1200).
@@ -326,14 +341,34 @@ private:
 		DigitFont::drawText(state, label, r.x + (r.w - w) / 2.0f, r.y + (r.h - 5 * pixel) / 2.0f, pixel, WHITE);
 	}
 
+	// The SOUND row's two switches, side by side.
+	SDL_FRect soundButton(int index){
+		return SDL_FRect{ .x = CONTROL_X + index * 226.0f, .y = ROW_Y[3], .w = 210.0f, .h = ROW_H };
+	}
+
+	void drawLabeledToggle(SDLState& state, const SDL_FRect& r, const std::string& label, bool on){
+		SDL_SetRenderDrawColor(state.renderer, on ? 60 : 80, on ? 130 : 80, on ? 70 : 80, 255);
+		SDL_RenderFillRect(state.renderer, &r);
+		SDL_SetRenderDrawColor(state.renderer, 255, 255, 255, 255);
+		SDL_RenderRect(state.renderer, &r);
+
+		float pixel = 4.0f;
+		float w = DigitFont::textWidth(label, pixel);
+		if(w > r.w - 16.0f){
+			pixel *= (r.w - 16.0f) / w;
+			w = DigitFont::textWidth(label, pixel);
+		}
+		DigitFont::drawText(state, label, r.x + (r.w - w) / 2.0f, r.y + (r.h - 5 * pixel) / 2.0f, pixel, WHITE);
+	}
+
 	// GO and BACK sit side by side, the pair centered.
 	SDL_FRect confirmButton(){
 		float w = 260.0f, h = 56.0f;
-		return SDL_FRect{ .x = 720.0f + 10.0f, .y = 520.0f, .w = w, .h = h };
+		return SDL_FRect{ .x = 720.0f + 10.0f, .y = 570.0f, .w = w, .h = h };
 	}
 
 	SDL_FRect backButton(){
 		float w = 200.0f, h = 56.0f;
-		return SDL_FRect{ .x = 720.0f - 10.0f - w, .y = 520.0f, .w = w, .h = h };
+		return SDL_FRect{ .x = 720.0f - 10.0f - w, .y = 570.0f, .w = w, .h = h };
 	}
 };

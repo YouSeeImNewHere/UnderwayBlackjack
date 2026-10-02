@@ -22,6 +22,7 @@
 #include "TutorialMenu.h"
 #include "Stats.h"
 #include "UpdateCheck.h"
+#include "Audio.h"
 #include "SaveData.h"
 
 enum class AppScreen {
@@ -85,6 +86,7 @@ struct AppContext {
     TutorialMenu tutorialMenu;
     Stats stats;
     UpdateCheck update;
+    Audio audio;
     SaveData save;
     AppScreen screen = AppScreen::Menu;
     // Remembered between GameModeMenu and applySetupComplete().
@@ -178,7 +180,8 @@ static void applyOptionsToTable(AppContext& ctx){
 
 static void saveOptions(AppContext& ctx){
     ctx.save.saveOptions(ctx.gameOptionsMenu.dealerSpeed,
-        ctx.gameOptionsMenu.faceDownDoubles, ctx.gameOptionsMenu.hideInactiveHands);
+        ctx.gameOptionsMenu.faceDownDoubles, ctx.gameOptionsMenu.hideInactiveHands,
+        ctx.gameOptionsMenu.soundEffects, ctx.gameOptionsMenu.ambience);
 }
 
 // Shared by both mouse and touch handling below: applies whichever menu
@@ -778,6 +781,14 @@ static void mainLoopIteration(void *arg) {
             ctx.running = false;
         break;
 
+        // A phone switching away from the game: no sound in the background.
+        case SDL_EVENT_DID_ENTER_BACKGROUND:
+            ctx.audio.pause(true);
+        break;
+        case SDL_EVENT_WILL_ENTER_FOREGROUND:
+            ctx.audio.pause(false);
+        break;
+
         case SDL_EVENT_WINDOW_RESIZED:
             ctx.state.width = event.window.data1;
             ctx.state.height = event.window.data2;
@@ -980,6 +991,12 @@ static void mainLoopIteration(void *arg) {
             || (ctx.screen == AppScreen::Playing && ctx.pauseState == PauseState::Options))
         ctx.gameOptionsMenu.update(deltaTime);
 
+    // Game Options' SOUND switches take effect as soon as they're
+    // flipped (BACK restores the menu's old values, and with them these).
+    ctx.audio.effectsOn = ctx.gameOptionsMenu.soundEffects;
+    ctx.audio.ambienceOn = ctx.gameOptionsMenu.ambience;
+    ctx.audio.update();
+
     switch(ctx.update.installState()){
         case UpdateCheck::Install::Done:
             // The new files are in place: start the new copy and quit this one.
@@ -1100,6 +1117,8 @@ int main(int argc,char *argv[]) {
         ctx->gameOptionsMenu.dealerSpeed = ctx->save.dealerSpeed;
         ctx->gameOptionsMenu.faceDownDoubles = ctx->save.faceDownDoubles;
         ctx->gameOptionsMenu.hideInactiveHands = ctx->save.hideInactiveHands;
+        ctx->gameOptionsMenu.soundEffects = ctx->save.soundEffects;
+        ctx->gameOptionsMenu.ambience = ctx->save.ambience;
     }
 
 #ifdef __EMSCRIPTEN__
@@ -1126,6 +1145,10 @@ int main(int argc,char *argv[]) {
 
     //load game assets
     ctx->res.load(ctx->state);
+
+    // Sound (Audio.h): silent if there's no audio device or files.
+    ctx->audio.init();
+    ctx->table.setSoundPlayer([ctx](Sfx sfx){ ctx->audio.play(sfx); });
 
     ctx->prevTime = SDL_GetTicks();
 

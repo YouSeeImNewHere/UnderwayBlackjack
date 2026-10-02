@@ -88,6 +88,10 @@ tasks.register('copyGameAssets', Copy) {
     from('../..') {
         include 'Cards.png', 'Table5Player.png', 'Arrow.png', 'Chips.png'
     }
+    // Sound effects, flat beside the images (see Audio.h).
+    from('../../sounds') {
+        include '*.wav'
+    }
     into "$buildDir/generated/gameAssets"
 }
 preBuild.dependsOn copyGameAssets
