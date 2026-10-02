@@ -175,6 +175,10 @@ public:
 					players[i].setInitialSideBet(sideBetSizes[i]);
 				else if(isPlayersEdge(gameMode))
 					players[i].setInitialMatchBets(sideBetSizes[i]);
+				else if(isFreeBet(gameMode)){
+					players[i].setInitialSideBet(sideBetSizes[i]);
+					players[i].setInitialPotBet(sideBetSizes[i]);
+				}
 			}
 		}
 	}
@@ -416,7 +420,7 @@ public:
 				// one combined -$ readout rather than several at once.
 				int totalWagered = players[i].getBet();
 				if(hasAnySideBet(gameMode))
-					totalWagered += players[i].getSideBet() + players[i].getMatchUpBet() + players[i].getMatchDownBet();
+					totalWagered += players[i].getSideBet() + players[i].getMatchUpBet() + players[i].getMatchDownBet() + players[i].getPotBet();
 
 				players[i].deductBet();
 				players[i].startRoundBet();
@@ -429,6 +433,8 @@ public:
 			sideBetResult[i] = HandResult::None;
 			matchUpResult[i] = HandResult::None;
 			matchDownResult[i] = HandResult::None;
+			potResult[i] = HandResult::None;
+			freeCoins[i] = 0;
 			matchDownResolved = false;
 			luckyStiffPending[i] = false;
 		}
@@ -459,7 +465,7 @@ public:
 		applyMatchBetRules(playerIndex);
 		int bankroll = p.getBankroll();
 		int mainBet = p.getBet();
-		int sideTotal = p.getSideBet() + p.getMatchUpBet() + p.getMatchDownBet();
+		int sideTotal = p.getSideBet() + p.getMatchUpBet() + p.getMatchDownBet() + p.getPotBet();
 
 		if(mainBet + sideTotal <= bankroll)
 			return;
@@ -542,6 +548,30 @@ public:
 				}
 				if(SDL_PointInRectFloat(&p, &sb.selPlus)){
 					players[i].raiseSideBet(denom);
+					sound(Sfx::ChipBet);
+					clampBetsToBankroll(i);
+					return;
+				}
+			} else if(isFreeBet(gameMode)){
+				SideBetRow push22 = sideBetRow(i, 0), pot = sideBetRow(i, 1);
+				if(SDL_PointInRectFloat(&p, &push22.selMinus)){
+					players[i].lowerSideBet(denom);
+					sound(Sfx::Tap);
+					return;
+				}
+				if(SDL_PointInRectFloat(&p, &push22.selPlus)){
+					players[i].raiseSideBet(denom);
+					sound(Sfx::ChipBet);
+					clampBetsToBankroll(i);
+					return;
+				}
+				if(SDL_PointInRectFloat(&p, &pot.selMinus)){
+					players[i].lowerPotBet(denom);
+					sound(Sfx::Tap);
+					return;
+				}
+				if(SDL_PointInRectFloat(&p, &pot.selPlus)){
+					players[i].raisePotBet(denom);
 					sound(Sfx::ChipBet);
 					clampBetsToBankroll(i);
 					return;
@@ -1378,7 +1408,11 @@ private:
 	void continueDealerPlay(){
 		std::cout << "Deal the dealer" << std::endl;
 
-		if(dealer.getHandTotal() < 17)
+		// The dealer hits soft 17 (Clearwater and Emerald Queen both),
+		// standing on hard 17 and anything higher.
+		int dealerTotal = dealer.getHandTotal();
+		bool dealerHits = dealerTotal < 17 || (dealerTotal == 17 && H17 && dealer.hands[0].isSoftTotal());
+		if(dealerHits)
 			dealQueue.push(DealRequest{
 			.playerIndex = -1,
 			.isDealer = true,
@@ -1575,6 +1609,11 @@ private:
 
 	// Set once resolveMatchDown() has run this round.
 	bool matchDownResolved = false;
+
+	// Free Bet: Pot of Gold's result, and how many free-bet coins (free
+	// doubles and free splits) each seat has collected this round.
+	HandResult potResult[5] = { HandResult::None, HandResult::None, HandResult::None, HandResult::None, HandResult::None };
+	int freeCoins[5] = {};
 
 	// Each seat's bankroll label, as last drawn (drawBankrolls()).
 	SDL_FPoint bankrollLabelCenter[5] = {};
@@ -2346,6 +2385,9 @@ private:
 			drawSideBetSelector(state, sideBetRow(i, 1), "DN", players[i].getMatchDownBet(), SDL_Color{50, 110, 170, 255}, matchDownResult[i]);
 		} else if(hasLuckyStiff(gameMode)){
 			drawSideBetSelector(state, sideBetRow(i, 0), "LS", players[i].getSideBet(), SDL_Color{170, 100, 50, 255}, sideBetResult[i]);
+		} else if(isFreeBet(gameMode)){
+			drawSideBetSelector(state, sideBetRow(i, 0), "22", players[i].getSideBet(), SDL_Color{40, 130, 140, 255}, sideBetResult[i]);
+			drawSideBetSelector(state, sideBetRow(i, 1), "PG", players[i].getPotBet(), SDL_Color{170, 135, 30, 255}, potResult[i]);
 		}
 	}
 
@@ -2577,6 +2619,9 @@ private:
 			if(isPlayersEdge(gameMode)){
 				drawSideBetCircle(state, res, i, true, inRound ? players[i].getMatchUpBet() : 0, matchUpResult[i]);
 				drawSideBetCircle(state, res, i, false, inRound ? players[i].getMatchDownBet() : 0, matchDownResult[i]);
+			} else if(isFreeBet(gameMode)){
+				drawSideBetCircle(state, res, i, true, inRound ? players[i].getSideBet() : 0, sideBetResult[i]);
+				drawSideBetCircle(state, res, i, false, inRound ? players[i].getPotBet() : 0, potResult[i]);
 			} else{
 				drawSideBetCircle(state, res, i, true, inRound ? players[i].getSideBet() : 0, sideBetResult[i]);
 			}
@@ -3132,6 +3177,8 @@ private:
 			p.hands[h + 1].markSplit(aces);
 		}
 
+		if(free)
+			freeCoins[activePlayer]++;
 		if(free){
 			int newHandIdx = players[activePlayer].getActiveHand() + 1;
 			players[activePlayer].hands[newHandIdx].addFreeBetAmount(betAmount);
@@ -3180,6 +3227,7 @@ private:
 		if(free){
 			int handIdx = players[activePlayer].getActiveHand();
 			players[activePlayer].hands[handIdx].addFreeBetAmount(betAmount);
+			freeCoins[activePlayer]++;
 		}
 
 		// The double card lies sideways: turned 90 degrees about its
@@ -3465,6 +3513,8 @@ public:
 			sideBetResult[i] = HandResult::None;
 			matchUpResult[i] = HandResult::None;
 			matchDownResult[i] = HandResult::None;
+			potResult[i] = HandResult::None;
+			freeCoins[i] = 0;
 			matchDownResolved = false;
 			luckyStiffPending[i] = false;
 		}
@@ -3666,6 +3716,7 @@ private:
 		// (dealDealer()); this catches the dealer-blackjack path, where
 		// dealerPeek() reveals the hole card itself.
 		resolveMatchDown();
+		resolveFreeBetSideBets();
 
 		for(int i = 0; i < numberOfPlayers; i++){
 			for(int h = 0; h < (int)players[i].hands.size(); h++){
@@ -3842,6 +3893,65 @@ private:
 			}
 		}
 
+	}
+
+	// Free Bet's two side bets, settled once the dealer's hand is done
+	// (Emerald Queen's pay tables).
+	//   Push 22 -- the dealer finishes on exactly 22: all the dealer's
+	//     cards one suit 50:1, one colour 20:1, otherwise 8:1.
+	//   Pot of Gold -- pays on the free-bet coins (free doubles and free
+	//     splits) the seat collected this round: 1 pays 3:1, 2 10:1,
+	//     3 30:1, 4 60:1, 5 100:1, 6 300:1, 7 or more 1000:1; none loses.
+	void resolveFreeBetSideBets(){
+		if(!isFreeBet(gameMode))
+			return;
+
+		Hand& d = dealer.hands[0];
+		bool dealer22 = d.getHandTotal() == 22;
+		bool oneSuit = true, oneColour = true;
+		for(Card& c : d.cards){
+			oneSuit = oneSuit && c.getSuit() == d.cards[0].getSuit();
+			// 0 spades, 1 clubs are black; 2 diamonds, 3 hearts are red (Card.h)
+			oneColour = oneColour && (c.getSuit() >= 2) == (d.cards[0].getSuit() >= 2);
+		}
+		int push22Odds = oneSuit ? 50 : oneColour ? 20 : 8;
+
+		for(int i = 0; i < numberOfPlayers; i++){
+			if(!initialTwoCards[i].valid)
+				continue;
+
+			int wager = players[i].getSideBet();
+			if(wager > 0){
+				int payout = dealer22 ? wager + wager * push22Odds : 0;
+				recordSideBet(Stats::Push22, wager, payout);
+				if(payout > 0){
+					queueChipPayout(i, payout, false, wager, sideBetSpot(i, true));
+					sideBetResult[i] = HandResult::Win;
+					if(oneSuit)
+						queueJackpotCallout(i, "SUITED 22!", "PUSH 22  50 TO 1", payout);
+				} else{
+					queueChipCollection(i, wager, sideBetSpot(i, true));
+					sideBetResult[i] = HandResult::Loss;
+				}
+			}
+
+			int pot = players[i].getPotBet();
+			if(pot > 0){
+				static constexpr int POT_ODDS[8] = { 0, 3, 10, 30, 60, 100, 300, 1000 };
+				int coins = std::min(freeCoins[i], 7);
+				int payout = coins > 0 ? pot + pot * POT_ODDS[coins] : 0;
+				recordSideBet(Stats::PotOfGold, pot, payout);
+				if(payout > 0){
+					queueChipPayout(i, payout, false, pot, sideBetSpot(i, false));
+					potResult[i] = HandResult::Win;
+					if(coins >= 4)
+						queueJackpotCallout(i, "POT OF GOLD!", std::to_string(coins) + " FREE BET COINS", payout);
+				} else{
+					queueChipCollection(i, pot, sideBetSpot(i, false));
+					potResult[i] = HandResult::Loss;
+				}
+			}
+		}
 	}
 
 	// Spanish 21's payout rules, used by resolveRound() in place of the

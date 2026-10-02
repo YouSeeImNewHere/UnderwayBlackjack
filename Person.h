@@ -285,6 +285,12 @@ public:
 	void raiseMatchUpBet(int amount){ matchUpBet = std::min(bankroll, matchUpBet + amount); }
 	void lowerMatchUpBet(int amount){ matchUpBet = std::max(0, matchUpBet - amount); }
 
+	// Free Bet's Pot of Gold (its Push 22 bet uses sideBet).
+	int getPotBet(){ return potBet; }
+	void raisePotBet(int amount){ potBet = std::min(bankroll, potBet + amount); }
+	void lowerPotBet(int amount){ potBet = std::max(0, potBet - amount); }
+	void setInitialPotBet(int amount){ potBet = amount; }
+
 	int getMatchDownBet(){ return matchDownBet; }
 	void raiseMatchDownBet(int amount){ matchDownBet = std::min(bankroll, matchDownBet + amount); }
 	void lowerMatchDownBet(int amount){ matchDownBet = std::max(0, matchDownBet - amount); }
@@ -293,7 +299,7 @@ public:
 	// bets are actually in play for this game mode out of bankroll up
 	// front, same timing as the main bet.
 	void deductSideBets(){
-		bankroll -= (sideBet + matchUpBet + matchDownBet);
+		bankroll -= (sideBet + matchUpBet + matchDownBet + potBet);
 	}
 
 	// Table::clampBetsToBankroll() calls this first, before ever touching
@@ -304,6 +310,7 @@ public:
 		sideBet = 0;
 		matchUpBet = 0;
 		matchDownBet = 0;
+		potBet = 0;
 	}
 
 	// Direct setter, not relative like raiseBet()/lowerBet() -- used by
@@ -421,6 +428,7 @@ private:
 	int buyInAmount = 0;
 	int currentBet = 25;
 	int sideBet = 0;
+	int potBet = 0;
 	int matchUpBet = 0;
 	int matchDownBet = 0;
 

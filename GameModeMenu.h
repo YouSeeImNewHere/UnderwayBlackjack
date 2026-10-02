@@ -241,10 +241,9 @@ inline bool isFreeBet(GameMode mode){
 
 // Every side-bet family -- SetupMenu's bankroll calculator just needs to
 // know "does at least one side bet apply here," not which one. Free Bet
-// Blackjack has no side bet of its own (its "free" doubles/splits aren't
-// a wager at all), so it's deliberately not included here.
+// Blackjack has two (Emerald Queen's): Push 22 and Pot of Gold.
 inline bool hasAnySideBet(GameMode mode){
-	return hasLuckyLadies(mode) || isPlayersEdge(mode) || hasLuckyStiff(mode);
+	return hasLuckyLadies(mode) || isPlayersEdge(mode) || hasLuckyStiff(mode) || isFreeBet(mode);
 }
 
 // How many side bets SetupMenu's bankroll calculator needs to stake for
@@ -253,7 +252,7 @@ inline bool hasAnySideBet(GameMode mode){
 // Edge, whose Match Up and Match Down are both wagered every round
 // (Person::setInitialMatchBets() seeds them equally).
 inline int sideBetCountFor(GameMode mode){
-	if(isPlayersEdge(mode))
+	if(isPlayersEdge(mode) || isFreeBet(mode))
 		return 2;
 	if(hasLuckyLadies(mode) || hasLuckyStiff(mode))
 		return 1;

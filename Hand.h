@@ -213,6 +213,18 @@ public:
 		return bust;
 	}
 
+	// A soft total: an ace is being counted as 11 (A-6 is a soft 17).
+	bool isSoftTotal(){
+		int hard = 0;
+		bool ace = false;
+		for(Card& c : cards){
+			int v = c.getValue();
+			hard += v > 10 ? 10 : v;
+			ace = ace || v == 1;
+		}
+		return ace && hard + 10 <= 21 && hard + 10 == getHandTotal();
+	}
+
 	int getHandTotal(){
 		int runningTotal = 0;
 

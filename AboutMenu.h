@@ -265,6 +265,25 @@ private:
 			return lines;
 		}
 
+		if(isFreeBet(mode)){
+			static const std::vector<std::string> lines{
+				"PUSH 22 PAYS WHEN THE DEALER",
+				" FINISHES ON EXACTLY 22",
+				"ALL ONE SUIT PAYS 50:1",
+				"ALL ONE COLOUR PAYS 20:1",
+				"ANY OTHER 22 PAYS 8:1",
+				"",
+				"POT OF GOLD PAYS ON THE FREE BET",
+				" COINS YOU COLLECT IN A ROUND,",
+				" ONE PER FREE DOUBLE OR SPLIT",
+				"1 COIN 3:1   2 COINS 10:1",
+				"3 COINS 30:1   4 COINS 60:1",
+				"5 COINS 100:1   6 COINS 300:1",
+				"7 COINS 1000:1, NO COINS LOSES"
+			};
+			return lines;
+		}
+
 		return emptyLines();
 	}
 

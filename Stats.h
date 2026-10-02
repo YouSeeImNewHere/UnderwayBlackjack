@@ -35,10 +35,12 @@ struct Stats
 		MatchUpBets, MatchUpWagered, MatchUpHits, MatchUpWon, MatchUpLost,
 		MatchDownBets, MatchDownWagered, MatchDownHits, MatchDownWon, MatchDownLost,
 		LuckyStiffBets, LuckyStiffWagered, LuckyStiffHits, LuckyStiffWon, LuckyStiffLost,
+		Push22Bets, Push22Wagered, Push22Hits, Push22Won, Push22Lost,
+		PotOfGoldBets, PotOfGoldWagered, PotOfGoldHits, PotOfGoldWon, PotOfGoldLost,
 		FieldCount
 	};
 
-	enum SideBet{ LuckyLadies, MatchUp, MatchDown, LuckyStiff, SideBetCount };
+	enum SideBet{ LuckyLadies, MatchUp, MatchDown, LuckyStiff, Push22, PotOfGold, SideBetCount };
 
 	// Offsets within one side bet's block of fields.
 	enum SideBetField{ SideBets, SideWagered, SideHits, SideWon, SideLost, SIDE_BET_FIELDS };
@@ -146,7 +148,9 @@ struct Stats
 			"llBets", "llWagered", "llHits", "llWon", "llLost",
 			"muBets", "muWagered", "muHits", "muWon", "muLost",
 			"mdBets", "mdWagered", "mdHits", "mdWon", "mdLost",
-			"lsBets", "lsWagered", "lsHits", "lsWon", "lsLost"
+			"lsBets", "lsWagered", "lsHits", "lsWon", "lsLost",
+			"p22Bets", "p22Wagered", "p22Hits", "p22Won", "p22Lost",
+			"pogBets", "pogWagered", "pogHits", "pogWon", "pogLost"
 		};
 		return KEYS[f];
 	}
@@ -159,14 +163,15 @@ struct Stats
 
 	void load(){
 #ifdef __EMSCRIPTEN__
-		// Web keys are numbered: the combined set 0..FieldCount-1 (as
-		// before), each game's set after it.
+		// Web keys are numbered: the combined set from 0 (as before), each
+		// game's set WEB_STRIDE further on, so adding fields never moves
+		// another set's keys.
 		for(int s = 0; s < ScopeCount; s++)
 			for(int f = 0; f < FieldCount; f++){
 				values[s][f] = EM_ASM_INT({
 					var v = localStorage.getItem('underwayBlackjackStat' + $0);
 					return v === null ? 0 : parseInt(v);
-				}, s * FieldCount + f);
+				}, s * WEB_STRIDE + f);
 			}
 #else
 		std::ifstream in(path());
@@ -195,7 +200,7 @@ struct Stats
 		// localStorage stores strings; int range is plenty for a web session's stats.
 		for(int s = 0; s < ScopeCount; s++)
 			for(int f = 0; f < FieldCount; f++){
-				EM_ASM({ localStorage.setItem('underwayBlackjackStat' + $0, $1); }, s * FieldCount + f, (int)values[s][f]);
+				EM_ASM({ localStorage.setItem('underwayBlackjackStat' + $0, $1); }, s * WEB_STRIDE + f, (int)values[s][f]);
 			}
 #else
 		std::ofstream out(path());
@@ -206,6 +211,7 @@ struct Stats
 	}
 
 private:
+	static constexpr int WEB_STRIDE = 200;
 	Scope current = StandardGame;
 
 	template<typename Fn>

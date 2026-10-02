@@ -87,7 +87,7 @@ public:
 	// often it hit and what it paid. WON is the profit on hits; NET is WON
 	// minus the stakes lost.
 	void drawSideBets(SDLState& state, const Stats& stats){
-		static const char* NAMES[Stats::SideBetCount] = { "LUCKY LADIES", "MATCH UP", "MATCH DOWN", "LUCKY STIFF" };
+		static const char* NAMES[Stats::SideBetCount] = { "LUCKY LADIES", "MATCH UP", "MATCH DOWN", "LUCKY STIFF", "PUSH 22", "POT OF GOLD" };
 		static const char* HEADERS[] = { "BETS", "WAGERED", "HITS", "HIT %", "WON", "NET" };
 		const float nameX = 60.0f, firstColRight = 500.0f, colW = 170.0f;
 		SDL_Color gold{200, 180, 100, 255}, white{235, 235, 235, 255};
@@ -98,7 +98,8 @@ public:
 			bool belongs = scope == Stats::AllGames
 				|| (scope == Stats::LuckyLadiesGame && b == Stats::LuckyLadies)
 				|| (scope == Stats::PlayersEdgeGame && (b == Stats::MatchUp || b == Stats::MatchDown))
-				|| (scope == Stats::LuckyStiffGame && b == Stats::LuckyStiff);
+				|| (scope == Stats::LuckyStiffGame && b == Stats::LuckyStiff)
+				|| (scope == Stats::FreeBetGame && (b == Stats::Push22 || b == Stats::PotOfGold));
 			if(belongs)
 				rows.push_back(b);
 		}
@@ -134,7 +135,7 @@ public:
 				float w = DigitFont::textWidth(cells[c], 5.0f);
 				DigitFont::drawText(state, cells[c], firstColRight + c * colW - w, y - 2.0f, 5.0f, white);
 			}
-			y += 80.0f;
+			y += rows.size() > 4 ? 56.0f : 80.0f;
 		}
 
 		std::string note = "WON IS PROFIT ON HITS. NET ALSO COUNTS IN NET WINNINGS.";
