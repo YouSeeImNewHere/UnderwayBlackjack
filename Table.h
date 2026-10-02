@@ -2573,8 +2573,10 @@ private:
 			for(int h = 0; h < (int)p.hands.size(); h++){
 				Hand& hand = p.hands[h];
 				int bet = hand.getBet();
-				// Once settled, the bet's chips are part of a ChipAnimation.
-				if(bet <= 0 || hand.getHandSize() == 0 || hand.getResult() != HandResult::None || hand.isChipsCollected())
+				// Shown from the moment the bet's down -- before its first card
+				// arrives too. Once settled (or a bust collected), the chips
+				// are part of a ChipAnimation instead.
+				if(bet <= 0 || hand.getResult() != HandResult::None || hand.isChipsCollected())
 					continue;
 				std::vector<int> layers;
 				int doubles = hand.getDoubleCount();
