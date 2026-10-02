@@ -125,22 +125,24 @@ namespace TrainingUI{
 class TrainingMenu
 {
 public:
-	enum Choice{ NONE, DRILL, REVIEW, COUNT_SPEED, TRUE_COUNT, BANKROLL, BACK };
+	enum Choice{ NONE, DRILL, REVIEW, COUNT_SPEED, TRUE_COUNT, BANKROLL, ODDS, BACK };
+	static constexpr int COUNT = 6;
 
 	void draw(SDLState& state, const Trainer& trainer){
 		using namespace TrainingUI;
 		clear(state);
 		text(state, "TRAINING", 30.0f, 7.0f, WHITE);
-		static const char* LABELS[5] = { "STRATEGY DRILL", "MISTAKES + ACCURACY", "COUNTING SPEED", "TRUE COUNT + DECKS", "BANKROLL PLANNER" };
-		static const char* NOTES[5] = {
+		static const char* LABELS[COUNT] = { "STRATEGY DRILL", "MISTAKES + ACCURACY", "COUNTING SPEED", "TRUE COUNT + DECKS", "BANKROLL PLANNER", "GAME ODDS" };
+		static const char* NOTES[COUNT] = {
 			"FLASH CARDS. HANDS YOU MISS COME BACK MORE",
 			"WHICH CHART CELLS YOU KNOW, AND YOUR LAST MISTAKES",
 			"KEEP THE HI-LO RUNNING COUNT AS CARDS FLASH BY",
 			"ESTIMATE DECKS LEFT, TURN RUNNING COUNT INTO TRUE COUNT",
-			"WHAT A SESSION COSTS, AND HOW MUCH MONEY TO BRING"
+			"WHAT A SESSION COSTS, AND HOW MUCH MONEY TO BRING",
+			"EVERY GAME AND SIDE BET RANKED - WHERE YOUR MONEY LASTS LONGEST"
 		};
-		static const SDL_Color COLORS[5] = { {60, 130, 70, 255}, {150, 70, 70, 255}, {60, 90, 150, 255}, {50, 120, 130, 255}, {150, 120, 40, 255} };
-		for(int i = 0; i < 5; i++){
+		static const SDL_Color COLORS[COUNT] = { {60, 130, 70, 255}, {150, 70, 70, 255}, {60, 90, 150, 255}, {50, 120, 130, 255}, {150, 120, 40, 255}, {120, 70, 130, 255} };
+		for(int i = 0; i < COUNT; i++){
 			button(state, buttonRect(i), COLORS[i], LABELS[i], 4.5f);
 			float np = std::min(3.0f, 780.0f / DigitFont::textWidth(NOTES[i], 1.0f));
 			DigitFont::drawText(state, NOTES[i], 640.0f, buttonRect(i).y + 35.0f - 2.5f * np, np, DIM);
@@ -153,7 +155,7 @@ public:
 		std::string summary = drills > 0
 			? std::to_string(drills) + " STRATEGY DECISIONS SO FAR, " + std::to_string((right * 100 + drills / 2) / drills) + "% RIGHT"
 			: "EVERY DECISION IN DRILLS AND REAL HANDS IS TRACKED HERE";
-		text(state, summary, 560.0f, 3.4f, GOLD);
+		text(state, summary, 578.0f, 3.4f, GOLD);
 		button(state, backButton, SDL_Color{80, 80, 80, 255}, "BACK", 6.0f);
 	}
 
@@ -161,7 +163,7 @@ public:
 		SDL_FPoint p;
 		if(!TrainingUI::toLogical(state, wx, wy, p))
 			return NONE;
-		for(int i = 0; i < 5; i++)
+		for(int i = 0; i < COUNT; i++)
 			if(TrainingUI::hit(p, buttonRect(i)))
 				return (Choice)(DRILL + i);
 		if(TrainingUI::hit(p, backButton))
@@ -171,15 +173,15 @@ public:
 
 	std::vector<SDL_FRect> focusRects(){
 		std::vector<SDL_FRect> r;
-		for(int i = 0; i < 5; i++)
+		for(int i = 0; i < COUNT; i++)
 			r.push_back(buttonRect(i));
 		r.push_back(backButton);
 		return r;
 	}
 
 private:
-	SDL_FRect buttonRect(int i){ return SDL_FRect{ .x = 160, .y = 110.0f + i * 86.0f, .w = 450, .h = 70 }; }
-	SDL_FRect backButton{ .x = 620, .y = 620, .w = 200, .h = 56 };
+	SDL_FRect buttonRect(int i){ return SDL_FRect{ .x = 160, .y = 92.0f + i * 78.0f, .w = 450, .h = 64 }; }
+	SDL_FRect backButton{ .x = 620, .y = 630, .w = 200, .h = 56 };
 };
 
 // ---------------------------------------------------------------------
@@ -1018,5 +1020,153 @@ private:
 		if(i == 0) betIndex = std::clamp(betIndex + d, 0, 9);
 		else if(i == 1) handsPerHour = std::clamp(handsPerHour + 10 * d, 30, 150);
 		else hours = std::clamp(hours + d, 1, 24);
+	}
+};
+
+// ---------------------------------------------------------------------
+// GAME ODDS: every game in the app (and its soft-17 variant) and every
+// side bet, ranked by house edge, with what each costs per hour at a
+// chosen bet -- where a bankroll lasts longest. The numbers were measured
+// with this game's own engine playing the published charts (3-4 million
+// rounds per game) and, for Lucky Ladies and Match the Dealer, exact math.
+class OddsMenu
+{
+public:
+	// frequency: the share of hands the bet is offered on (insurance only
+	// against an ace), for its cost per hour.
+	struct Row{ const char* name; const char* rules; float edge; float sd; float frequency = 1.0f; };
+
+	static const std::vector<Row>& mainGames(){
+		static const std::vector<Row> rows = sortedByEdge({
+			{ "BLACKJACK 6 DECKS", "DEALER STANDS SOFT 17 - LUCKY LADIES 6D TOO", EDGE_6D_S17, 1.15f },
+			{ "BLACKJACK 6 DECKS", "DEALER HITS SOFT 17 - LUCKY LADIES 6D TOO", EDGE_6D_H17, 1.15f },
+			{ "BLACKJACK 2 DECKS", "DEALER STANDS SOFT 17 - LUCKY LADIES 2D TOO", EDGE_2D_S17, 1.15f },
+			{ "BLACKJACK 2 DECKS", "DEALER HITS SOFT 17 - LUCKY LADIES 2D TOO", EDGE_2D_H17, 1.15f },
+			{ "LUCKY STIFF 8 DECKS", "DEALER STANDS SOFT 17", EDGE_8D_S17, 1.15f },
+			{ "LUCKY STIFF 8 DECKS", "DEALER HITS SOFT 17", EDGE_8D_H17, 1.15f },
+			{ "PLAYERS EDGE 2 DECKS", "DEALER STANDS SOFT 17", EDGE_PE2_S17, 1.16f },
+			{ "PLAYERS EDGE 2 DECKS", "DEALER HITS SOFT 17", EDGE_PE2_H17, 1.16f },
+			{ "PLAYERS EDGE 6 DECKS", "DEALER STANDS SOFT 17", EDGE_PE6_S17, 1.16f },
+			{ "PLAYERS EDGE 6 DECKS", "DEALER HITS SOFT 17", EDGE_PE6_H17, 1.16f },
+			{ "FREE BET 6 DECKS", "DEALER ALWAYS HITS SOFT 17", EDGE_FREE_BET, 1.07f },
+		});
+		return rows;
+	}
+
+	static const std::vector<Row>& sideBets(){
+		static const std::vector<Row> rows = sortedByEdge({
+			{ "MATCH UP OR DOWN", "PLAYERS EDGE 6 DECKS", 0.031f, 0.0f },
+			{ "PUSH 22", "FREE BET", 0.060f, 0.0f },
+			{ "INSURANCE, NOT COUNTING", "HALF A BET, ONLY OFFERED VS AN ACE - 1 HAND IN 13", 0.074f, 0.0f, 0.5f / 13.0f },
+			{ "POT OF GOLD", "FREE BET", 0.085f, 0.0f },
+			{ "LUCKY STIFF", "LUCKY STIFF", 0.108f, 0.0f },
+			{ "MATCH UP OR DOWN", "PLAYERS EDGE 2 DECKS", 0.163f, 0.0f },
+			{ "LUCKY LADIES", "2 OR 6 DECKS", 0.249f, 0.0f },
+		});
+		return rows;
+	}
+
+	void draw(SDLState& state){
+		using namespace TrainingUI;
+		clear(state);
+		text(state, showingSideBets ? "GAME ODDS - SIDE BETS" : "GAME ODDS - MAIN GAMES", 18.0f, 6.0f, WHITE);
+		const std::vector<Row>& rows = showingSideBets ? sideBets() : mainGames();
+		int bet = BETS[betIndex];
+		float hands = 70.0f;
+
+		std::string intro = showingSideBets
+			? "WHAT EACH SIDE BET KEEPS OF EVERY DOLLAR, AND ITS COST PER HOUR AT $" + std::to_string(bet) + " A HAND"
+			: "PERFECT BASIC STRATEGY, MAIN BET ONLY. COST PER HOUR AT $" + std::to_string(bet) + " A HAND, 70 HANDS AN HOUR";
+		text(state, intro, 62.0f, 3.0f, DIM);
+
+		float maxEdge = 0.0f;
+		for(const Row& r : rows) maxEdge = std::max(maxEdge, r.edge);
+		static const float X_NAME = 40.0f, X_BAR = 720.0f, BAR_W = 300.0f, X_EDGE = 1120.0f, X_COST = 1400.0f;
+		DigitFont::drawText(state, "GAME", X_NAME, 92.0f, 3.0f, GOLD);
+		DigitFont::drawText(state, "HOUSE EDGE", X_EDGE - DigitFont::textWidth("HOUSE EDGE", 3.0f), 92.0f, 3.0f, GOLD);
+		DigitFont::drawText(state, "COST PER HOUR", X_COST - DigitFont::textWidth("COST PER HOUR", 3.0f), 92.0f, 3.0f, GOLD);
+
+		float rowH = showingSideBets ? 52.0f : 40.0f;
+		float y = 118.0f;
+		for(size_t i = 0; i < rows.size(); i++){
+			const Row& r = rows[i];
+			// Rank, best first.
+			SDL_Color c = rankColor((float)i / std::max<size_t>(1, rows.size() - 1));
+			DigitFont::drawText(state, std::to_string(i + 1) + ". " + r.name, X_NAME, y, 3.0f, WHITE);
+			DigitFont::drawText(state, r.rules, X_NAME + 36.0f, y + 19.0f, 2.2f, DIM);
+
+			float w = BAR_W * r.edge / maxEdge;
+			SDL_FRect bar{ .x = X_BAR, .y = y + 4.0f, .w = std::max(3.0f, w), .h = 18.0f };
+			SDL_SetRenderDrawColor(state.renderer, c.r, c.g, c.b, 255);
+			SDL_RenderFillRect(state.renderer, &bar);
+
+			char edge[16];
+			std::snprintf(edge, sizeof(edge), r.edge < 0.1f ? "%.2f%%" : "%.0f%%", r.edge * 100.0f);
+			DigitFont::drawText(state, edge, X_EDGE - DigitFont::textWidth(edge, 3.6f), y + 2.0f, 3.6f, c);
+			std::string cost = "$" + std::to_string((int)std::lround(r.edge * bet * hands * r.frequency)) + "/HR";
+			DigitFont::drawText(state, cost, X_COST - DigitFont::textWidth(cost, 3.6f), y + 2.0f, 3.6f, WHITE);
+			y += rowH;
+		}
+
+		std::string tip = showingSideBets
+			? "EVERY SIDE BET HERE COSTS MORE THAN THE MAIN GAME. SKIP THEM TO MAKE YOUR MONEY LAST"
+			: "LOWER IS BETTER. NO GAME BEATS THE HOUSE WITH BASIC STRATEGY ALONE - COUNTING CAN";
+		text(state, tip, 572.0f, 3.0f, GOLD);
+
+		button(state, minusButton, SDL_Color{70, 70, 80, 255}, "-", 5.0f);
+		text(state, "$" + std::to_string(bet), 610.0f, 4.6f, SDL_Color{255, 225, 80, 255}, 330.0f);
+		button(state, plusButton, SDL_Color{70, 70, 80, 255}, "+", 5.0f);
+		button(state, pageButton, SDL_Color{60, 90, 150, 255}, showingSideBets ? "MAIN GAMES" : "SIDE BETS", 5.0f);
+		button(state, backButton, SDL_Color{80, 80, 80, 255}, "BACK", 6.0f);
+	}
+
+	bool handlePoint(SDLState& state, float wx, float wy){
+		SDL_FPoint p;
+		if(!TrainingUI::toLogical(state, wx, wy, p))
+			return false;
+		if(TrainingUI::hit(p, backButton))
+			return true;
+		if(TrainingUI::hit(p, pageButton))
+			showingSideBets = !showingSideBets;
+		if(TrainingUI::hit(p, minusButton))
+			betIndex = std::max(0, betIndex - 1);
+		if(TrainingUI::hit(p, plusButton))
+			betIndex = std::min(9, betIndex + 1);
+		return false;
+	}
+
+	std::vector<SDL_FRect> focusRects(){ return { minusButton, plusButton, pageButton, backButton }; }
+
+private:
+	// Measured main-bet house edges (see the class comment).
+	static constexpr float EDGE_6D_H17 = 0.0055f, EDGE_6D_S17 = 0.0035f;
+	static constexpr float EDGE_2D_H17 = 0.0055f, EDGE_2D_S17 = 0.0035f;
+	static constexpr float EDGE_8D_H17 = 0.0060f, EDGE_8D_S17 = 0.0040f;
+	static constexpr float EDGE_PE2_H17 = 0.0060f, EDGE_PE2_S17 = 0.0040f;
+	static constexpr float EDGE_PE6_H17 = 0.0070f, EDGE_PE6_S17 = 0.0050f;
+	static constexpr float EDGE_FREE_BET = 0.0112f;
+
+	static constexpr int BETS[10] = { 5, 10, 15, 25, 50, 75, 100, 200, 300, 500 };
+	int betIndex = 3;
+	bool showingSideBets = false;
+
+	SDL_FRect minusButton{ .x = 230, .y = 600, .w = 50, .h = 46 };
+	SDL_FRect plusButton{ .x = 380, .y = 600, .w = 50, .h = 46 };
+	SDL_FRect pageButton{ .x = 460, .y = 600, .w = 260, .h = 46 };
+	SDL_FRect backButton{ .x = 760, .y = 595, .w = 200, .h = 56 };
+
+	static std::vector<Row> sortedByEdge(std::vector<Row> rows){
+		std::stable_sort(rows.begin(), rows.end(), [](const Row& a, const Row& b){ return a.edge < b.edge; });
+		return rows;
+	}
+
+	// Green for the best, through gold, to red for the worst.
+	static SDL_Color rankColor(float t){
+		if(t < 0.5f){
+			float u = t / 0.5f;
+			return SDL_Color{ (Uint8)(90 + u * 140), (Uint8)(210 - u * 20), (Uint8)(100 - u * 40), 255 };
+		}
+		float u = (t - 0.5f) / 0.5f;
+		return SDL_Color{ (Uint8)(230 + u * 15), (Uint8)(190 - u * 90), (Uint8)(60 + u * 20), 255 };
 	}
 };

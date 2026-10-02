@@ -44,6 +44,7 @@ enum class AppScreen {
     CountDrill,
     TrueCount,
     Bankroll,
+    Odds,
     Playing
 };
 
@@ -98,6 +99,7 @@ struct AppContext {
     CountDrillMenu countDrillMenu;
     TrueCountMenu trueCountMenu;
     BankrollMenu bankrollMenu;
+    OddsMenu oddsMenu;
     StatsMenu statsMenu;
     TutorialMenu tutorialMenu;
     Stats stats;
@@ -531,6 +533,7 @@ static void goBack(AppContext& ctx){
     case AppScreen::CountDrill:
     case AppScreen::TrueCount:
     case AppScreen::Bankroll:
+    case AppScreen::Odds:
         if(ctx.drillMenu.dirty || ctx.countDrillMenu.dirty || ctx.trueCountMenu.dirty){
             ctx.trainer.save();
             ctx.drillMenu.dirty = ctx.countDrillMenu.dirty = ctx.trueCountMenu.dirty = false;
@@ -654,6 +657,9 @@ static void handleMenuClick(AppContext& ctx, float wx, float wy){
             case TrainingMenu::BANKROLL:
                 ctx.screen = AppScreen::Bankroll;
             break;
+            case TrainingMenu::ODDS:
+                ctx.screen = AppScreen::Odds;
+            break;
             case TrainingMenu::BACK:
                 goBack(ctx);
             break;
@@ -680,6 +686,10 @@ static void handleMenuClick(AppContext& ctx, float wx, float wy){
         return;
     case AppScreen::Bankroll:
         if(ctx.bankrollMenu.handlePoint(ctx.state, wx, wy))
+            goBack(ctx);
+        return;
+    case AppScreen::Odds:
+        if(ctx.oddsMenu.handlePoint(ctx.state, wx, wy))
             goBack(ctx);
         return;
     case AppScreen::Stats: {
@@ -759,6 +769,7 @@ static std::vector<SDL_FRect> currentFocusRects(AppContext& ctx){
     case AppScreen::CountDrill:    return ctx.countDrillMenu.focusRects();
     case AppScreen::TrueCount:     return ctx.trueCountMenu.focusRects();
     case AppScreen::Bankroll:      return ctx.bankrollMenu.focusRects();
+    case AppScreen::Odds:          return ctx.oddsMenu.focusRects();
     case AppScreen::Stats:         return ctx.statsMenu.focusRects();
     case AppScreen::Tutorial:      return ctx.tutorialMenu.focusRects();
     case AppScreen::Playing:       break;
@@ -895,6 +906,7 @@ static SDL_Color letterboxColor(const AppContext &ctx) {
     case AppScreen::CountDrill:
     case AppScreen::TrueCount:
     case AppScreen::Bankroll:
+    case AppScreen::Odds:
     case AppScreen::Gestures:
     case AppScreen::Keyboard:
     case AppScreen::Stats:
@@ -1259,6 +1271,8 @@ static void mainLoopIteration(void *arg) {
         ctx.trueCountMenu.draw(ctx.state);
     else if(ctx.screen == AppScreen::Bankroll)
         ctx.bankrollMenu.draw(ctx.state);
+    else if(ctx.screen == AppScreen::Odds)
+        ctx.oddsMenu.draw(ctx.state);
     else if(ctx.screen == AppScreen::Stats)
         ctx.statsMenu.draw(ctx.state, ctx.res, ctx.stats);
     else if(ctx.screen == AppScreen::Tutorial)
