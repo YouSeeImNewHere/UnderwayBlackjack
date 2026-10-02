@@ -602,7 +602,7 @@ public:
 			// activePlayer starts each round pointing at seat 0 before any
 			// bets are even placed, so the turn arrow would otherwise show
 			// up during betting pointing at an empty hand.
-			players[i].draw(state,res, !awaitingBets && activePlayer == i, applyHideInactiveHands);
+			players[i].draw(state,res, playersTurn() && activePlayer == i, applyHideInactiveHands);
 		}
 
 		// x computed live from each card's *current* index, not a position
@@ -745,6 +745,19 @@ public:
 			if(p.hands.size() == 1 && p.hands[0].getHandSize() == 2 && !p.hands[0].isFromSplit())
 				payTwentyOne(i, 0);
 		}
+	}
+
+	// A player is actually playing a hand right now -- the turn arrow only
+	// shows then: not while betting, dealing the opening cards, peeking,
+	// asking about insurance, while the dealer plays, or between rounds.
+	bool playersTurn(){
+		if(awaitingBets || awaitingInitialDeal || awaitingPeek || awaitingInsurance || awaitingNewRound || shuffling)
+			return false;
+		if(activePlayer >= numberOfPlayers)
+			return false;
+		Person& p = players[activePlayer];
+		int h = p.getActiveHand();
+		return h < p.hands.size() && p.hands[h].getHandSize() > 0;
 	}
 
 	bool activeHandIsTwentyOne(){
