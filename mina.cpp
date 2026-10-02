@@ -275,6 +275,7 @@ static void applyGameModeChoice(AppContext& ctx, GameMode mode){
     ctx.chosenMode = mode;
     ctx.chosenTraining = ctx.gameModeMenu.training;
     ctx.setupMenu.setGameMode(mode);
+    ctx.setupMenu.training = ctx.chosenTraining != Training::None;
     ctx.gameOptionsMenu.setGameMode(mode);
     ctx.screen = AppScreen::GameOptions;
 }
@@ -299,6 +300,15 @@ static void applySetupComplete(AppContext& ctx){
         bankrolls[i] = ctx.setupMenu.playerConfigs[i].effectiveBankroll(sideBetCount);
         initialBets[i] = ctx.setupMenu.playerConfigs[i].minBet;
         sideBetSizes[i] = ctx.setupMenu.playerConfigs[i].sideBetSize;
+    }
+    // Training games are played for skill, not money: a plain stake that
+    // never runs out (Table puts each bankroll back after every round).
+    if(ctx.chosenTraining != Training::None){
+        for(int i = 0; i < 5; i++){
+            bankrolls[i] = 100000;
+            initialBets[i] = 25;
+            sideBetSizes[i] = 0;
+        }
     }
 
     ctx.table.configureGameMode(ctx.chosenMode);

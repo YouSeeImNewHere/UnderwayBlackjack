@@ -81,10 +81,16 @@ struct Stats
 
 	// Once per finished round (Table::openBettingPhase()).
 	void recordRound(){
+		if(training)
+			return;
 		addPoint(AllGames);
 		if(current != AllGames)
 			addPoint(current);
 	}
+
+	// A training game (Practice / Count Quiz) is played for skill, not
+	// money: only decisions and count quiz answers are recorded then.
+	bool training = false;
 
 	// The game now being played -- everything recorded also goes into its set.
 	void setGame(GameMode mode){ current = scopeFor(mode); }
@@ -98,6 +104,8 @@ struct Stats
 	// excluded: +25 for an even-money win on 25, -25 for a loss, 0 for a
 	// push).
 	void recordHand(long long net, bool win, bool push, bool blackjack, bool bust, bool surrender){
+		if(training)
+			return;
 		forEachScope([&](long long* v){
 			v[HandsPlayed]++;
 			v[NetWinnings] += net;
@@ -123,6 +131,8 @@ struct Stats
 	// (0 on a loss, the stake alone on a push). Won is the profit on hits,
 	// Lost the stakes lost; both also count toward NetWinnings.
 	void recordSideBet(SideBet bet, long long wager, long long credit){
+		if(training)
+			return;
 		forEachScope([&](long long* v){
 			v[sideBetField(bet, SideBets)]++;
 			v[sideBetField(bet, SideWagered)] += wager;
@@ -138,6 +148,8 @@ struct Stats
 
 	// Money won or lost outside a hand or side bet (insurance, Envy Bonus).
 	void addNet(long long amount){
+		if(training)
+			return;
 		forEachScope([&](long long* v){ v[NetWinnings] += amount; });
 	}
 
@@ -150,6 +162,8 @@ struct Stats
 	}
 
 	void bump(Field f){
+		if(training && f != CountQuizzes && f != CountQuizCorrect)
+			return;
 		forEachScope([&](long long* v){ v[f]++; });
 	}
 
