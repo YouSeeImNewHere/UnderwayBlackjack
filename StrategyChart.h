@@ -42,6 +42,11 @@ public:
 			hasHighlight && hSection == 2 ? hRow : -1, hasHighlight && hSection == 2 ? hCol : -1);
 
 		drawLegend(state);
+		if(activeChart == 1){
+			std::string note = "S4, D3...: HIT WITH THAT MANY CARDS OR MORE.  YELLOW CORNER: HIT IF A 6-7-8 OR SUITED 7-7-7 BONUS IS STILL POSSIBLE";
+			float np = std::min(3.0f, 1400.0f / DigitFont::textWidth(note, 1.0f));
+			DigitFont::drawText(state, note, (1440.0f - DigitFont::textWidth(note, np)) / 2.0f, 595.0f, np, SDL_Color{230, 210, 140, 255});
+		}
 		drawButton(state, backButton, SDL_Color{80, 80, 80, 255}, "BACK");
 	}
 
@@ -91,6 +96,32 @@ public:
 		if(section == 0) return chart.hard[row];
 		if(section == 1) return chart.soft[row];
 		return chart.pairs[row];
+	}
+
+	// Player's Edge (Spanish 21) strategy also depends on how many cards
+	// are in the hand: a number after a cell's letter (S4, D3, ...) means
+	// that move only with fewer cards than that -- with that many or more,
+	// hit. 0 = no limit. From the published Spanish 21 H17 chart
+	// (wizardofodds.com), applied where it agrees with this chart's own
+	// letter. Other charts have none.
+	static int cardLimit(int section, int row, int col){
+		if(activeChart != 1 || section == 2)
+			return 0;
+		const char* digits = section == 0 ? SPANISH_HARD_CARDS[row] : SPANISH_SOFT_CARDS[row];
+		return digits[col] - '0';
+	}
+
+	// Cells (marked with a yellow corner on the chart) where Player's Edge's 6-7-8 / 7-7-7
+	// bonuses change the play: hit hard 13-15 when the two cards could
+	// still make 6-7-8 (some cells only when they're suited, or both
+	// spades), and hit -- not split -- suited 7s vs 7. ' ' = none, 'A' any
+	// 6-7-8, 'S' suited, 'K' spades, '7' suited sevens.
+	static char bonusRule(int section, int row, int col){
+		if(activeChart != 1 || section == 1)
+			return ' ';
+		if(section == 2)
+			return (row == 5 && col == 5) ? '7' : ' ';
+		return SPANISH_HARD_BONUS[row][col];
 	}
 
 	// Which rule family's chart the pause-menu chart and quick tip show --
@@ -203,6 +234,36 @@ private:
 		"SSSSSHHHHH",
 		"SSSSSHHHHR",
 		"SSSSSSSSSR"
+	};
+	// Card-count limits (see cardLimit()), rows/cols as SPANISH_HARD/SOFT.
+	static constexpr const char* SPANISH_HARD_CARDS[10] = {
+		"0000000000", // 8
+		"0000000000", // 9
+		"5500043000", // 10: D5 D5 D D D D4 D3
+		"4555544433", // 11: D4 D5 D5 D5 D5 D4 D4 D4 D3 D3
+		"0000000000", // 12
+		"0000400000", // 13: S4* vs 6
+		"0045600000", // 14: S4* S5' S6" vs 4-6
+		"4566000000", // 15: S4* S5' S6 S6 vs 2-5
+		"6660000000", // 16: S6 vs 2-4
+		"0000006663"  // 17: S6 vs 8-10; vs A (surrender, else) hit with 3+
+	};
+	static constexpr const char* SPANISH_HARD_BONUS[10] = {
+		"          ", "          ", "          ", "          ", "          ",
+		"    A     ", // 13 vs 6
+		"  ASK     ", // 14 vs 4/5/6
+		"AS        ", // 15 vs 2/3
+		"          ", "          "
+	};
+	static constexpr const char* SPANISH_SOFT_CARDS[8] = {
+		"0000000000", // A2
+		"0000000000", // A3
+		"0000400000", // A4: D4 vs 6
+		"0003400000", // A5: D3 vs 5, D4 vs 6
+		"0034500000", // A6: D3 D4 D5 vs 4-6
+		"4445664000", // A7: S4 S4 D4 D5 D6 S6 S4
+		"0000000066", // A8: S6 vs 10/A
+		"0000000000"  // A9
 	};
 	static constexpr const char* SPANISH_SOFT[8] = {
 		"HDDDDHHHHH",
@@ -363,7 +424,17 @@ private:
 				SDL_FRect rect{ .x = x + STRIDE_W * (c + 1), .y = rowY, .w = CELL_W, .h = CELL_H };
 				bool hl = (r == highlightRow && c == highlightCol);
 				std::string text(1, action);
+				int section = rows == CHARTS[activeChart].hard ? 0 : rows == CHARTS[activeChart].soft ? 1 : 2;
+				int limit = cardLimit(section, r, c);
+				if(limit > 0 && (action == 'S' || action == 'D' || (action == 'R' && section == 0 && r == 9)))
+					text += std::to_string(limit);
 				drawCell(state, rect, colorFor(action), text, cellPixel, hl);
+				// 6-7-8 / 7-7-7 bonus plays: a yellow corner on the cell.
+				if(bonusRule(section, r, c) != ' '){
+					SDL_FRect corner{ .x = rect.x + rect.w - 9.0f, .y = rect.y + 1.0f, .w = 8.0f, .h = 8.0f };
+					SDL_SetRenderDrawColor(state.renderer, 255, 225, 60, 255);
+					SDL_RenderFillRect(state.renderer, &corner);
+				}
 			}
 		}
 	}

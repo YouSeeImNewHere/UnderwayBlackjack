@@ -1665,11 +1665,12 @@ private:
 		char playable;
 		if(!getStrategySituation(section, row, col) || !chartAdvice(playable))
 			return "";
-		char raw = StrategyChart::rowData(section, row)[col];
+		std::string why;
+		char raw = chartLetter(section, row, col, &why);
 		if(activeHandDoubled())
 			raw = doubledAdvice(raw);
 		if(raw == playable)
-			return "";
+			return why;
 		if(raw == 'R')
 			return std::string("SURRENDER ONLY ON FIRST 2 CARDS - SO ") + moveName(playable);
 		if(raw == 'D')
@@ -2349,7 +2350,17 @@ private:
 			DigitFont::drawText(state, fallbackNote, 720.0f - DigitFont::textWidth(fallbackNote, np) / 2.0f, boxY + boxH - 26.0f, np, SDL_Color{255, 225, 80, 255});
 		}
 
-		std::string title = std::string(StrategyChart::sectionTitle(section)) + " " + StrategyChart::rowLabel(section, row);
+		std::string rowName = StrategyChart::rowLabel(section, row);
+		bool hard18 = false;
+		{
+			Person& p = players[activePlayer];
+			int h = p.getActiveHand();
+			if(section == 0 && h < p.hands.size() && p.hands[h].getHandTotal() >= 17){
+				rowName = std::to_string(p.hands[h].getHandTotal());
+				hard18 = p.hands[h].getHandTotal() >= 18;
+			}
+		}
+		std::string title = std::string(StrategyChart::sectionTitle(section)) + " " + rowName;
 		float titlePixel = 6.0f;
 		float titleW = DigitFont::textWidth(title, titlePixel);
 		DigitFont::drawText(state, title, 720.0f - titleW / 2.0f, boxY + 12.0f, titlePixel, SDL_Color{255, 255, 255, 255});
@@ -2359,7 +2370,9 @@ private:
 		// the title even finished. +54 actually clears it.
 		float rowY = boxY + 54.0f;
 		float tableX = boxX + 20.0f;
-		const char* data = StrategyChart::rowData(section, row);
+		// A hard 18+ stands against everything (the chart's "17" row,
+		// which it's read off, surrenders 17 vs an Ace).
+		const char* data = hard18 ? "SSSSSSSSSS" : StrategyChart::rowData(section, row);
 
 		for(int c = 0; c < 10; c++){
 			SDL_FRect headerRect{ .x = tableX + c * stride, .y = rowY, .w = cellW, .h = 22.0f };
@@ -2371,7 +2384,8 @@ private:
 			float lw = DigitFont::textWidth(colLabel, 4.0f);
 			DigitFont::drawText(state, colLabel, headerRect.x + (cellW - lw) / 2.0f, headerRect.y + (22.0f - 5 * 4.0f) / 2.0f, 4.0f, SDL_Color{255, 255, 255, 255});
 
-			char action = activeHandDoubled() ? doubledAdvice(data[c]) : data[c];
+			char cell = c == col ? chartLetter(section, row, c) : data[c];
+			char action = activeHandDoubled() ? doubledAdvice(cell) : cell;
 			bool hl = (c == col);
 			SDL_Color fill = hl ? SDL_Color{255, 225, 60, 255} : StrategyChart::colorFor(action);
 			SDL_Color textColor = hl ? SDL_Color{20, 20, 20, 255} : SDL_Color{255, 255, 255, 255};
@@ -3588,16 +3602,7 @@ private:
 		int section, row, col;
 		if(!getStrategySituation(section, row, col))
 			return false;
-		advice = StrategyChart::rowData(section, row)[col];
-		// The hard chart's last row is "17", and 18+ is read off it too --
-		// but 17's own surrender vs an Ace (H17) doesn't carry up: a hard
-		// 18 or more always stands.
-		if(section == 0){
-			Person& p = players[activePlayer];
-			int h = p.getActiveHand();
-			if(h < p.hands.size() && p.hands[h].getHandTotal() >= 18)
-				advice = 'S';
-		}
+		advice = chartLetter(section, row, col);
 		if(activeHandDoubled()){
 			advice = doubledAdvice(advice);
 			return true;
@@ -3605,13 +3610,58 @@ private:
 		if(advice == 'D' && !canDoubleActiveHand())
 			advice = (section == 1 && row >= 5) ? 'S' : 'H';
 		else if(advice == 'R' && !canSurrenderActiveHand()){
-			if(section == 0 && row == 9) advice = 'S';
+			// Player's Edge 17 vs A: surrender, else hit (see cardLimit()).
+			if(section == 0 && row == 9) advice = StrategyChart::cardLimit(0, 9, col) > 0 ? 'H' : 'S';
 			else if(section == 2 && canSplitActiveHand()) advice = 'P';
 			else advice = 'H';
 		}
 		else if(advice == 'P' && !canSplitActiveHand())
 			return false;
 		return true;
+	}
+
+	// The chart's move for the active hand, with what depends on the hand
+	// itself rather than just its total: a hard 18+ (read off the "17"
+	// row) always stands, and in Player's Edge the card-count limits and
+	// 6-7-8 / 7-7-7 bonus plays (StrategyChart::cardLimit()/bonusRule()).
+	// why, when given, says which of those changed the chart's letter.
+	char chartLetter(int section, int row, int col, std::string* why = nullptr){
+		char letter = StrategyChart::rowData(section, row)[col];
+		Person& p = players[activePlayer];
+		int h = p.getActiveHand();
+		if(h >= p.hands.size())
+			return letter;
+		Hand& hand = p.hands[h];
+		int n = hand.getHandSize();
+
+		// The hard chart's last row is "17", and 18+ is read off it too --
+		// but 17's own surrender vs an Ace (H17) doesn't carry up.
+		if(section == 0 && hand.getHandTotal() >= 18)
+			return 'S';
+
+		int limit = StrategyChart::cardLimit(section, row, col);
+		if(limit > 0 && n >= limit && (letter == 'S' || letter == 'D' || letter == 'R')){
+			if(why) *why = "WITH " + std::to_string(limit) + "+ CARDS - HIT";
+			return 'H';
+		}
+
+		char rule = StrategyChart::bonusRule(section, row, col);
+		if(rule != ' ' && n == 2){
+			Card& a = hand.cards[0];
+			Card& b = hand.cards[1];
+			auto in678 = [](int v){ return v >= 6 && v <= 8; };
+			bool sameSuit = a.getSuit() == b.getSuit();
+			bool hit = false;
+			if(rule == '7')
+				hit = a.getValue() == 7 && b.getValue() == 7 && sameSuit;
+			else if(in678(a.getValue()) && in678(b.getValue()) && a.getValue() != b.getValue())
+				hit = rule == 'A' || (rule == 'S' && sameSuit) || (rule == 'K' && a.getSuit() == 0 && b.getSuit() == 0);
+			if(hit){
+				if(why) *why = rule == '7' ? "HIT FOR THE SUITED 7-7-7 BONUS" : "HIT - A 6-7-8 BONUS IS POSSIBLE";
+				return 'H';
+			}
+		}
+		return letter;
 	}
 
 	// Player's Edge (Spanish 21): once doubled, a hand only draws more
