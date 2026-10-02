@@ -42,11 +42,11 @@ Learn as you play:
 - A strategy chart for every game, tuned to that game's rules, with your current hand highlighted
 - A quick tip button that shows the best move right at the table
 - A card count display for practicing running and true counts
-- A stats page that tracks your wins, streaks, biggest win, and how often your moves match the strategy chart
+- Stats for every game and all games combined: wins, streaks, biggest win, side bet results, and how often your moves match the strategy chart
 
 Real casino rules: the dealer checks for blackjack, insurance and even money, late surrender, split and re-split up to four hands, and the dealer hits soft 17.
 
-Play with taps and swipes, or with a keyboard: arrow keys work in every menu. Your game saves after every round.
+Play with taps and swipes, or with a keyboard: arrow keys work in every menu. Casino sounds and table ambience can be switched off in Game Options. Your game saves after every round.
 
 For entertainment only. There are no purchases and no real money, and nothing you win can be exchanged for money or prizes.
 ```

@@ -7,21 +7,32 @@
 
 // Lifetime stats page (Stats.h), opened from the main menu and the pause
 // menu. Same shape as GesturesMenu/KeyboardMenu: draw() plus handlePoint()
-// returning true for BACK. Two pages -- the main stats, and a table of
-// side bets -- switched with the SIDE BETS / MAIN STATS button. RESET wipes
-// all the stats, but only on a second press -- the first turns it into
-// "SURE?" -- so a stray tap can't.
+// returning true for BACK. The < and > beside the title step through all
+// games combined and each kind of game (Stats::Scope); for each, two pages
+// -- the main stats, and a table of side bets -- switched with the SIDE
+// BETS / MAIN STATS button. RESET wipes all the stats, but only on a
+// second press -- the first turns it into "SURE?" -- so a stray tap can't.
 class StatsMenu
 {
 public:
+	// Which set opens first: all games from the main menu, the game being
+	// played from the pause menu.
+	void open(int startScope){
+		scope = startScope;
+		showingSideBets = false;
+		confirmingReset = false;
+	}
+
 	void draw(SDLState& state, Resources& res, const Stats& stats){
 		SDL_SetRenderDrawColor(state.renderer, 10, 30, 15, 255);
 		SDL_RenderFillRect(state.renderer, nullptr);
 
-		float titlePixel = 7.0f;
-		std::string title = showingSideBets ? "SIDE BET STATS" : "STATS";
+		float titlePixel = 6.0f;
+		std::string title = std::string(showingSideBets ? "SIDE BETS - " : "STATS - ") + Stats::scopeName(scope);
 		float titleW = DigitFont::textWidth(title, titlePixel);
-		DigitFont::drawText(state, title, (1440.0f - titleW) / 2.0f, 40.0f, titlePixel, SDL_Color{255, 255, 255, 255});
+		DigitFont::drawText(state, title, (1440.0f - titleW) / 2.0f, 45.0f, titlePixel, SDL_Color{255, 255, 255, 255});
+		drawButton(state, prevButton, SDL_Color{60, 90, 150, 255}, "<");
+		drawButton(state, nextButton, SDL_Color{60, 90, 150, 255}, ">");
 
 		if(showingSideBets)
 			drawSideBets(state, stats);
@@ -34,7 +45,13 @@ public:
 			confirmingReset ? "SURE?" : "RESET");
 	}
 
-	void drawMain(SDLState& state, const Stats& stats){
+	void drawMain(SDLState& state, const Stats& all){
+		// Every line below reads this page's set of stats.
+		struct View{
+			const Stats& s; int scope;
+			long long get(Stats::Field f) const { return s.get(scope, f); }
+		} stats{all, scope};
+
 		long long hands = stats.get(Stats::HandsPlayed);
 		long long wins = stats.get(Stats::Wins), losses = stats.get(Stats::Losses);
 		long long decisions = stats.get(Stats::DecisionsTotal);
@@ -75,6 +92,22 @@ public:
 		const float nameX = 60.0f, firstColRight = 500.0f, colW = 170.0f;
 		SDL_Color gold{200, 180, 100, 255}, white{235, 235, 235, 255};
 
+		// Only the side bets this game actually has.
+		std::vector<int> rows;
+		for(int b = 0; b < Stats::SideBetCount; b++){
+			bool belongs = scope == Stats::AllGames
+				|| (scope == Stats::LuckyLadiesGame && b == Stats::LuckyLadies)
+				|| (scope == Stats::PlayersEdgeGame && (b == Stats::MatchUp || b == Stats::MatchDown))
+				|| (scope == Stats::LuckyStiffGame && b == Stats::LuckyStiff);
+			if(belongs)
+				rows.push_back(b);
+		}
+		if(rows.empty()){
+			std::string none = "THIS GAME HAS NO SIDE BETS";
+			DigitFont::drawText(state, none, (1440.0f - DigitFont::textWidth(none, 5.0f)) / 2.0f, 320.0f, 5.0f, white);
+			return;
+		}
+
 		float headerPixel = 3.5f;
 		for(int c = 0; c < 6; c++){
 			float w = DigitFont::textWidth(HEADERS[c], headerPixel);
@@ -82,18 +115,18 @@ public:
 		}
 
 		float y = 215.0f;
-		for(int b = 0; b < Stats::SideBetCount; b++){
+		for(int b : rows){
 			Stats::SideBet bet = (Stats::SideBet)b;
-			long long bets = stats.get(bet, Stats::SideBets);
-			long long hits = stats.get(bet, Stats::SideHits);
-			long long won = stats.get(bet, Stats::SideWon);
+			long long bets = stats.get(scope, bet, Stats::SideBets);
+			long long hits = stats.get(scope, bet, Stats::SideHits);
+			long long won = stats.get(scope, bet, Stats::SideWon);
 			std::string cells[6] = {
 				num(bets),
-				num(stats.get(bet, Stats::SideWagered)),
+				num(stats.get(scope, bet, Stats::SideWagered)),
 				num(hits),
 				bets > 0 ? percent(hits, bets) : "-",
 				num(won),
-				signedNum(won - stats.get(bet, Stats::SideLost)),
+				signedNum(won - stats.get(scope, bet, Stats::SideLost)),
 			};
 
 			DigitFont::drawText(state, NAMES[b], nameX, y, 4.0f, gold);
@@ -126,6 +159,14 @@ public:
 			showingSideBets = !showingSideBets;
 			confirmingReset = false;
 		}
+		if(SDL_PointInRectFloat(&p, &prevButton)){
+			scope = (scope + Stats::ScopeCount - 1) % Stats::ScopeCount;
+			confirmingReset = false;
+		}
+		if(SDL_PointInRectFloat(&p, &nextButton)){
+			scope = (scope + 1) % Stats::ScopeCount;
+			confirmingReset = false;
+		}
 		if(SDL_PointInRectFloat(&p, &resetButton)){
 			if(confirmingReset){
 				stats.reset();
@@ -145,12 +186,16 @@ public:
 	}
 
 	std::vector<SDL_FRect> focusRects(){
-		return { backButton, pageButton, resetButton };
+		return { prevButton, nextButton, backButton, pageButton, resetButton };
 	}
 
 private:
 	bool confirmingReset = false;
 	bool showingSideBets = false;
+	int scope = Stats::AllGames;
+
+	SDL_FRect prevButton{ .x = 30, .y = 30, .w = 90, .h = 64 };
+	SDL_FRect nextButton{ .x = 1320, .y = 30, .w = 90, .h = 64 };
 
 	SDL_FRect backButton{ .x = 350, .y = 630, .w = 200, .h = 56 };
 	SDL_FRect pageButton{ .x = 580, .y = 630, .w = 280, .h = 56 };

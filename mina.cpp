@@ -230,6 +230,7 @@ static void applyMenuChoice(AppContext& ctx, MenuChoice choice){
         break;
 
         case MenuChoice::Stats:
+            ctx.statsMenu.open(Stats::AllGames);
             ctx.screen = AppScreen::Stats;
         break;
 
@@ -332,6 +333,7 @@ static void applyPauseChoice(AppContext& ctx, PauseChoice choice){
         break;
 
         case PauseChoice::Stats:
+            ctx.statsMenu.open(Stats::scopeFor(ctx.table.getGameMode()));
             ctx.pauseState = PauseState::Stats;
         break;
 

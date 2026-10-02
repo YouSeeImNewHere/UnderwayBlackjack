@@ -186,6 +186,8 @@ public:
 	void configureGameMode(GameMode mode){
 		StrategyChart::useChartFor(mode);
 		gameMode = mode;
+		if(stats)
+			stats->setGame(mode);
 		numberOfDecks = deckCountFor(mode);
 		makeShoe();
 		runningCount = 0;
@@ -707,7 +709,11 @@ public:
 	int getNumberOfPlayers(){ return numberOfPlayers; }
 
 	// Lifetime stats (Stats.h), owned and saved by mina.cpp; null in tests.
-	void setStats(Stats* s){ stats = s; }
+	void setStats(Stats* s){
+		stats = s;
+		if(stats)
+			stats->setGame(gameMode);
+	}
 
 	// Sound effects (Sound.h): mina.cpp hands in Audio::play(); unset in
 	// tests, so the table just stays silent.
@@ -1200,7 +1206,7 @@ private:
 			if(insuranceBet[i] <= 0)
 				continue;
 			if(stats)
-				stats->values[Stats::NetWinnings] += dealerBlackjack ? insuranceBet[i] * insuranceOdds : -insuranceBet[i];
+				stats->addNet(dealerBlackjack ? insuranceBet[i] * insuranceOdds : -insuranceBet[i]);
 			if(dealerBlackjack)
 				queueChipPayout(i, insuranceBet[i] * (insuranceOdds + 1));
 		}
@@ -3516,7 +3522,7 @@ private:
 				continue;
 			queueChipPayout(j, ENVY_BONUS);
 			if(stats)
-				stats->values[Stats::NetWinnings] += ENVY_BONUS;
+				stats->addNet(ENVY_BONUS);
 		}
 		return bonus;
 	}
