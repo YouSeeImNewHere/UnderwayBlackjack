@@ -98,7 +98,8 @@ private:
 			"SURRENDER ON YOUR FIRST 2 CARDS",
 			" GETS HALF YOUR BET BACK",
 			"WIN PAYS EVEN MONEY",
-			"PUSH RETURNS YOUR BET"
+			"PUSH RETURNS YOUR BET",
+			"HOUSE EDGE WITH PERFECT PLAY ABOUT 0.55%"
 		};
 		return lines;
 	}
@@ -128,7 +129,8 @@ private:
 			" DEALER BLACKJACK",
 			"SUITED 777 VS DEALER 7 WINS $1000,",
 			" $5000 ON A BET OF 25 OR MORE,",
-			" OTHER PLAYERS GET A $50 ENVY BONUS"
+			" OTHER PLAYERS GET A $50 ENVY BONUS",
+			"HOUSE EDGE WITH PERFECT PLAY ABOUT 0.65%"
 		};
 		return lines;
 	}
@@ -151,7 +153,8 @@ private:
 			"SURRENDER ON YOUR FIRST 2 CARDS",
 			" GETS HALF YOUR BET BACK",
 			"WIN PAYS EVEN MONEY",
-			"PUSH RETURNS YOUR BET"
+			"PUSH RETURNS YOUR BET",
+			"HOUSE EDGE WITH PERFECT PLAY ABOUT 0.6%"
 		};
 		return lines;
 	}
@@ -175,7 +178,8 @@ private:
 			"A BUST OF 23 OR MORE STILL PAYS",
 			"YOUR BLACKJACK ALWAYS PAYS 3:2",
 			" NEVER AFFECTED BY THE PUSH ON 22",
-			"NO SURRENDER IN FREE BET"
+			"NO SURRENDER IN FREE BET",
+			"HOUSE EDGE WITH PERFECT PLAY ABOUT 1.1%"
 		};
 		return lines;
 	}
@@ -207,7 +211,9 @@ private:
 				"MATCHED 20, SAME RANK AND SUIT,",
 				" PAYS 25:1",
 				"SUITED 20 PAYS 10:1",
-				"ANY OTHER 20 PAYS 4:1, SOFT 20 TOO"
+				"ANY OTHER 20 PAYS 4:1, SOFT 20 TOO",
+				"",
+				"HOUSE EDGE ABOUT 25%"
 			};
 			return lines;
 		}
@@ -222,7 +228,9 @@ private:
 				"MATCHED 20, SAME RANK AND SUIT,",
 				" PAYS 19:1",
 				"SUITED 20 PAYS 9:1",
-				"ANY OTHER 20 PAYS 4:1, SOFT 20 TOO"
+				"ANY OTHER 20 PAYS 4:1, SOFT 20 TOO",
+				"",
+				"HOUSE EDGE ABOUT 25%"
 			};
 			return lines;
 		}
@@ -242,7 +250,10 @@ private:
 				"1 SUITED PLUS 1 PLAIN PAYS 13:1",
 				"1 SUITED MATCH PAYS 9:1",
 				"2 PLAIN MATCHES PAYS 8:1",
-				"1 PLAIN MATCH PAYS 4:1"
+				"1 PLAIN MATCH PAYS 4:1",
+				"",
+				"HOUSE EDGE ABOUT 16% WITH 2 DECKS,",
+				" ABOUT 3% WITH 6 DECKS"
 			};
 			return lines;
 		}
@@ -261,7 +272,9 @@ private:
 				" PAYS 5:1 IF YOUR HAND BEATS THE",
 				" DEALER, PUSHES IF IT TIES",
 				"",
-				"ANY OTHER HAND LOSES AT ONCE"
+				"ANY OTHER HAND LOSES AT ONCE",
+				"",
+				"HOUSE EDGE ABOUT 11%"
 			};
 			return lines;
 		}
@@ -273,6 +286,7 @@ private:
 				"ALL ONE SUIT PAYS 50:1",
 				"ALL ONE COLOUR PAYS 20:1",
 				"ANY OTHER 22 PAYS 8:1",
+				"HOUSE EDGE ABOUT 6%",
 				"",
 				"POT OF GOLD PAYS ON THE FREE BET",
 				" COINS YOU COLLECT IN A ROUND,",
@@ -280,7 +294,8 @@ private:
 				"1 COIN 3:1   2 COINS 10:1",
 				"3 COINS 30:1   4 COINS 60:1",
 				"5 COINS 100:1   6 COINS 300:1",
-				"7 COINS 1000:1, NO COINS LOSES"
+				"7 COINS 1000:1, NO COINS LOSES",
+				"HOUSE EDGE ABOUT 8.5%"
 			};
 			return lines;
 		}

@@ -16,6 +16,7 @@
 #include "PauseMenu.h"
 #include "StrategyChart.h"
 #include "ChartsMenu.h"
+#include "TrainingMenus.h"
 #include "AboutMenu.h"
 #include "GesturesMenu.h"
 #include "KeyboardMenu.h"
@@ -37,6 +38,13 @@ enum class AppScreen {
     Stats,
     Tutorial,
     Charts,
+    Training,
+    Drill,
+    Review,
+    CountDrill,
+    TrueCount,
+    Bankroll,
+    Odds,
     Playing
 };
 
@@ -85,9 +93,17 @@ struct AppContext {
     GesturesMenu gesturesMenu;
     KeyboardMenu keyboardMenu;
     ChartsMenu chartsMenu;
+    TrainingMenu trainingMenu;
+    DrillMenu drillMenu;
+    ReviewMenu reviewMenu;
+    CountDrillMenu countDrillMenu;
+    TrueCountMenu trueCountMenu;
+    BankrollMenu bankrollMenu;
+    OddsMenu oddsMenu;
     StatsMenu statsMenu;
     TutorialMenu tutorialMenu;
     Stats stats;
+    Trainer trainer;
     UpdateCheck update;
     Audio audio;
     SaveData save;
@@ -182,6 +198,7 @@ static void applyOptionsToTable(AppContext& ctx){
     ctx.table.setHideInactiveHands(ctx.gameOptionsMenu.hideInactiveHands);
     ctx.table.setAskDoubleAmount(ctx.gameOptionsMenu.doubleForLess);
     ctx.table.setDealerHitsSoft17(ctx.gameOptionsMenu.dealerHitsSoft17);
+    ctx.table.setIndexPlays(ctx.gameOptionsMenu.indexPlays);
 }
 
 // PRACTICE / COUNT QUIZ (GameModeMenu): which training game, if any, the
@@ -195,7 +212,7 @@ static void saveOptions(AppContext& ctx){
     ctx.save.saveOptions(ctx.gameOptionsMenu.dealerSpeed,
         ctx.gameOptionsMenu.faceDownDoubles, ctx.gameOptionsMenu.hideInactiveHands,
         ctx.gameOptionsMenu.soundEffects, ctx.gameOptionsMenu.doubleForLess,
-        ctx.gameOptionsMenu.dealerHitsSoft17);
+        ctx.gameOptionsMenu.dealerHitsSoft17, ctx.gameOptionsMenu.indexPlays);
 }
 
 // Shared by both mouse and touch handling below: applies whichever menu
@@ -244,6 +261,10 @@ static void applyMenuChoice(AppContext& ctx, MenuChoice choice){
 
         case MenuChoice::Keyboard:
             ctx.screen = AppScreen::Keyboard;
+        break;
+
+        case MenuChoice::Training:
+            ctx.screen = AppScreen::Training;
         break;
 
         case MenuChoice::Charts:
@@ -493,6 +514,7 @@ static void goBack(AppContext& ctx){
             return;
         [[fallthrough]];
     case AppScreen::Charts:
+    case AppScreen::Training:
     case AppScreen::Gestures:
     case AppScreen::Keyboard:
     case AppScreen::Stats:
@@ -505,6 +527,18 @@ static void goBack(AppContext& ctx){
     case AppScreen::GameModeAbout:
     case AppScreen::GameOptions:
         ctx.screen = AppScreen::GameMode;
+        return;
+    case AppScreen::Drill:
+    case AppScreen::Review:
+    case AppScreen::CountDrill:
+    case AppScreen::TrueCount:
+    case AppScreen::Bankroll:
+    case AppScreen::Odds:
+        if(ctx.drillMenu.dirty || ctx.countDrillMenu.dirty || ctx.trueCountMenu.dirty){
+            ctx.trainer.save();
+            ctx.drillMenu.dirty = ctx.countDrillMenu.dirty = ctx.trueCountMenu.dirty = false;
+        }
+        ctx.screen = AppScreen::Training;
         return;
     case AppScreen::Setup:
         ctx.screen = AppScreen::GameOptions;
@@ -601,6 +635,63 @@ static void handleMenuClick(AppContext& ctx, float wx, float wy){
         if(ctx.chartsMenu.handlePoint(ctx.state, wx, wy))
             goBack(ctx);
         return;
+    case AppScreen::Training: {
+        GameMode last = ctx.save.gameStarted ? static_cast<GameMode>(ctx.save.gameModeIndex) : GameMode::SixDeck;
+        switch(ctx.trainingMenu.handlePoint(ctx.state, wx, wy)){
+            case TrainingMenu::DRILL:
+                ctx.drillMenu.open(last, ctx.gameOptionsMenu.dealerHitsSoft17, ctx.gameOptionsMenu.indexPlays, ctx.trainer);
+                ctx.screen = AppScreen::Drill;
+            break;
+            case TrainingMenu::REVIEW:
+                ctx.reviewMenu.open(last, ctx.gameOptionsMenu.dealerHitsSoft17, ctx.trainer);
+                ctx.screen = AppScreen::Review;
+            break;
+            case TrainingMenu::COUNT_SPEED:
+                ctx.countDrillMenu.open(ctx.trainer);
+                ctx.screen = AppScreen::CountDrill;
+            break;
+            case TrainingMenu::TRUE_COUNT:
+                ctx.trueCountMenu.open(ctx.trainer);
+                ctx.screen = AppScreen::TrueCount;
+            break;
+            case TrainingMenu::BANKROLL:
+                ctx.screen = AppScreen::Bankroll;
+            break;
+            case TrainingMenu::ODDS:
+                ctx.screen = AppScreen::Odds;
+            break;
+            case TrainingMenu::BACK:
+                goBack(ctx);
+            break;
+            case TrainingMenu::NONE:
+            break;
+        }
+        return;
+    }
+    case AppScreen::Drill:
+        if(ctx.drillMenu.handlePoint(ctx.state, wx, wy))
+            goBack(ctx);
+        return;
+    case AppScreen::Review:
+        if(ctx.reviewMenu.handlePoint(ctx.state, wx, wy))
+            goBack(ctx);
+        return;
+    case AppScreen::CountDrill:
+        if(ctx.countDrillMenu.handlePoint(ctx.state, wx, wy))
+            goBack(ctx);
+        return;
+    case AppScreen::TrueCount:
+        if(ctx.trueCountMenu.handlePoint(ctx.state, wx, wy))
+            goBack(ctx);
+        return;
+    case AppScreen::Bankroll:
+        if(ctx.bankrollMenu.handlePoint(ctx.state, wx, wy))
+            goBack(ctx);
+        return;
+    case AppScreen::Odds:
+        if(ctx.oddsMenu.handlePoint(ctx.state, wx, wy))
+            goBack(ctx);
+        return;
     case AppScreen::Stats: {
         bool changed = false;
         if(ctx.statsMenu.handlePoint(ctx.state, wx, wy, ctx.stats, changed))
@@ -672,6 +763,13 @@ static std::vector<SDL_FRect> currentFocusRects(AppContext& ctx){
     case AppScreen::Gestures:      return ctx.gesturesMenu.focusRects();
     case AppScreen::Keyboard:      return ctx.keyboardMenu.focusRects();
     case AppScreen::Charts:        return ctx.chartsMenu.focusRects();
+    case AppScreen::Training:      return ctx.trainingMenu.focusRects();
+    case AppScreen::Drill:         return ctx.drillMenu.focusRects();
+    case AppScreen::Review:        return ctx.reviewMenu.focusRects();
+    case AppScreen::CountDrill:    return ctx.countDrillMenu.focusRects();
+    case AppScreen::TrueCount:     return ctx.trueCountMenu.focusRects();
+    case AppScreen::Bankroll:      return ctx.bankrollMenu.focusRects();
+    case AppScreen::Odds:          return ctx.oddsMenu.focusRects();
     case AppScreen::Stats:         return ctx.statsMenu.focusRects();
     case AppScreen::Tutorial:      return ctx.tutorialMenu.focusRects();
     case AppScreen::Playing:       break;
@@ -802,6 +900,13 @@ static SDL_Color letterboxColor(const AppContext &ctx) {
         return setupGreen;
     case AppScreen::GameModeAbout:
     case AppScreen::Charts:
+    case AppScreen::Training:
+    case AppScreen::Drill:
+    case AppScreen::Review:
+    case AppScreen::CountDrill:
+    case AppScreen::TrueCount:
+    case AppScreen::Bankroll:
+    case AppScreen::Odds:
     case AppScreen::Gestures:
     case AppScreen::Keyboard:
     case AppScreen::Stats:
@@ -1025,6 +1130,22 @@ static void mainLoopIteration(void *arg) {
             }
 
             if(inMenu(ctx)){
+                // The training drills answer with keys of their own (H/S/D/
+                // P/R, +/-, Enter to go on); arrows still walk buttons in
+                // the strategy drill.
+                bool isEnter = key == SDL_SCANCODE_RETURN || key == SDL_SCANCODE_KP_ENTER || key == SDL_SCANCODE_SPACE;
+                if(ctx.screen == AppScreen::Drill && (DrillMenu::takesKey(key) || (isEnter && ctx.drillMenu.waitingForNext()))){
+                    ctx.drillMenu.handleKey(key);
+                    break;
+                }
+                if(ctx.screen == AppScreen::CountDrill && (ctx.countDrillMenu.takesKey(key) || (isEnter && ctx.focusIndex < 0))){
+                    ctx.countDrillMenu.handleKey(key);
+                    break;
+                }
+                if(ctx.screen == AppScreen::TrueCount){
+                    ctx.trueCountMenu.handleKey(key);
+                    break;
+                }
                 if(sliderFocused(ctx) && (key == SDL_SCANCODE_LEFT || key == SDL_SCANCODE_RIGHT)){
                     ctx.gameOptionsMenu.nudgeSpeed(key == SDL_SCANCODE_LEFT ? -5 : 5);
                     break;
@@ -1069,12 +1190,20 @@ static void mainLoopIteration(void *arg) {
             }
             ctx.save.saveProgress(current, buyIns, bets, sideBets);
             ctx.stats.save();
+            if(ctx.table.trainerDirty){
+                ctx.trainer.save();
+                ctx.table.trainerDirty = false;
+            }
             ctx.progressSavedThisBetting = true;
         }
     }
     else if(ctx.screen == AppScreen::GameOptions
             || (ctx.screen == AppScreen::Playing && ctx.pauseState == PauseState::Options))
         ctx.gameOptionsMenu.update(deltaTime);
+    else if(ctx.screen == AppScreen::Drill)
+        ctx.drillMenu.update(deltaTime);
+    else if(ctx.screen == AppScreen::CountDrill)
+        ctx.countDrillMenu.update(deltaTime);
 
     // Game Options' SOUND switch takes effect as soon as it's flipped
     // (BACK restores the menu's old value, and with it this).
@@ -1130,6 +1259,20 @@ static void mainLoopIteration(void *arg) {
         ctx.keyboardMenu.draw(ctx.state, ctx.res);
     else if(ctx.screen == AppScreen::Charts)
         ctx.chartsMenu.draw(ctx.state);
+    else if(ctx.screen == AppScreen::Training)
+        ctx.trainingMenu.draw(ctx.state, ctx.trainer);
+    else if(ctx.screen == AppScreen::Drill)
+        ctx.drillMenu.draw(ctx.state, ctx.res);
+    else if(ctx.screen == AppScreen::Review)
+        ctx.reviewMenu.draw(ctx.state);
+    else if(ctx.screen == AppScreen::CountDrill)
+        ctx.countDrillMenu.draw(ctx.state, ctx.res);
+    else if(ctx.screen == AppScreen::TrueCount)
+        ctx.trueCountMenu.draw(ctx.state);
+    else if(ctx.screen == AppScreen::Bankroll)
+        ctx.bankrollMenu.draw(ctx.state);
+    else if(ctx.screen == AppScreen::Odds)
+        ctx.oddsMenu.draw(ctx.state);
     else if(ctx.screen == AppScreen::Stats)
         ctx.statsMenu.draw(ctx.state, ctx.res, ctx.stats);
     else if(ctx.screen == AppScreen::Tutorial)
@@ -1188,6 +1331,8 @@ int main(int argc,char *argv[]) {
     ctx->menu.hasSavedGame = ctx->save.gameStarted;
     ctx->stats.load();
     ctx->table.setStats(&ctx->stats);
+    ctx->trainer.load();
+    ctx->table.setTrainer(&ctx->trainer);
     // Phones/tablets get DEAL in the bottom-right corner (Platform.h).
     ctx->table.setTouchLayout(usesTouchControls());
     // Windows release builds only (see UpdateCheck.h); a no-op elsewhere.
@@ -1205,6 +1350,7 @@ int main(int argc,char *argv[]) {
         ctx->gameOptionsMenu.soundEffects = ctx->save.soundEffects;
         ctx->gameOptionsMenu.doubleForLess = ctx->save.doubleForLess;
         ctx->gameOptionsMenu.dealerHitsSoft17 = ctx->save.dealerHitsSoft17;
+        ctx->gameOptionsMenu.indexPlays = ctx->save.indexPlays;
     }
 
 #ifdef __EMSCRIPTEN__

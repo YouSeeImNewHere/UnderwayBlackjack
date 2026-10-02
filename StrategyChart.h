@@ -5,6 +5,7 @@
 #include <string>
 #include <vector>
 #include <algorithm>
+#include <functional>
 
 // The classic 3-part basic-strategy reference (hard totals / soft totals /
 // pairs, each x dealer up-card 2-10/A). Every chart is the published one
@@ -58,7 +59,13 @@ public:
 
 	// The whole chart for `rules`. browserLayout leaves room under it for
 	// the CHARTS screen's rule buttons.
-	static void drawChart(SDLState& state, const Rules& rules, bool hasHighlight, int hSection, int hRow, int hCol, bool browserLayout){
+	// A cell colour override (the review screen's accuracy colours):
+	// returns true and sets the colour to use for (section, row, col).
+	using Tint = std::function<bool(int section, int row, int col, SDL_Color& color)>;
+
+	// tint, when given, recolours cells and leaves out the legend.
+	static void drawChart(SDLState& state, const Rules& rules, bool hasHighlight, int hSection, int hRow, int hCol, bool browserLayout,
+			const Tint* tint = nullptr){
 		SDL_SetRenderDrawColor(state.renderer, 10, 30, 15, 255);
 		SDL_RenderFillRect(state.renderer, nullptr);
 
@@ -74,8 +81,10 @@ public:
 		static const float X[3] = { 8.0f, 488.0f, 968.0f };
 		for(int section = 0; section < 3; section++)
 			drawTable(state, rules, section, X[section],
-				hasHighlight && hSection == section ? hRow : -1, hasHighlight && hSection == section ? hCol : -1);
+				hasHighlight && hSection == section ? hRow : -1, hasHighlight && hSection == section ? hCol : -1, tint);
 
+		if(tint)
+			return;
 		float legendY = browserLayout ? 510.0f : 545.0f;
 		drawLegend(state, legendY);
 		std::string note = noteFor(rules);
@@ -471,7 +480,7 @@ private:
 		}
 	}
 
-	static void drawTable(SDLState& state, const Rules& rules, int section, float x, int highlightRow, int highlightCol){
+	static void drawTable(SDLState& state, const Rules& rules, int section, float x, int highlightRow, int highlightCol, const Tint* tint){
 		const char* const* rowLabels = section == 0 ? HARD_LABELS : section == 1 ? SOFT_LABELS : PAIR_LABELS;
 		int rowCount = section == 1 ? 8 : 10;
 
@@ -501,7 +510,10 @@ private:
 				char move = resolve(cd, rules.das, rules.surrender);
 				SDL_FRect rect{ .x = x + STRIDE_W * (c + 1), .y = rowY, .w = CELL_W, .h = CELL_H };
 				bool hl = (r == highlightRow && c == highlightCol);
-				drawCell(state, rect, colorFor(move), cellText(rules, section, r, c, cd), cellPixel, hl);
+				SDL_Color color = colorFor(move);
+				if(tint)
+					(*tint)(section, r, c, color);
+				drawCell(state, rect, color, cellText(rules, section, r, c, cd), cellPixel, hl);
 				// 6-7-8 / 7-7-7 bonus plays: a yellow corner on the cell.
 				if(bonusRule(rules.set, section, r, c) != ' '){
 					SDL_FRect corner{ .x = rect.x + rect.w - 9.0f, .y = rect.y + 1.0f, .w = 8.0f, .h = 8.0f };
