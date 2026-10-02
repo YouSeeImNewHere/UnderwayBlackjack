@@ -1642,16 +1642,15 @@ private:
 	bool hideInactiveHands = false;
 
 	// HUD: dealer's shown-card total, bottom left; the current active
-	// hand's total, bottom right. Fixed screen-space boxes, not tied to any
-	// seat. activeHandTotalBox sits higher than dealerTotalBox specifically
-	// to leave room for the active bet/chip display drawn under it.
+	// hand's total, bottom right, level with each other. Fixed screen-space
+	// boxes, not tied to any seat.
 	// x is nudged in from the very edge (was 20 / 1290) -- drawTotalBox()
 	// centers the "DEALER HAND"/"ACTIVE HAND" label on the box's width, and
 	// that label is wider than the box itself, so at the old x the label
 	// text ran past the canvas edge (x<0 on the left, >1440 on the right)
 	// instead of just the box looking close to it.
 	SDL_FRect dealerTotalBox{ .x = 40, .y = 645, .w = 130, .h = 50 };
-	SDL_FRect activeHandTotalBox{ .x = 1270, .y = 590, .w = 130, .h = 50 };
+	SDL_FRect activeHandTotalBox{ .x = 1270, .y = 645, .w = 130, .h = 50 };
 
 	void drawHandTotals(SDLState& state){
 		// Only once the dealer's actually holding cards -- during betting
