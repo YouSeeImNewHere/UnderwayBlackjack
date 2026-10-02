@@ -2268,7 +2268,16 @@ private:
 		// not *4 -- see drawBetRow()'s BET label comment for why.
 		float labelPixel = 3.0f;
 		float labelH = DigitFont::verticalTextHeight(label, labelPixel);
-		DigitFont::drawVerticalText(state, label, row.selMinus.x - labelPixel * 6.0f, row.selMinus.y + (SEL_BTN_H - labelH) / 2.0f, labelPixel, themeColor);
+		// A pale tint of the theme colour: still tells the side bets apart,
+		// but readable against the green felt (the theme colour itself was
+		// too dark to see there).
+		SDL_Color labelColor{
+			static_cast<Uint8>(themeColor.r * 0.3f + 255 * 0.7f),
+			static_cast<Uint8>(themeColor.g * 0.3f + 255 * 0.7f),
+			static_cast<Uint8>(themeColor.b * 0.3f + 255 * 0.7f),
+			255
+		};
+		DigitFont::drawVerticalText(state, label, row.selMinus.x - labelPixel * 6.0f, row.selMinus.y + (SEL_BTN_H - labelH) / 2.0f, labelPixel, labelColor);
 
 		drawButton(state, row.selMinus, dim);
 		float symPixel = 4.0f;
