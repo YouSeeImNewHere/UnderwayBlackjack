@@ -15,6 +15,7 @@
 #include "SetupMenu.h"
 #include "PauseMenu.h"
 #include "StrategyChart.h"
+#include "ChartsMenu.h"
 #include "AboutMenu.h"
 #include "GesturesMenu.h"
 #include "KeyboardMenu.h"
@@ -35,6 +36,7 @@ enum class AppScreen {
     Keyboard,
     Stats,
     Tutorial,
+    Charts,
     Playing
 };
 
@@ -82,6 +84,7 @@ struct AppContext {
     // as Strategy/About).
     GesturesMenu gesturesMenu;
     KeyboardMenu keyboardMenu;
+    ChartsMenu chartsMenu;
     StatsMenu statsMenu;
     TutorialMenu tutorialMenu;
     Stats stats;
@@ -178,6 +181,7 @@ static void applyOptionsToTable(AppContext& ctx){
     ctx.table.setFaceDownDoubles(ctx.gameOptionsMenu.faceDownDoubles);
     ctx.table.setHideInactiveHands(ctx.gameOptionsMenu.hideInactiveHands);
     ctx.table.setAskDoubleAmount(ctx.gameOptionsMenu.doubleForLess);
+    ctx.table.setDealerHitsSoft17(ctx.gameOptionsMenu.dealerHitsSoft17);
 }
 
 // PRACTICE / COUNT QUIZ (GameModeMenu): which training game, if any, the
@@ -190,7 +194,8 @@ static void applyTraining(AppContext& ctx, Training training){
 static void saveOptions(AppContext& ctx){
     ctx.save.saveOptions(ctx.gameOptionsMenu.dealerSpeed,
         ctx.gameOptionsMenu.faceDownDoubles, ctx.gameOptionsMenu.hideInactiveHands,
-        ctx.gameOptionsMenu.soundEffects, ctx.gameOptionsMenu.doubleForLess);
+        ctx.gameOptionsMenu.soundEffects, ctx.gameOptionsMenu.doubleForLess,
+        ctx.gameOptionsMenu.dealerHitsSoft17);
 }
 
 // Shared by both mouse and touch handling below: applies whichever menu
@@ -239,6 +244,12 @@ static void applyMenuChoice(AppContext& ctx, MenuChoice choice){
 
         case MenuChoice::Keyboard:
             ctx.screen = AppScreen::Keyboard;
+        break;
+
+        case MenuChoice::Charts:
+            ctx.chartsMenu.open(ctx.save.gameStarted ? static_cast<GameMode>(ctx.save.gameModeIndex) : GameMode::SixDeck,
+                ctx.gameOptionsMenu.dealerHitsSoft17);
+            ctx.screen = AppScreen::Charts;
         break;
 
         case MenuChoice::Stats:
@@ -481,6 +492,7 @@ static void goBack(AppContext& ctx){
         if(ctx.gameModeMenu.leaveTraining())
             return;
         [[fallthrough]];
+    case AppScreen::Charts:
     case AppScreen::Gestures:
     case AppScreen::Keyboard:
     case AppScreen::Stats:
@@ -585,6 +597,10 @@ static void handleMenuClick(AppContext& ctx, float wx, float wy){
         if(ctx.keyboardMenu.handlePoint(ctx.state, wx, wy))
             goBack(ctx);
         return;
+    case AppScreen::Charts:
+        if(ctx.chartsMenu.handlePoint(ctx.state, wx, wy))
+            goBack(ctx);
+        return;
     case AppScreen::Stats: {
         bool changed = false;
         if(ctx.statsMenu.handlePoint(ctx.state, wx, wy, ctx.stats, changed))
@@ -655,6 +671,7 @@ static std::vector<SDL_FRect> currentFocusRects(AppContext& ctx){
     case AppScreen::Setup:         return ctx.setupMenu.focusRects();
     case AppScreen::Gestures:      return ctx.gesturesMenu.focusRects();
     case AppScreen::Keyboard:      return ctx.keyboardMenu.focusRects();
+    case AppScreen::Charts:        return ctx.chartsMenu.focusRects();
     case AppScreen::Stats:         return ctx.statsMenu.focusRects();
     case AppScreen::Tutorial:      return ctx.tutorialMenu.focusRects();
     case AppScreen::Playing:       break;
@@ -784,6 +801,7 @@ static SDL_Color letterboxColor(const AppContext &ctx) {
     case AppScreen::Setup:
         return setupGreen;
     case AppScreen::GameModeAbout:
+    case AppScreen::Charts:
     case AppScreen::Gestures:
     case AppScreen::Keyboard:
     case AppScreen::Stats:
@@ -1110,6 +1128,8 @@ static void mainLoopIteration(void *arg) {
         ctx.gesturesMenu.draw(ctx.state, ctx.res);
     else if(ctx.screen == AppScreen::Keyboard)
         ctx.keyboardMenu.draw(ctx.state, ctx.res);
+    else if(ctx.screen == AppScreen::Charts)
+        ctx.chartsMenu.draw(ctx.state);
     else if(ctx.screen == AppScreen::Stats)
         ctx.statsMenu.draw(ctx.state, ctx.res, ctx.stats);
     else if(ctx.screen == AppScreen::Tutorial)
@@ -1184,6 +1204,7 @@ int main(int argc,char *argv[]) {
         ctx->gameOptionsMenu.hideInactiveHands = ctx->save.hideInactiveHands;
         ctx->gameOptionsMenu.soundEffects = ctx->save.soundEffects;
         ctx->gameOptionsMenu.doubleForLess = ctx->save.doubleForLess;
+        ctx->gameOptionsMenu.dealerHitsSoft17 = ctx->save.dealerHitsSoft17;
     }
 
 #ifdef __EMSCRIPTEN__

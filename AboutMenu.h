@@ -86,6 +86,7 @@ private:
 		static const std::vector<std::string> lines{
 			"STANDARD BLACKJACK RULES",
 			"2 OR 6 DECKS, DEALER HITS SOFT 17",
+			" OR STANDS, SEE GAME OPTIONS",
 			"BLACKJACK PAYS 3:2",
 			"DOUBLE ON ANY 2 CARDS",
 			" AFTER A SPLIT TOO, EXCEPT 2 DECKS",

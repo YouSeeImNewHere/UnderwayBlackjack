@@ -28,6 +28,9 @@ public:
 	// DOUBLE FOR LESS row: pressing double asks how much (up to the bet)
 	// instead of always doubling the full bet.
 	bool doubleForLess = false;
+	// DEALER HITS SOFT 17 row: off = the dealer stands on soft 17 (and
+	// the strategy charts switch to match). Free Bet's dealer always hits.
+	bool dealerHitsSoft17 = true;
 
 	// Set by mina.cpp right before this screen shows (from GameModeMenu's
 	// pick, pre-game, or Table::getGameMode() when reopened from the pause
@@ -138,6 +141,10 @@ public:
 		drawRowLabel(state, ROW_Y[4], "DOUBLE FOR LESS");
 		drawToggleButton(state, toggleButton(4), doubleForLess);
 
+		bool soft17Choice = !isFreeBet(gameMode);
+		drawRowLabel(state, ROW_Y[5], soft17Choice ? "DEALER HITS SOFT 17" : "DEALER HITS SOFT 17 - ALWAYS");
+		drawToggleButton(state, toggleButton(5), soft17Choice ? dealerHitsSoft17 : true);
+
 		drawSpeedDemo(state, res);
 
 		SDL_FRect go = confirmButton();
@@ -178,6 +185,8 @@ public:
 		rects.push_back(toggleButton(2));
 		rects.push_back(toggleButton(3));
 		rects.push_back(toggleButton(4));
+		if(!isFreeBet(gameMode))
+			rects.push_back(toggleButton(5));
 		rects.push_back(backButton());
 		rects.push_back(confirmButton());
 		return rects;
@@ -223,6 +232,10 @@ public:
 		if(SDL_PointInRectFloat(&p, &lessButton))
 			doubleForLess = !doubleForLess;
 
+		SDL_FRect soft17Button = toggleButton(5);
+		if(!isFreeBet(gameMode) && SDL_PointInRectFloat(&p, &soft17Button))
+			dealerHitsSoft17 = !dealerHitsSoft17;
+
 		SDL_FRect confirm = confirmButton();
 		if(SDL_PointInRectFloat(&p, &confirm))
 			return true;
@@ -236,12 +249,12 @@ private:
 	static constexpr SDL_Color WHITE{255, 255, 255, 255};
 
 	// Same left-caption/right-controls shape as SetupMenu's stepper rows,
-	// just 5 rows instead of a per-player block -- LABEL_X is where a
+	// just 6 rows instead of a per-player block -- LABEL_X is where a
 	// row's caption starts, CONTROL_X where its buttons start.
 	static constexpr float LABEL_X = 380.0f;
 	static constexpr float CONTROL_X = 760.0f;
-	static constexpr float ROW_H = 64.0f;
-	static constexpr float ROW_Y[5] = {130.0f, 250.0f, 330.0f, 410.0f, 490.0f};
+	static constexpr float ROW_H = 60.0f;
+	static constexpr float ROW_Y[6] = {120.0f, 232.0f, 300.0f, 368.0f, 436.0f, 504.0f};
 
 	// Demo card track -- off to the right of the 3 rows above, clear of
 	// their controls (the slider ends at CONTROL_X + SLIDER_W, 1200).

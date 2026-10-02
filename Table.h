@@ -90,6 +90,7 @@ public:
 	Table(int numberOfPlayers,bool H17,int numberOfDecks){
 		this->numberOfPlayers = numberOfPlayers;
 		this->H17 = H17;
+		wantH17 = H17;
 		this->numberOfDecks = numberOfDecks;
 
 		// Seats 0-2 and the dealer (index 5) are the original 3-player
@@ -189,6 +190,14 @@ public:
 	void setDealerSpeedFactor(float factor){ dealerSpeedFactor = factor; }
 	void setFaceDownDoubles(bool value){ faceDownDoubles = value; }
 	void setHideInactiveHands(bool value){ hideInactiveHands = value; }
+	// GameOptionsMenu's DEALER HITS SOFT 17 (Free Bet's dealer always does).
+	void setDealerHitsSoft17(bool value){
+		wantH17 = value;
+		H17 = wantH17 || isFreeBet(gameMode);
+		StrategyChart::useChartFor(gameMode, H17);
+	}
+	bool dealerHitsSoft17() const{ return H17; }
+
 	void setPracticeMode(bool value){ practiceMode = value; practiceHeld = 0; syncStatsTraining(); }
 	void setCountQuiz(bool value){ countQuizOn = value; quizState = QuizState::Off; syncStatsTraining(); }
 
@@ -203,7 +212,8 @@ public:
 	// count/composition and remembers the mode for everything that varies
 	// by it (side-bet UI, Spanish shoe, eventually Spanish 21 payouts).
 	void configureGameMode(GameMode mode){
-		StrategyChart::useChartFor(mode);
+		H17 = wantH17 || isFreeBet(mode);
+		StrategyChart::useChartFor(mode, H17);
 		gameMode = mode;
 		if(stats)
 			stats->setGame(mode);
@@ -1956,6 +1966,7 @@ private:
 
 	int numberOfPlayers;
 	bool H17;
+	bool wantH17 = true;  // the option; Free Bet's dealer hits regardless
 
 	// Which game is actually being played -- drives side-bet UI/resolution
 	// (hasLuckyLadies()/isPlayersEdge(), GameModeMenu.h) and, later, which
@@ -2385,7 +2396,7 @@ private:
 		float tableX = boxX + 20.0f;
 		// A hard 18+ stands against everything (the chart's "17" row,
 		// which it's read off, surrenders 17 vs an Ace).
-		const char* data = hard18 ? "SSSSSSSSSS" : chartRow(section, row);
+		std::string data = hard18 ? "SSSSSSSSSS" : chartRow(section, row);
 
 		for(int c = 0; c < 10; c++){
 			SDL_FRect headerRect{ .x = tableX + c * stride, .y = rowY, .w = cellW, .h = 22.0f };
@@ -2397,7 +2408,7 @@ private:
 			float lw = DigitFont::textWidth(colLabel, 4.0f);
 			DigitFont::drawText(state, colLabel, headerRect.x + (cellW - lw) / 2.0f, headerRect.y + (22.0f - 5 * 4.0f) / 2.0f, 4.0f, SDL_Color{255, 255, 255, 255});
 
-			char cell = c == col ? chartLetter(section, row, c) : data[c];
+			char cell = c == col ? chartLetter(section, row, c) : StrategyChart::resolve(data[c]);
 			char action = activeHandDoubled() ? doubledAdvice(cell) : cell;
 			bool hl = (c == col);
 			SDL_Color fill = hl ? SDL_Color{255, 225, 60, 255} : StrategyChart::colorFor(action);
@@ -3615,18 +3626,22 @@ private:
 		int section, row, col;
 		if(!getStrategySituation(section, row, col))
 			return false;
-		advice = chartLetter(section, row, col);
+		char code = chartCode(section, row, col);
+		advice = StrategyChart::resolve(code);
 		if(activeHandDoubled()){
 			advice = doubledAdvice(advice);
 			return true;
 		}
+		// The chart's move can't be made right now: its published
+		// fallback (double else stand, surrender else stand/split...).
 		if(advice == 'D' && !canDoubleActiveHand())
-			advice = (section == 1 && row >= 5) ? 'S' : 'H';
+			advice = StrategyChart::fallback(code) == 'S' ? 'S' : 'H';
 		else if(advice == 'R' && !canSurrenderActiveHand()){
-			// Player's Edge 17 vs A: surrender, else hit (see cardLimit()).
-			if(section == 0 && row == 9) advice = StrategyChart::cardLimit(0, 9, col) > 0 ? 'H' : 'S';
-			else if(section == 2 && canSplitActiveHand()) advice = 'P';
-			else advice = 'H';
+			advice = StrategyChart::fallback(code);
+			if(section == 2 && advice == 'H')
+				advice = 'P';
+			if(advice == 'P' && !canSplitActiveHand())
+				advice = 'H';
 		}
 		else if(advice == 'P' && !canSplitActiveHand())
 			return false;
@@ -3639,21 +3654,30 @@ private:
 	// 6-7-8 / 7-7-7 bonus plays (StrategyChart::cardLimit()/bonusRule()).
 	// why, when given, says which of those changed the chart's letter.
 	char chartLetter(int section, int row, int col, std::string* why = nullptr){
-		char letter = chartRow(section, row)[col];
+		return StrategyChart::resolve(chartCode(section, row, col, why));
+	}
+
+	// The chart's code (StrategyChart's H/S/D/d/P/p/x/y/R/r/q) for the
+	// active hand's cell, adjusted for the hand itself.
+	char chartCode(int section, int row, int col, std::string* why = nullptr){
+		char code = chartRow(section, row)[col];
 		Person& p = players[activePlayer];
 		int h = p.getActiveHand();
 		if(h >= p.hands.size())
-			return letter;
+			return code;
 		Hand& hand = p.hands[h];
 		if(why && activeHandIsFree())
 			*why = "FREE HAND - NOTHING OF YOURS AT RISK";
 		int n = hand.getHandSize();
 
-		// The hard chart's last row is "17", and 18+ is read off it too --
-		// but 17's own surrender vs an Ace (H17) doesn't carry up.
+		// The hard chart's rows run "8" to "17": 18+ is read off the 17
+		// row but always stands, and 7 or less (the 8 row) always hits.
 		if(section == 0 && hand.getHandTotal() >= 18)
 			return 'S';
+		if(section == 0 && hand.getHandTotal() <= 7)
+			return 'H';
 
+		char letter = StrategyChart::resolve(code);
 		int limit = StrategyChart::cardLimit(section, row, col);
 		if(limit > 0 && n >= limit && (letter == 'S' || letter == 'D' || letter == 'R')){
 			if(why) *why = "WITH " + std::to_string(limit) + "+ CARDS - HIT";
@@ -3676,7 +3700,7 @@ private:
 				return 'H';
 			}
 		}
-		return letter;
+		return code;
 	}
 
 	// Free Bet: a split-off hand riding entirely on the free bet.
@@ -3691,11 +3715,14 @@ private:
 
 	// The chart row the active hand reads: Free Bet's free-hand chart for
 	// a free hand, otherwise the game's own.
-	const char* chartRow(int section, int row){
+	std::string chartRow(int section, int row){
 		if(activeHandIsFree())
-			if(const char* free = StrategyChart::freeHandRowData(section, row))
+			if(const char* free = StrategyChart::freeHandRow(section, row))
 				return free;
-		return StrategyChart::rowData(section, row);
+		std::string codes;
+		for(int c = 0; c < 10; c++)
+			codes += StrategyChart::code(section, row, c);
+		return codes;
 	}
 
 	// Player's Edge (Spanish 21): once doubled, a hand only draws more
