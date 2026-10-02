@@ -1081,7 +1081,7 @@ public:
 
 		float maxEdge = 0.0f;
 		for(const Row& r : rows) maxEdge = std::max(maxEdge, r.edge);
-		static const float X_NAME = 40.0f, X_BAR = 720.0f, BAR_W = 300.0f, X_EDGE = 1120.0f, X_COST = 1400.0f;
+		static const float X_NAME = 40.0f, X_BAR = 720.0f, BAR_W = 260.0f, X_EDGE = 1120.0f, X_COST = 1400.0f;
 		DigitFont::drawText(state, "GAME", X_NAME, 92.0f, 3.0f, GOLD);
 		DigitFont::drawText(state, "HOUSE EDGE", X_EDGE - DigitFont::textWidth("HOUSE EDGE", 3.0f), 92.0f, 3.0f, GOLD);
 		DigitFont::drawText(state, "COST PER HOUR", X_COST - DigitFont::textWidth("COST PER HOUR", 3.0f), 92.0f, 3.0f, GOLD);
@@ -1139,12 +1139,14 @@ public:
 
 private:
 	// Measured main-bet house edges (see the class comment).
-	static constexpr float EDGE_6D_H17 = 0.0055f, EDGE_6D_S17 = 0.0035f;
-	static constexpr float EDGE_2D_H17 = 0.0055f, EDGE_2D_S17 = 0.0035f;
-	static constexpr float EDGE_8D_H17 = 0.0060f, EDGE_8D_S17 = 0.0040f;
-	static constexpr float EDGE_PE2_H17 = 0.0060f, EDGE_PE2_S17 = 0.0040f;
-	static constexpr float EDGE_PE6_H17 = 0.0070f, EDGE_PE6_S17 = 0.0050f;
-	static constexpr float EDGE_FREE_BET = 0.0112f;
+	// (dealer-hits: the average of 3 runs; each run is good to about
+	// +-0.05%.)
+	static constexpr float EDGE_6D_H17 = 0.0055f, EDGE_6D_S17 = 0.0032f;
+	static constexpr float EDGE_2D_H17 = 0.0055f, EDGE_2D_S17 = 0.0039f;
+	static constexpr float EDGE_8D_H17 = 0.0060f, EDGE_8D_S17 = 0.0028f;
+	static constexpr float EDGE_PE2_H17 = 0.0057f, EDGE_PE2_S17 = 0.0013f;
+	static constexpr float EDGE_PE6_H17 = 0.0068f, EDGE_PE6_S17 = 0.0033f;
+	static constexpr float EDGE_FREE_BET = 0.0109f;
 
 	static constexpr int BETS[10] = { 5, 10, 15, 25, 50, 75, 100, 200, 300, 500 };
 	int betIndex = 3;
