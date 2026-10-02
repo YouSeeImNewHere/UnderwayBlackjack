@@ -52,19 +52,25 @@ struct DealRequest{
 	Card card;
 };
 
-// A round-end payout chip flying from the tray to a winning/pushed
-// player's seat -- see Table::resolveRound()/queueChipPayout(). Simpler
-// than CardAnimation on purpose: no rotation, no hand/discard bookkeeping,
-// just a straight flight that credits bankroll on arrival. Several of
-// these can be in flight at once (every paid-out hand pays out together),
-// unlike cards which are strictly one-at-a-time -- so this isn't run
-// through dealQueue/cardAnimation at all, just its own small vector.
+// Several of these run at once (every hand settles together), unlike
+// cards, which are strictly one at a time -- so they have their own
+// vector rather than going through dealQueue.
+// One bet being settled on the table, the way a dealer does it:
+//   win  -- the winnings come from the tray and are set down beside the
+//           bet, then bet and winnings together go to the player's
+//           bankroll (credited when they arrive);
+//   push -- the bet goes back to the bankroll;
+//   loss -- the bet is taken to the tray.
+// spot is where the bet sits (a hand's chip stack or a side-bet circle).
 struct ChipAnimation{
-	SDL_FPoint start;
-	SDL_FPoint end;
+	enum Kind{ Win, Push, Loss };
+	Kind kind = Win;
+	SDL_FPoint spot;
+	SDL_FPoint tray;
+	SDL_FPoint bankroll;
+	int stake = 0;      // the bet's own chips
+	int winnings = 0;   // what the house adds to it (wins only)
 	float elapsed = 0.0f;
-	float duration = 0.5f;
-	int denomIndex;
 	int columnIndex;
 	int playerIndex;
 	int creditAmount;
@@ -726,7 +732,7 @@ public:
 		if(stats)
 			stats->recordHand(credit - bet, true, false, natural, false, false);
 		hand.setResult(HandResult::Win);
-		queueChipPayout(playerIndex, credit);
+		queueChipPayout(playerIndex, credit, false, bet, betSpot(playerIndex, handIdx));
 		hand.setBet(0);
 	}
 
@@ -884,17 +890,24 @@ public:
 		// dealDealer()) and need to keep progressing *during* that pause,
 		// not be blocked by it like dealing/resolving are.
 		for(auto it = chipAnimations.begin(); it != chipAnimations.end();){
+			float before = it->elapsed;
 			it->elapsed += deltaTime;
-			if(it->elapsed >= it->duration){
-				players[it->playerIndex].credit(it->creditAmount);
-				queueBankrollChange(it->playerIndex, it->creditAmount, it->isPush);
-
-				// A collected (lost-bet) chip only rejoins the tray once it
-				// actually arrives -- a payout already dropped its column
-				// the moment it was queued (see queueChipPayout()), so
-				// crediting it again here would double-count.
-				if(it->creditAmount == 0)
+			// The pile leaving the felt for the bankroll gets its own sound.
+			if(it->kind != ChipAnimation::Loss){
+				float leave = chipAnimationLength(*it) - CHIPS_TO_BANKROLL;
+				if(before < leave && it->elapsed >= leave)
+					sound(Sfx::ChipsTake);
+			}
+			if(it->elapsed >= chipAnimationLength(*it)){
+				if(it->kind != ChipAnimation::Loss){
+					players[it->playerIndex].credit(it->creditAmount);
+					queueBankrollChange(it->playerIndex, it->creditAmount, it->isPush);
+				} else{
+					// A collected (lost) bet only rejoins the tray once it
+					// actually arrives -- a payout already dropped its
+					// column the moment it was queued.
 					trayFillCount[it->columnIndex] = std::min(TRAY_FILL_COUNT, trayFillCount[it->columnIndex] + 1);
+				}
 
 				it = chipAnimations.erase(it);
 			} else{
@@ -1187,7 +1200,7 @@ public:
 			if(playerHasBlackjack(i)){
 				if(stats)
 					stats->recordHand(h.getBet(), true, false, true, false, false);
-				queueChipPayout(i, h.getBet() * 2);
+				queueChipPayout(i, h.getBet() * 2, false, h.getBet(), betSpot(i, 0));
 				h.setResult(HandResult::Win);
 				h.setBet(0);
 			} else{
@@ -1293,7 +1306,7 @@ private:
 			if(stats)
 				stats->addNet(dealerBlackjack ? insuranceBet[i] * insuranceOdds : -insuranceBet[i]);
 			if(dealerBlackjack)
-				queueChipPayout(i, insuranceBet[i] * (insuranceOdds + 1));
+				queueChipPayout(i, insuranceBet[i] * (insuranceOdds + 1), false, insuranceBet[i], seatPoint(i, 0, cardWidth / 2.0f, cardHeight + SPOT_MARGIN + 4.0f));
 		}
 
 		if(!dealerBlackjack)
@@ -1523,6 +1536,9 @@ private:
 
 	// Set once resolveMatchDown() has run this round.
 	bool matchDownResolved = false;
+
+	// Each seat's bankroll label, as last drawn (drawBankrolls()).
+	SDL_FPoint bankrollLabelCenter[5] = {};
 
 	// Between rounds, while a fresh shoe is shuffled on the table.
 	static constexpr float SHUFFLE_DURATION = 2.9f; // the shuffle sound's length
@@ -2362,6 +2378,7 @@ private:
 		float labelX[5]{};
 		for(const Label& label : labels){
 			labelX[label.playerIndex] = label.x;
+			bankrollLabelCenter[label.playerIndex] = SDL_FPoint{ label.x + label.width / 2.0f, 15.0f + 5 * pixel / 2.0f };
 			DigitFont::drawText(state, label.text, label.x, 15.0f, pixel, label.color);
 		}
 
@@ -2477,22 +2494,16 @@ private:
 		}
 		if(chips.empty())
 			return;
-		// Seen from a low angle, like chips on a felt: each chip's edge
-		// (Chips.png's thin strips, the same ones the tray is drawn from)
-		// piled up from the base, and the top chip's face squashed into an
-		// oval on top. Taller stacks pack tighter so they stay a sensible
-		// height.
-		float faceH = size * 0.6f;
+		// Side on, like the chip tray: each chip's edge (Chips.png's thin
+		// strips) piled up from the base. Taller stacks pack tighter so
+		// they stay a sensible height.
 		float edgeH = std::min(6.0f, 48.0f / std::max<size_t>(1, chips.size()));
-		float baseY = cy + faceH / 2.0f;
+		float baseY = cy + 10.0f;
 		for(size_t k = 0; k < chips.size(); k++){
 			SDL_FRect src{ .x = chips[k] * CHIP_SRC_SIZE, .y = 0.0f, .w = CHIP_SRC_SIZE, .h = CHIP_EDGE_SRC_H };
 			SDL_FRect dst{ .x = cx - size / 2.0f, .y = baseY - (k + 1) * edgeH, .w = size, .h = edgeH };
 			SDL_RenderTexture(state.renderer, res.chips, &src, &dst);
 		}
-		SDL_FRect faceSrc{ .x = chips.back() * CHIP_SRC_SIZE, .y = CHIP_SRC_Y, .w = CHIP_SRC_SIZE, .h = CHIP_SRC_SIZE };
-		SDL_FRect faceDst{ .x = cx - size / 2.0f, .y = baseY - chips.size() * edgeH - faceH / 2.0f, .w = size, .h = faceH };
-		SDL_RenderTexture(state.renderer, res.chips, &faceSrc, &faceDst);
 	}
 
 	// Each seat's side-bet circles, printed on the felt like a real table:
@@ -2536,7 +2547,8 @@ private:
 		fillCircle(state, c.x, c.y, RADIUS + 2.0f, ring);
 		fillCircle(state, c.x, c.y, RADIUS, felt);
 
-		if(amount > 0)
+		// Once settled, the chips are part of a ChipAnimation.
+		if(amount > 0 && result == HandResult::None)
 			drawChipStack(state, res, c.x, c.y + 4.0f, { amount });
 	}
 
@@ -2557,7 +2569,8 @@ private:
 			for(int h = 0; h < (int)p.hands.size(); h++){
 				Hand& hand = p.hands[h];
 				int bet = hand.getBet();
-				if(bet <= 0 || hand.getHandSize() == 0)
+				// Once settled, the bet's chips are part of a ChipAnimation.
+				if(bet <= 0 || hand.getHandSize() == 0 || hand.getResult() != HandResult::None || hand.isChipsCollected())
 					continue;
 				std::vector<int> layers;
 				int doubles = hand.getDoubleCount();
@@ -2810,14 +2823,39 @@ private:
 	}
 
 	void drawChipAnimations(SDLState& state, Resources& res){
-		for(ChipAnimation& anim : chipAnimations){
-			float progress = std::min(1.0f, anim.elapsed / anim.duration);
-			float x = anim.start.x + (anim.end.x - anim.start.x) * progress;
-			float y = anim.start.y + (anim.end.y - anim.start.y) * progress;
+		auto lerp = [](SDL_FPoint a, SDL_FPoint b, float t){
+			t = std::clamp(t, 0.0f, 1.0f);
+			t = t * t * (3.0f - 2.0f * t);
+			return SDL_FPoint{ a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t };
+		};
+		constexpr float BESIDE = 34.0f; // winnings stack, to the right of the bet
 
-			SDL_FRect src{ .x = anim.denomIndex * CHIP_SRC_SIZE, .y = CHIP_SRC_Y, .w = CHIP_SRC_SIZE, .h = CHIP_SRC_SIZE };
-			SDL_FRect dst{ .x = x - 15.0f, .y = y - 15.0f, .w = 30.0f, .h = 30.0f };
-			SDL_RenderTexture(state.renderer, res.chips, &src, &dst);
+		for(ChipAnimation& a : chipAnimations){
+			float t = a.elapsed;
+			if(a.kind == ChipAnimation::Loss){
+				SDL_FPoint p = lerp(a.spot, a.tray, t / CHIPS_TO_TRAY);
+				drawChipStack(state, res, p.x, p.y, { a.stake });
+				continue;
+			}
+
+			SDL_FPoint beside{ a.spot.x + BESIDE, a.spot.y };
+			float toBankroll = chipAnimationLength(a) - CHIPS_TO_BANKROLL;
+			if(t < toBankroll){
+				if(a.stake > 0)
+					drawChipStack(state, res, a.spot.x, a.spot.y, { a.stake });
+				if(a.kind == ChipAnimation::Win && a.winnings > 0){
+					SDL_FPoint p = lerp(a.tray, a.stake > 0 ? beside : a.spot, t / CHIPS_TO_SPOT);
+					drawChipStack(state, res, p.x, p.y, { a.winnings });
+				}
+			} else{
+				// bet and winnings, picked up together
+				float u = (t - toBankroll) / CHIPS_TO_BANKROLL;
+				SDL_FPoint p = lerp(a.spot, a.bankroll, u);
+				if(a.stake > 0)
+					drawChipStack(state, res, p.x, p.y, { a.stake });
+				if(a.winnings > 0)
+					drawChipStack(state, res, p.x + (a.stake > 0 ? BESIDE * (1.0f - u) : 0.0f), p.y, { a.winnings });
+			}
 		}
 	}
 
@@ -3151,12 +3189,19 @@ private:
 			players[activePlayer].hands[handIdx].addFreeBetAmount(betAmount);
 		}
 
+		// The double card lies sideways: turned 90 degrees about its
+		// top-left corner, so it's moved one card-height "down" the seat
+		// (its own +y) to sit in line with the hand. Worked out from the
+		// seat's actual angle -- the two angled 5-player seats aren't
+		// straight up, left or right, and a cardinal-only shift threw
+		// their double card off the hand.
 		SDL_FPoint to = players[activePlayer].getNextCardPosition();
-		int dir = players[activePlayer].getDirection();
-		if(dir == 0)
-			to.y += cardHeight;
-		else
-			to.x += cardHeight * dir;
+		{
+			constexpr float PI = 3.14159265358979323846f;
+			float rad = players[activePlayer].getSeatRotation() * PI / 180.0f;
+			to.x += -cardHeight * std::sin(rad);
+			to.y += cardHeight * std::cos(rad);
+		}
 
 		// faceDownDoubles (GameOptionsMenu): the double-down card lands
 		// face-down and stays that way until the dealer's actually done --
@@ -3222,7 +3267,7 @@ private:
 				stats->recordHand(-(hand.getBet() - refund), false, false, false, false, true);
 			hand.setBet(0);
 			if(refund > 0)
-				queueChipPayout(activePlayer, refund, true);
+				queueChipPayout(activePlayer, refund, true, refund, betSpot(activePlayer, players[activePlayer].getActiveHand()));
 		}
 
 		// Surrendering forfeits the hand same as busting does (labelled
@@ -3630,7 +3675,8 @@ private:
 		resolveMatchDown();
 
 		for(int i = 0; i < numberOfPlayers; i++){
-			for(Hand& hand : players[i].hands){
+			for(int h = 0; h < (int)players[i].hands.size(); h++){
+				Hand& hand = players[i].hands[h];
 				int bet = hand.getBet();
 				if(bet <= 0)
 					continue;
@@ -3680,7 +3726,9 @@ private:
 
 				if(credit == 0){
 					hand.setResult(HandResult::Loss);
-					queueChipCollection(i, hand.getRealBet());
+					// A bust's chips were already taken when it busted.
+					if(!hand.isChipsCollected())
+						queueChipCollection(i, hand.getRealBet(), betSpot(i, h));
 				} else{
 					// A push still needs its bet credited back -- just
 					// with no gain (credit == bet). Only the label differs
@@ -3690,7 +3738,7 @@ private:
 					// exactly like a real win.
 					bool isPush = credit == bet;
 					hand.setResult(isPush ? HandResult::Push : HandResult::Win);
-					queueChipPayout(i, isPush ? hand.getRealBet() : credit, isPush);
+					queueChipPayout(i, isPush ? hand.getRealBet() : credit, isPush, hand.getRealBet(), betSpot(i, h));
 				}
 
 				hand.setBet(0);
@@ -3717,13 +3765,13 @@ private:
 				recordSideBet(Stats::LuckyStiff, wager,
 					mainResult == HandResult::Win ? wager * 6 : mainResult == HandResult::Push ? wager : 0);
 				if(mainResult == HandResult::Win){
-					queueChipPayout(i, wager + wager * 5);
+					queueChipPayout(i, wager + wager * 5, false, wager, sideBetSpot(i, true));
 					sideBetResult[i] = HandResult::Win;
 				} else if(mainResult == HandResult::Push){
-					queueChipPayout(i, wager, true);
+					queueChipPayout(i, wager, true, wager, sideBetSpot(i, true));
 					sideBetResult[i] = HandResult::Push;
 				} else{
-					queueChipCollection(i, wager);
+					queueChipCollection(i, wager, sideBetSpot(i, true));
 					sideBetResult[i] = HandResult::Loss;
 				}
 			}
@@ -3749,7 +3797,7 @@ private:
 		for(int j = 0; j < numberOfPlayers; j++){
 			if(j == playerIndex || !initialTwoCards[j].valid)
 				continue;
-			queueChipPayout(j, ENVY_BONUS);
+			queueChipPayout(j, ENVY_BONUS, false, 0, seatPoint(j, 0, cardWidth / 2.0f, cardHeight + SPOT_MARGIN + 4.0f));
 			if(stats)
 				stats->addNet(ENVY_BONUS);
 		}
@@ -3781,7 +3829,7 @@ private:
 				int payout = evaluateMatchBet(i, dealerDown, wager);
 				recordSideBet(Stats::MatchDown, wager, payout);
 				if(payout > 0){
-					queueChipPayout(i, payout);
+					queueChipPayout(i, payout, false, wager, sideBetSpot(i, false));
 					matchDownResult[i] = HandResult::Win;
 
 					// A pair matching the hole card is three of a kind;
@@ -3795,7 +3843,7 @@ private:
 							payout);
 					}
 				} else{
-					queueChipCollection(i, wager);
+					queueChipCollection(i, wager, sideBetSpot(i, false));
 					matchDownResult[i] = HandResult::Loss;
 				}
 			}
@@ -4210,7 +4258,7 @@ private:
 				int payout = evaluateLuckyLadies(i, wager);
 				recordSideBet(Stats::LuckyLadies, wager, payout);
 				if(payout > 0){
-					queueChipPayout(i, payout);
+					queueChipPayout(i, payout, false, wager, sideBetSpot(i, true));
 					sideBetResult[i] = HandResult::Win;
 
 					const InitialTwoCards& c = initialTwoCards[i];
@@ -4222,7 +4270,7 @@ private:
 							payout);
 					}
 				} else{
-					queueChipCollection(i, wager);
+					queueChipCollection(i, wager, sideBetSpot(i, true));
 					sideBetResult[i] = HandResult::Loss;
 				}
 			} else if(isPlayersEdge(gameMode)){
@@ -4236,7 +4284,7 @@ private:
 				bool allSuited = false;
 				int matches = matchCount(i, dealerUp, allSuited);
 				if(payout > 0){
-					queueChipPayout(i, payout);
+					queueChipPayout(i, payout, false, wager, sideBetSpot(i, true));
 					matchUpResult[i] = HandResult::Win;
 
 					if(matches == 2)
@@ -4245,7 +4293,7 @@ private:
 							"MATCH UP  " + rankPlural(dealerUp.getValue()),
 							payout);
 				} else{
-					queueChipCollection(i, wager);
+					queueChipCollection(i, wager, sideBetSpot(i, true));
 					matchUpResult[i] = HandResult::Loss;
 				}
 			} else if(hasLuckyStiff(gameMode)){
@@ -4260,10 +4308,10 @@ private:
 				if(pending){
 					luckyStiffPending[i] = true;
 				} else if(payout > 0){
-					queueChipPayout(i, payout);
+					queueChipPayout(i, payout, false, wager, sideBetSpot(i, true));
 					sideBetResult[i] = HandResult::Win;
 				} else{
-					queueChipCollection(i, wager);
+					queueChipCollection(i, wager, sideBetSpot(i, true));
 					sideBetResult[i] = HandResult::Loss;
 				}
 			}
@@ -4281,22 +4329,59 @@ private:
 		return 0;
 	}
 
-	// Fires one flying chip per paid-out (win or push) hand from the tray
-	// to that player's seat. The tray column it came from drops a layer
-	// immediately -- that chip is visibly leaving right now, not once it
-	// lands on the other end.
-	void queueChipPayout(int playerIndex, int credit, bool isPush = false){
-		sound(Sfx::ChipsPay);
-		int denomIndex = denomIndexFor(credit);
-		int col = firstColumnForDenom(denomIndex);
-		trayFillCount[col] = std::max(0, trayFillCount[col] - 1);
+	// Stage lengths for ChipAnimation (seconds).
+	static constexpr float CHIPS_TO_SPOT = 0.45f;   // winnings tray -> beside the bet
+	static constexpr float CHIPS_HOLD = 0.55f;      // both stacks sit on the felt
+	static constexpr float CHIPS_TO_BANKROLL = 0.5f;
+	static constexpr float CHIPS_TO_TRAY = 0.45f;
 
-		Point seat = players[playerIndex].getSeatAnchor();
+	float chipAnimationLength(const ChipAnimation& a) const {
+		switch(a.kind){
+			case ChipAnimation::Win:  return CHIPS_TO_SPOT + CHIPS_HOLD + CHIPS_TO_BANKROLL;
+			case ChipAnimation::Push: return CHIPS_HOLD + CHIPS_TO_BANKROLL;
+			default:                  return CHIPS_TO_TRAY;
+		}
+	}
+
+	// Where a seat's bankroll is shown along the top -- winnings fly there.
+	SDL_FPoint bankrollPoint(int playerIndex){
+		if(bankrollLabelCenter[playerIndex].x > 0.0f)
+			return bankrollLabelCenter[playerIndex];
+		return SDL_FPoint{ seatCenterX(playerIndex), 25.0f };
+	}
+
+	// Where a hand's main bet chips sit: the bottom-left corner of its
+	// spot (drawMainBetChips()).
+	SDL_FPoint betSpot(int playerIndex, int hand){
+		float out = SPOT_MARGIN + 4.0f;
+		return seatPoint(playerIndex, hand, -out, cardHeight + out);
+	}
+
+	// A side bet's circle: top right (first side bet) or top left (Match Down).
+	SDL_FPoint sideBetSpot(int playerIndex, bool topRight){
+		float out = SPOT_MARGIN + 4.0f;
+		return seatPoint(playerIndex, 0, topRight ? cardWidth + out : -out, -out);
+	}
+
+	// Pays a bet out (credit = everything that comes back, stake included;
+	// isPush when that's just the stake). stake is the bet's own chips,
+	// already sitting at spot; the rest is winnings brought from the tray.
+	// Without a stake (a bonus nobody bet on), it's all winnings. The tray
+	// column the winnings come from drops a layer right away.
+	void queueChipPayout(int playerIndex, int credit, bool isPush, int stake, SDL_FPoint spot){
+		sound(Sfx::ChipsPay);
+		int winnings = isPush ? 0 : std::max(0, credit - stake);
+		int col = firstColumnForDenom(denomIndexFor(std::max(1, winnings)));
+		if(winnings > 0)
+			trayFillCount[col] = std::max(0, trayFillCount[col] - 1);
 
 		chipAnimations.push_back(ChipAnimation{
-			.start = trayColumnBottom(col),
-			.end = SDL_FPoint{ seatCenterX(playerIndex), seat.y },
-			.denomIndex = denomIndex,
+			.kind = isPush ? ChipAnimation::Push : ChipAnimation::Win,
+			.spot = spot,
+			.tray = trayColumnBottom(col),
+			.bankroll = bankrollPoint(playerIndex),
+			.stake = isPush ? credit : std::min(stake, credit),
+			.winnings = winnings,
 			.columnIndex = col,
 			.playerIndex = playerIndex,
 			.creditAmount = credit,
@@ -4304,25 +4389,18 @@ private:
 		});
 	}
 
-	// The mirror image of queueChipPayout(): a lost bet flies from the
-	// player's seat back to the tray instead. creditAmount is 0 -- the
-	// bet already left the bankroll up front at deal time (deductBet()),
-	// so nothing more happens to bankroll when this one lands; it's purely
-	// the "house collects the loss" visual. Unlike a payout, the tray
-	// column only gains its layer back once the chip actually arrives
-	// (see update()) -- it hasn't reached the tray yet when it leaves the
-	// player's seat.
-	void queueChipCollection(int playerIndex, int amount){
+	// A lost bet: its chips are taken from spot to the tray. creditAmount
+	// is 0 -- the bet already left the bankroll at deal time. The tray
+	// column only gets its layer back once the chips arrive.
+	void queueChipCollection(int playerIndex, int amount, SDL_FPoint spot){
 		sound(Sfx::ChipsTake);
-		int denomIndex = denomIndexFor(amount);
-		int col = firstColumnForDenom(denomIndex);
-
-		Point seat = players[playerIndex].getSeatAnchor();
-
+		int col = firstColumnForDenom(denomIndexFor(amount));
 		chipAnimations.push_back(ChipAnimation{
-			.start = SDL_FPoint{ seatCenterX(playerIndex), seat.y },
-			.end = trayColumnBottom(col),
-			.denomIndex = denomIndex,
+			.kind = ChipAnimation::Loss,
+			.spot = spot,
+			.tray = trayColumnBottom(col),
+			.bankroll = bankrollPoint(playerIndex),
+			.stake = amount,
 			.columnIndex = col,
 			.playerIndex = playerIndex,
 			.creditAmount = 0
@@ -4335,6 +4413,16 @@ private:
 			// cards get pulled off to the discard pile.
 			pauseTimer = BUST_PAUSE_DURATION;
 			onPauseComplete = [this](){
+				// The dealer takes a bust's chips straight away, along
+				// with its cards (resolveRound() still settles the stats).
+				{
+					Person& p = players[activePlayer];
+					int h = p.getActiveHand();
+					if(h < p.hands.size() && p.hands[h].getBet() > 0 && !p.hands[h].isChipsCollected()){
+						queueChipCollection(activePlayer, p.hands[h].getRealBet(), betSpot(activePlayer, h));
+						p.hands[h].markChipsCollected();
+					}
+				}
 				busted();
 				if(players[activePlayer].getActiveHand() > players[activePlayer].hands.size() - 1)
 					activePlayer++;

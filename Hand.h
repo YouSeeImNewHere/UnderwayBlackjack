@@ -150,6 +150,11 @@ public:
 
 	bool isSurrendered() const{ return surrendered; }
 
+	// A bust's chips are taken as soon as it busts (Table::checkBreak()),
+	// not again when the round settles.
+	void markChipsCollected(){ chipsCollected = true; }
+	bool isChipsCollected() const{ return chipsCollected; }
+
 	// Set on both hands when a pair is split (Table::onSplit()). fromSplit
 	// drives the automatic second card when play reaches a split hand;
 	// splitAces drives the one-card-per-ace rule (see
@@ -266,6 +271,7 @@ public:
 private:
 	bool bust = false;
 	bool surrendered = false;
+	bool chipsCollected = false;
 	bool fromSplit = false;
 	int doubleCount = 0;
 	bool splitAces = false;
