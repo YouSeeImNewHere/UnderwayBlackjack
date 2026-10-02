@@ -31,6 +31,10 @@ public:
 	// DEALER HITS SOFT 17 row: off = the dealer stands on soft 17 (and
 	// the strategy charts switch to match). Free Bet's dealer always hits.
 	bool dealerHitsSoft17 = true;
+	// INDEX PLAYS row: card counting's chart deviations (by true count)
+	// in TIP / practice, a bet ramp while betting, and an insurance hint.
+	// Standard games only.
+	bool indexPlays = false;
 
 	// Set by mina.cpp right before this screen shows (from GameModeMenu's
 	// pick, pre-game, or Table::getGameMode() when reopened from the pause
@@ -145,6 +149,10 @@ public:
 		drawRowLabel(state, ROW_Y[5], soft17Choice ? "DEALER HITS SOFT 17" : "DEALER HITS SOFT 17 - ALWAYS");
 		drawToggleButton(state, toggleButton(5), soft17Choice ? dealerHitsSoft17 : true);
 
+		bool indexChoice = !isPlayersEdge(gameMode) && !isFreeBet(gameMode);
+		drawRowLabel(state, ROW_Y[6], indexChoice ? "INDEX PLAYS - COUNTING" : "INDEX PLAYS - STANDARD ONLY");
+		drawToggleButton(state, toggleButton(6), indexChoice && indexPlays);
+
 		drawSpeedDemo(state, res);
 
 		SDL_FRect go = confirmButton();
@@ -187,6 +195,8 @@ public:
 		rects.push_back(toggleButton(4));
 		if(!isFreeBet(gameMode))
 			rects.push_back(toggleButton(5));
+		if(!isPlayersEdge(gameMode) && !isFreeBet(gameMode))
+			rects.push_back(toggleButton(6));
 		rects.push_back(backButton());
 		rects.push_back(confirmButton());
 		return rects;
@@ -236,6 +246,10 @@ public:
 		if(!isFreeBet(gameMode) && SDL_PointInRectFloat(&p, &soft17Button))
 			dealerHitsSoft17 = !dealerHitsSoft17;
 
+		SDL_FRect indexButton = toggleButton(6);
+		if(!isPlayersEdge(gameMode) && !isFreeBet(gameMode) && SDL_PointInRectFloat(&p, &indexButton))
+			indexPlays = !indexPlays;
+
 		SDL_FRect confirm = confirmButton();
 		if(SDL_PointInRectFloat(&p, &confirm))
 			return true;
@@ -249,12 +263,12 @@ private:
 	static constexpr SDL_Color WHITE{255, 255, 255, 255};
 
 	// Same left-caption/right-controls shape as SetupMenu's stepper rows,
-	// just 6 rows instead of a per-player block -- LABEL_X is where a
+	// just 7 rows instead of a per-player block -- LABEL_X is where a
 	// row's caption starts, CONTROL_X where its buttons start.
 	static constexpr float LABEL_X = 380.0f;
 	static constexpr float CONTROL_X = 760.0f;
-	static constexpr float ROW_H = 60.0f;
-	static constexpr float ROW_Y[6] = {120.0f, 232.0f, 300.0f, 368.0f, 436.0f, 504.0f};
+	static constexpr float ROW_H = 58.0f;
+	static constexpr float ROW_Y[7] = {110.0f, 222.0f, 288.0f, 354.0f, 420.0f, 486.0f, 552.0f};
 
 	// Demo card track -- off to the right of the 3 rows above, clear of
 	// their controls (the slider ends at CONTROL_X + SLIDER_W, 1200).
@@ -363,11 +377,11 @@ private:
 	// GO and BACK sit side by side, the pair centered.
 	SDL_FRect confirmButton(){
 		float w = 260.0f, h = 56.0f;
-		return SDL_FRect{ .x = 720.0f + 10.0f, .y = 600.0f, .w = w, .h = h };
+		return SDL_FRect{ .x = 720.0f + 10.0f, .y = 636.0f, .w = w, .h = h };
 	}
 
 	SDL_FRect backButton(){
 		float w = 200.0f, h = 56.0f;
-		return SDL_FRect{ .x = 720.0f - 10.0f - w, .y = 600.0f, .w = w, .h = h };
+		return SDL_FRect{ .x = 720.0f - 10.0f - w, .y = 636.0f, .w = w, .h = h };
 	}
 };

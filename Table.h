@@ -13,6 +13,7 @@
 #include "StrategyChart.h"
 #include "GameModeMenu.h"
 #include "Stats.h"
+#include "Trainer.h"
 #include "Sound.h"
 
 struct CardAnimation {
@@ -890,6 +891,22 @@ public:
 	int getNumberOfPlayers(){ return numberOfPlayers; }
 
 	// Lifetime stats (Stats.h), owned and saved by mina.cpp; null in tests.
+	// TRAINING's memory (Trainer.h): every chart decision in a real hand
+	// counts toward that cell's accuracy, and a miss goes on the list.
+	void setTrainer(Trainer* t){ trainer = t; }
+
+	// Game Options' INDEX PLAYS: the chart bends to the true count
+	// (IndexPlays, standard games only), and betting shows a bet ramp.
+	void setIndexPlays(bool on){ indexPlaysOn = on; }
+	bool indexPlaysActive() const{ return indexPlaysOn && StrategyChart::isStandard(StrategyChart::active.set); }
+
+	// Hi-Lo true count: the running count per deck left in the shoe.
+	float trueCount(){
+		float cardsPerDeck = isPlayersEdge(gameMode) ? 48.0f : 52.0f;
+		return runningCount / std::max(0.25f, shoe.size() / cardsPerDeck);
+	}
+	int trueCountFloor(){ return IndexPlays::floorCount(trueCount()); }
+
 	void setStats(Stats* s){
 		stats = s;
 		syncStatsTraining();
@@ -1675,6 +1692,8 @@ private:
 		char playable;
 		if(!getStrategySituation(section, row, col) || !chartAdvice(playable))
 			return "";
+		if(!lastIndexNote.empty())
+			return lastIndexNote;
 		std::string why;
 		char raw = chartLetter(section, row, col, &why);
 		if(activeHandDoubled())
@@ -1759,6 +1778,13 @@ private:
 		drawButton(state, cont, SDL_Color{60, 130, 70, 255});
 		DigitFont::drawText(state, "CONTINUE", cont.x + (cont.w - DigitFont::textWidth("CONTINUE", b)) / 2.0f, cont.y + (cont.h - 5 * b) / 2.0f, b, white);
 	}
+
+	Trainer* trainer = nullptr;
+	bool indexPlaysOn = false;
+public:
+	// mina.cpp saves the trainer when this is set (then clears it).
+	bool trainerDirty = false;
+private:
 
 	bool askDoubleAmount = false;
 	bool choosingDouble = false;
@@ -1850,6 +1876,13 @@ private:
 		float subPixel = 4.0f;
 		float subW = DigitFont::textWidth(sub, subPixel);
 		DigitFont::drawText(state, sub, panel.x + (panel.w - subW) / 2.0f, panel.y + 18.0f + 5 * qPixel + 18.0f, subPixel, SDL_Color{210, 210, 210, 255});
+		if(indexPlaysActive()){
+			int tc = trueCountFloor();
+			std::string hint = "TRUE COUNT " + IndexPlays::signedNum(tc) + (tc >= IndexPlays::INSURANCE_INDEX ? ": TAKE IT" : ": DECLINE - TAKE IT AT +3");
+			float hp = 3.2f;
+			DigitFont::drawText(state, hint, panel.x + (panel.w - DigitFont::textWidth(hint, hp)) / 2.0f, panel.y + 82.0f, hp,
+				tc >= IndexPlays::INSURANCE_INDEX ? SDL_Color{110, 230, 110, 255} : SDL_Color{255, 200, 120, 255});
+		}
 
 		SDL_FRect yes = insuranceYesButton(), no = insuranceNoButton();
 		drawButton(state, yes, SDL_Color{60, 130, 70, 255});
@@ -3487,6 +3520,15 @@ private:
 
 		if(isTraining())
 			return;
+		if(indexPlaysActive()){
+			int tc = trueCountFloor();
+			int units = IndexPlays::betUnits(tc);
+			std::string ramp = "TRUE COUNT " + IndexPlays::signedNum(tc) + " - BET " + std::to_string(units) + (units == 1 ? " UNIT" : " UNITS");
+			float rp = 3.4f;
+			float w = DigitFont::textWidth(ramp, rp);
+			float x = std::clamp(deal.x + deal.w / 2.0f - w / 2.0f, 10.0f, 1430.0f - w);
+			DigitFont::drawText(state, ramp, x, deal.y - 26.0f, rp, SDL_Color{255, 225, 80, 255});
+		}
 		for(int i = 0; i < numberOfPlayers; i++){
 			if(players[i].getBankroll() <= 0){
 				drawBuyInButton(state, i);
@@ -3596,10 +3638,20 @@ private:
 		if(legal)
 			practiceHeld = 0;
 
-		if(legal && stats && !countQuizOn){
+		if(legal && !countQuizOn){
 			char advice;
-			if(chartAdvice(advice))
-				stats->recordDecision(advice == action);
+			int section, row, col;
+			if(chartAdvice(advice)){
+				if(stats)
+					stats->recordDecision(advice == action);
+				if(trainer && getStrategySituation(section, row, col)){
+					Person& p = players[activePlayer];
+					int cards = p.hands[p.getActiveHand()].getHandSize();
+					trainer->record(StrategyChart::active.set, section, row, col, advice == action, action, advice,
+						cards, indexPlaysActive() ? trueCountFloor() : Trainer::NO_COUNT, false);
+					trainerDirty = true;
+				}
+			}
 		}
 
 		switch(action){
@@ -3628,6 +3680,7 @@ private:
 			return false;
 		char code = chartCode(section, row, col);
 		advice = StrategyChart::resolve(code);
+		lastIndexNote.clear();
 		if(activeHandDoubled()){
 			advice = doubledAdvice(advice);
 			return true;
@@ -3645,8 +3698,27 @@ private:
 		}
 		else if(advice == 'P' && !canSplitActiveHand())
 			return false;
+
+		// INDEX PLAYS: the true count's deviations from the chart.
+		if(indexPlaysActive()){
+			Person& p = players[activePlayer];
+			Hand& hand = p.hands[p.getActiveHand()];
+			int tc = trueCountFloor();
+			std::string note;
+			char m = IndexPlays::move(section == 2 && row == 8, section == 1, hand.getHandTotal(), col, tc, H17,
+				canSurrenderActiveHand(), canDoubleActiveHand(), advice, &note);
+			if(m == 'P' && !canSplitActiveHand())
+				m = 0;
+			if(IndexPlays::isDeviation(m, advice)){
+				advice = m;
+				lastIndexNote = "TRUE COUNT " + IndexPlays::signedNum(tc) + ": " + (note.empty() ? std::string("INDEX PLAY") : note);
+			}
+		}
 		return true;
 	}
+
+	// Set by chartAdvice() when an index play changed the chart's move.
+	std::string lastIndexNote;
 
 	// The chart's move for the active hand, with what depends on the hand
 	// itself rather than just its total: a hard 18+ (read off the "17"
@@ -4473,9 +4545,13 @@ private:
 				// 0), so this is a no-op everywhere except Free Bet
 				// Blackjack, where a loss or push only costs/returns
 				// whatever part of the bet was actually real money.
+				// Free Bet: a win pays even money on the whole bet, but the
+				// free part itself goes back to the house -- the player gets
+				// their real stake back plus the winnings (credit - free).
+				int freePart = hand.getFreeBetAmount();
 				if(stats){
 					bool isWin = credit > bet, isPush = credit == bet && credit > 0;
-					long long net = credit == 0 ? -hand.getRealBet() : isPush ? 0 : credit - hand.getRealBet();
+					long long net = credit == 0 ? -hand.getRealBet() : isPush ? 0 : credit - bet;
 					stats->recordHand(net, isWin, isPush, isWin && blackjack, hand.isBust(), false);
 				}
 
@@ -4493,7 +4569,7 @@ private:
 					// exactly like a real win.
 					bool isPush = credit == bet;
 					hand.setResult(isPush ? HandResult::Push : HandResult::Win);
-					queueChipPayout(i, isPush ? hand.getRealBet() : credit, isPush, hand.getRealBet(), betSpot(i, h));
+					queueChipPayout(i, isPush ? hand.getRealBet() : credit - freePart, isPush, hand.getRealBet(), betSpot(i, h));
 				}
 
 				hand.setBet(0);
