@@ -1660,8 +1660,15 @@ private:
 	void drawHandResults(SDLState& state){
 		for(int i = 0; i < numberOfPlayers; i++){
 			for(Hand& hand : players[i].hands){
-				if(hand.getResult() == HandResult::None || hand.getHandSize() == 0)
+				if(hand.getHandSize() == 0)
 					continue;
+				if(hand.getResult() == HandResult::None){
+					// Shown while a busted/surrendered hand waits to be
+					// swept to the discard pile.
+					if(hand.isBust())
+						drawResultBanner(state, hand, hand.isSurrendered() ? "SURRENDER" : "BUST", SDL_Color{230, 70, 70, 255});
+					continue;
+				}
 
 				std::string text;
 				SDL_Color color;
@@ -2858,10 +2865,10 @@ private:
 				queueChipPayout(activePlayer, refund, true);
 		}
 
-		// Surrendering forfeits the hand same as busting does -- give it the
-		// same tilted "broken" look, even though its total never went over
-		// 21. Has to happen before busted() below advances past this hand.
-		players[activePlayer].bustActiveHand();
+		// Surrendering forfeits the hand same as busting does (labelled
+		// SURRENDER while it's swept away). Has to happen before busted()
+		// below advances past this hand.
+		players[activePlayer].surrenderActiveHand();
 
 		std::vector<Card> forfeited = players[activePlayer].busted();
 

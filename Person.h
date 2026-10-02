@@ -125,8 +125,8 @@ public:
 		return r;
 	}
 
-	void bustActiveHand(){
-		hands[activeHand].forceBust();
+	void surrenderActiveHand(){
+		hands[activeHand].markSurrendered();
 	}
 
 

@@ -66,7 +66,9 @@ def solve(R):
             # Spanish: a player 21 always wins, with 5/6/7+ card bonuses; reaching 21 auto-stands.
             opts = {}
             if R.spanish and t == 21:
+                # 5/6/7+ card bonuses -- not paid on a doubled hand
                 m = 1.5 if n == 5 else 2 if n == 6 else 3 if n >= 7 else 1
+                if dcount > 0: m = 1
                 return (r * m, 'S')
             W, L = stand_wl(t)
             opts['S'] = r * (W - L) + f * W
