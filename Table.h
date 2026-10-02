@@ -776,6 +776,7 @@ public:
 		drawInsurancePrompt(state);
 		drawDoublePanel(state);
 		drawPracticeNote(state);
+		drawRefusedNote(state);
 		drawRoundSummary(state);
 		drawCountQuiz(state);
 		drawJackpotCallout(state);
@@ -1080,6 +1081,8 @@ public:
 
 		if(roundSummaryTimer > 0.0f)
 			roundSummaryTimer = std::max(0.0f, roundSummaryTimer - deltaTime);
+		if(refusedTimer > 0.0f)
+			refusedTimer = std::max(0.0f, refusedTimer - deltaTime);
 
 		// A fresh shoe being shuffled (drawShuffle()): betting opens once
 		// the shuffle's done and the new shoe is in place.
@@ -1090,6 +1093,7 @@ public:
 			shuffling = false;
 			makeShoe();
 			runningCount = 0;
+			lastVerifiedCount = 0;
 			openBettingPhase();
 			return;
 		}
@@ -1474,6 +1478,7 @@ public:
 		sound(Sfx::Tap);
 		if(quizState == QuizState::Asking){
 			quizState = QuizState::Answered;
+			lastVerifiedCount = runningCount;
 			if(stats){
 				stats->bump(Stats::CountQuizzes);
 				if(quizGuess == runningCount)
@@ -1573,9 +1578,14 @@ private:
 	QuizState quizState = QuizState::Off;
 	int quizGuess = 0;
 
+	// The count last shown as an answer -- where the next guess starts,
+	// so only the change since then needs entering. Back to 0 with each
+	// new shoe.
+	int lastVerifiedCount = 0;
+
 	void openCountQuiz(){
 		quizState = QuizState::Asking;
-		quizGuess = 0;
+		quizGuess = lastVerifiedCount;
 	}
 
 	static const char* moveName(char move){
@@ -1625,8 +1635,11 @@ private:
 		std::string line2 = std::string(moveName(practiceHeld)) + " AGAIN TO PLAY IT ANYWAY";
 		float p1 = 6.0f, p2 = 3.5f;
 		float boxW = std::max(DigitFont::textWidth(line1, p1), DigitFont::textWidth(line2, p2)) + 48.0f;
-		float boxY = showQuickTip ? 232.0f : 75.0f;
-		SDL_FRect box{ .x = 720.0f - boxW / 2.0f, .y = boxY, .w = boxW, .h = 84.0f };
+		std::string reason = unavailableNote();
+		if(!reason.empty())
+			boxW = std::max(boxW, DigitFont::textWidth(reason, p2) + 48.0f);
+		float boxY = showQuickTip ? quickTipBottom + 12.0f : 75.0f;
+		SDL_FRect box{ .x = 720.0f - boxW / 2.0f, .y = boxY, .w = boxW, .h = reason.empty() ? 84.0f : 112.0f };
 		SDL_SetRenderDrawColor(state.renderer, 40, 20, 10, 240);
 		SDL_RenderFillRect(state.renderer, &box);
 		SDL_SetRenderDrawColor(state.renderer, 255, 170, 40, 255);
@@ -1635,7 +1648,63 @@ private:
 			SDL_RenderRect(state.renderer, &ring);
 		}
 		DigitFont::drawText(state, line1, 720.0f - DigitFont::textWidth(line1, p1) / 2.0f, box.y + 12.0f, p1, SDL_Color{255, 225, 80, 255});
-		DigitFont::drawText(state, line2, 720.0f - DigitFont::textWidth(line2, p2) / 2.0f, box.y + 56.0f, p2, SDL_Color{230, 230, 230, 255});
+		float y2 = box.y + 56.0f;
+		if(!reason.empty()){
+			DigitFont::drawText(state, reason, 720.0f - DigitFont::textWidth(reason, p2) / 2.0f, y2, p2, SDL_Color{255, 200, 120, 255});
+			y2 += 28.0f;
+		}
+		DigitFont::drawText(state, line2, 720.0f - DigitFont::textWidth(line2, p2) / 2.0f, y2, p2, SDL_Color{230, 230, 230, 255});
+	}
+
+	float quickTipBottom = 219.0f;
+
+	// When the chart's own move for the active hand can't be made right
+	// now, why -- and what the chart's next choice is. Empty otherwise.
+	std::string unavailableNote(){
+		int section, row, col;
+		char playable;
+		if(!getStrategySituation(section, row, col) || !chartAdvice(playable))
+			return "";
+		char raw = StrategyChart::rowData(section, row)[col];
+		if(activeHandDoubled())
+			raw = doubledAdvice(raw);
+		if(raw == playable)
+			return "";
+		if(raw == 'R')
+			return std::string("SURRENDER ONLY ON FIRST 2 CARDS - SO ") + moveName(playable);
+		if(raw == 'D')
+			return std::string("NO DOUBLE NOW - SO ") + moveName(playable);
+		return "";
+	}
+
+	// A move that isn't allowed right now (e.g. surrender after a hit):
+	// a short note saying why, instead of nothing happening.
+	std::string refusedNote;
+	float refusedTimer = 0.0f;
+
+	void refuseMove(char action){
+		switch(action){
+			case 'R': refusedNote = "SURRENDER ONLY ON YOUR FIRST 2 CARDS"; break;
+			case 'D': refusedNote = isPlayersEdge(gameMode) ? "THIS HAND CANNOT DOUBLE" : "DOUBLE ONLY ON YOUR FIRST 2 CARDS"; break;
+			case 'P': refusedNote = "THIS HAND CANNOT SPLIT"; break;
+			case 'H': refusedNote = "A DOUBLED HAND CAN ONLY REDOUBLE OR STAND"; break;
+			default: return;
+		}
+		refusedTimer = 2.0f;
+		sound(Sfx::Tap);
+	}
+
+	void drawRefusedNote(SDLState& state){
+		if(refusedTimer <= 0.0f || refusedNote.empty())
+			return;
+		float p = 4.0f;
+		float w = DigitFont::textWidth(refusedNote, p) + 40.0f;
+		SDL_FRect box{ .x = 720.0f - w / 2.0f, .y = 448.0f, .w = w, .h = 44.0f };
+		SDL_SetRenderDrawColor(state.renderer, 50, 15, 15, 235);
+		SDL_RenderFillRect(state.renderer, &box);
+		SDL_SetRenderDrawColor(state.renderer, 240, 110, 90, 255);
+		SDL_RenderRect(state.renderer, &box);
+		DigitFont::drawText(state, refusedNote, box.x + 20.0f, box.y + (44.0f - 5 * p) / 2.0f, p, SDL_Color{255, 220, 210, 255});
 	}
 
 	void drawCountQuiz(SDLState& state){
@@ -2262,11 +2331,23 @@ private:
 		// discard pile, y 21-69).
 		float boxY = 75.0f;
 
+		// The chart's move can't always be made (surrender or double after
+		// a hit): say so, and what to do instead.
+		std::string fallbackNote = unavailableNote();
+		if(!fallbackNote.empty())
+			boxH += 28.0f;
+		quickTipBottom = boxY + boxH;
+
 		SDL_SetRenderDrawColor(state.renderer, 10, 30, 15, 245);
 		SDL_FRect bg{ .x = boxX, .y = boxY, .w = boxW, .h = boxH };
 		SDL_RenderFillRect(state.renderer, &bg);
 		SDL_SetRenderDrawColor(state.renderer, 255, 255, 255, 255);
 		SDL_RenderRect(state.renderer, &bg);
+
+		if(!fallbackNote.empty()){
+			float np = std::min(3.2f, (boxW - 24.0f) / std::max(1.0f, DigitFont::textWidth(fallbackNote, 1.0f)));
+			DigitFont::drawText(state, fallbackNote, 720.0f - DigitFont::textWidth(fallbackNote, np) / 2.0f, boxY + boxH - 26.0f, np, SDL_Color{255, 225, 80, 255});
+		}
 
 		std::string title = std::string(StrategyChart::sectionTitle(section)) + " " + StrategyChart::rowLabel(section, row);
 		float titlePixel = 6.0f;
@@ -3447,6 +3528,11 @@ private:
 			default: break;
 		}
 
+		if(!legal && acceptingPlayerInput()){
+			refuseMove(action);
+			return;
+		}
+
 		// Practice mode: a move the chart disagrees with is held back once
 		// with a note saying what the chart wants; making the same move
 		// again on the same hand plays it anyway (and scores it).
@@ -4016,6 +4102,8 @@ public:
 		insuranceQueue.clear();
 		shoeNeedsReshuffle = false;
 		quizState = QuizState::Off;
+		lastVerifiedCount = 0;
+		refusedTimer = 0.0f;
 		practiceHeld = 0;
 		statsRoundPending = false;
 		roundSummaryTimer = 0.0f;
