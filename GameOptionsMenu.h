@@ -146,7 +146,7 @@ public:
 		drawRowLabel(state, ROW_Y[5], "PRACTICE MODE");
 		drawToggleButton(state, toggleButton(5), practiceMode);
 
-		drawRowLabel(state, ROW_Y[6], "COUNT QUIZ AT SHUFFLE");
+		drawRowLabel(state, ROW_Y[6], "COUNT QUIZ");
 		drawToggleButton(state, toggleButton(6), countQuiz);
 
 		drawSpeedDemo(state, res);

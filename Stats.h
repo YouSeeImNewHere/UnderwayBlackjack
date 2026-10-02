@@ -3,6 +3,8 @@
 #include <string>
 #include <fstream>
 #include <algorithm>
+#include <vector>
+#include <sstream>
 #include "GameModeMenu.h"
 
 #ifdef __EMSCRIPTEN__
@@ -67,6 +69,22 @@ struct Stats
 	}
 
 	long long values[ScopeCount][FieldCount] = {};
+
+	// The STATS graph: NetWinnings after each round, per set. Long
+	// histories are thinned (every other point dropped) to stay under
+	// HISTORY_MAX. sessionBase is NetWinnings when the app started (or the
+	// stats were reset), so "this session" is the change since then.
+	static constexpr size_t HISTORY_MAX = 400;
+	std::vector<long long> history[ScopeCount];
+	long long sessionBase[ScopeCount] = {};
+	int sessionRounds[ScopeCount] = {};
+
+	// Once per finished round (Table::openBettingPhase()).
+	void recordRound(){
+		addPoint(AllGames);
+		if(current != AllGames)
+			addPoint(current);
+	}
 
 	// The game now being played -- everything recorded also goes into its set.
 	void setGame(GameMode mode){ current = scopeFor(mode); }
@@ -139,6 +157,11 @@ struct Stats
 		for(auto& scope : values)
 			for(long long& v : scope)
 				v = 0;
+		for(int s = 0; s < ScopeCount; s++){
+			history[s].clear();
+			sessionBase[s] = 0;
+			sessionRounds[s] = 0;
+		}
 	}
 
 	static const char* key(int f){
@@ -175,6 +198,16 @@ struct Stats
 					return v === null ? 0 : parseInt(v);
 				}, s * WEB_STRIDE + f);
 			}
+		for(int s = 0; s < ScopeCount; s++){
+			history[s].clear();
+			int n = EM_ASM_INT({
+				var v = localStorage.getItem('underwayBlackjackHist' + $0);
+				Module.blackjackHist = v ? v.split(',') : [];
+				return Module.blackjackHist.length;
+			}, s);
+			for(int k = 0; k < n; k++)
+				history[s].push_back(EM_ASM_INT({ return parseInt(Module.blackjackHist[$0]) || 0; }, k));
+		}
 #else
 		std::ifstream in(path());
 		std::string line;
@@ -184,6 +217,12 @@ struct Stats
 				continue;
 			std::string k = line.substr(0, eq);
 			bool found = false;
+			for(int s = 0; s < ScopeCount && !found; s++){
+				if(k == "hist." + std::to_string(s)){
+					history[s] = parseHistory(line.substr(eq + 1));
+					found = true;
+				}
+			}
 			for(int s = 0; s < ScopeCount && !found; s++){
 				for(int f = 0; f < FieldCount; f++){
 					if(k == scopedKey(s, f)){
@@ -195,6 +234,8 @@ struct Stats
 			}
 		}
 #endif
+		for(int s = 0; s < ScopeCount; s++)
+			sessionBase[s] = values[s][NetWinnings];
 	}
 
 	void save(){
@@ -204,17 +245,57 @@ struct Stats
 			for(int f = 0; f < FieldCount; f++){
 				EM_ASM({ localStorage.setItem('underwayBlackjackStat' + $0, $1); }, s * WEB_STRIDE + f, (int)values[s][f]);
 			}
+		// Built up in JS a number at a time (no string passing needed).
+		for(int s = 0; s < ScopeCount; s++){
+			EM_ASM({ Module.blackjackHist = []; });
+			for(long long v : history[s])
+				EM_ASM({ Module.blackjackHist.push($0); }, (double)v);
+			EM_ASM({ localStorage.setItem('underwayBlackjackHist' + $0, Module.blackjackHist.join(',')); }, s);
+		}
 #else
 		std::ofstream out(path());
 		for(int s = 0; s < ScopeCount; s++)
 			for(int f = 0; f < FieldCount; f++)
 				out << scopedKey(s, f) << "=" << values[s][f] << "\n";
+		for(int s = 0; s < ScopeCount; s++)
+			out << "hist." << s << "=" << joinHistory(history[s]) << "\n";
 #endif
 	}
 
 private:
 	static constexpr int WEB_STRIDE = 200;
 	Scope current = StandardGame;
+
+	void addPoint(int scope){
+		std::vector<long long>& h = history[scope];
+		h.push_back(values[scope][NetWinnings]);
+		sessionRounds[scope]++;
+		if(h.size() > HISTORY_MAX){
+			// Keep the newest point and every other one before it.
+			std::vector<long long> thinned;
+			for(size_t k = (h.size() + 1) % 2; k < h.size(); k += 2)
+				thinned.push_back(h[k]);
+			h = std::move(thinned);
+		}
+	}
+
+	static std::string joinHistory(const std::vector<long long>& h){
+		std::string out;
+		for(size_t k = 0; k < h.size(); k++){
+			if(k) out += ",";
+			out += std::to_string(h[k]);
+		}
+		return out;
+	}
+
+	static std::vector<long long> parseHistory(const std::string& text){
+		std::vector<long long> h;
+		std::stringstream in(text);
+		std::string item;
+		while(std::getline(in, item, ','))
+			try{ h.push_back(std::stoll(item)); } catch(...){}
+		return h;
+	}
 
 	template<typename Fn>
 	void forEachScope(Fn fn){

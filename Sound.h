@@ -12,6 +12,8 @@ enum class Sfx{
 	ChipBet,    // a bet or side bet goes up during betting
 	Shuffle,    // a fresh shoe
 	Tap,        // any button
+	Win,        // a blackjack
+	Jackpot,    // a rare side-bet hit (the big callout banner)
 	Count
 };
 

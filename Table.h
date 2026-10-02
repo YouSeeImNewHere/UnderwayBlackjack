@@ -68,6 +68,7 @@ struct ChipAnimation{
 	SDL_FPoint spot;
 	SDL_FPoint tray;
 	SDL_FPoint bankroll;
+	SDL_FPoint beside;  // where the winnings stack lands: the player's right of the bet
 	int stake = 0;      // the bet's own chips
 	int winnings = 0;   // what the house adds to it (wins only)
 	float elapsed = 0.0f;
@@ -235,6 +236,21 @@ public:
 	void openBettingPhase(){
 		for(int i = 0; i < numberOfPlayers; i++)
 			clampBetsToBankroll(i);
+
+		// A round just finished (every chip has landed): a point on the
+		// STATS graph, and each seat's result for the round shown briefly.
+		if(statsRoundPending){
+			statsRoundPending = false;
+			if(stats)
+				stats->recordRound();
+			bool any = false;
+			for(int i = 0; i < numberOfPlayers; i++){
+				roundNet[i] = players[i].getBankroll() - roundStartBankroll[i];
+				any = any || roundPlayed[i];
+			}
+			if(any)
+				roundSummaryTimer = ROUND_SUMMARY_DURATION;
+		}
 
 		awaitingBets = true;
 	}
@@ -416,6 +432,8 @@ public:
 			clampBetsToBankroll(i);
 
 		for(int i = 0; i < numberOfPlayers; i++){
+			roundStartBankroll[i] = players[i].getBankroll();
+			roundPlayed[i] = players[i].getBet() > 0;
 			if(players[i].getBet() > 0){
 				// Total leaving the bankroll this deal -- main bet plus
 				// whichever side bet(s) are actually in play -- shown as
@@ -441,6 +459,8 @@ public:
 			luckyStiffPending[i] = false;
 		}
 
+		roundSummaryTimer = 0.0f;
+		statsRoundPending = true;
 		activePlayer = 0;
 		skipZeroBetPlayers();
 
@@ -731,6 +751,7 @@ public:
 		drawInsurancePrompt(state);
 		drawDoublePanel(state);
 		drawPracticeNote(state);
+		drawRoundSummary(state);
 		drawCountQuiz(state);
 		drawJackpotCallout(state);
 	}
@@ -787,6 +808,8 @@ public:
 		hand.setResult(HandResult::Win);
 		queueChipPayout(playerIndex, credit, false, bet, betSpot(playerIndex, handIdx));
 		hand.setBet(0);
+		if(natural)
+			sound(Sfx::Win);
 	}
 
 	// Right after the dealer's peek (no dealer blackjack), every natural
@@ -1028,6 +1051,9 @@ public:
 			else
 				++it;
 		}
+
+		if(roundSummaryTimer > 0.0f)
+			roundSummaryTimer = std::max(0.0f, roundSummaryTimer - deltaTime);
 
 		// A fresh shoe being shuffled (drawShuffle()): betting opens once
 		// the shuffle's done and the new shoe is in place.
@@ -1447,6 +1473,38 @@ private:
 	char practiceHeld = 0, practiceAdvice = 0;
 	int practicePlayer = 0, practiceHand = 0, practiceHandSize = 0;
 
+	// The round summary: each seat's net for the round just played
+	// ("+75", "-25", "EVEN"), shown over its spot as betting opens.
+	static constexpr float ROUND_SUMMARY_DURATION = 2.6f;
+	float roundSummaryTimer = 0.0f;
+	bool statsRoundPending = false;
+	int roundStartBankroll[5] = {};
+	bool roundPlayed[5] = {};
+	int roundNet[5] = {};
+
+	void drawRoundSummary(SDLState& state){
+		if(roundSummaryTimer <= 0.0f || !awaitingBets)
+			return;
+		// Fades over the last half second.
+		float alpha = std::clamp(roundSummaryTimer / 0.5f, 0.0f, 1.0f);
+		for(int i = 0; i < numberOfPlayers; i++){
+			if(!roundPlayed[i])
+				continue;
+			int net = roundNet[i];
+			std::string text = net > 0 ? "+" + std::to_string(net) : net < 0 ? "-" + std::to_string(-net) : "EVEN";
+			SDL_Color color = net > 0 ? SDL_Color{110, 235, 110, 255} : net < 0 ? SDL_Color{245, 110, 90, 255} : SDL_Color{230, 230, 230, 255};
+			color.a = (Uint8)(255 * alpha);
+			float pixel = 7.0f;
+			float w = DigitFont::textWidth(text, pixel);
+			SDL_FPoint c = seatPoint(i, 0, cardWidth / 2.0f, cardHeight * 0.3f);
+			SDL_FRect bg{ .x = c.x - w / 2.0f - 12.0f, .y = c.y - 5 * pixel / 2.0f - 10.0f, .w = w + 24.0f, .h = 5 * pixel + 20.0f };
+			SDL_SetRenderDrawBlendMode(state.renderer, SDL_BLENDMODE_BLEND);
+			SDL_SetRenderDrawColor(state.renderer, 10, 20, 12, (Uint8)(200 * alpha));
+			SDL_RenderFillRect(state.renderer, &bg);
+			DigitFont::drawText(state, text, c.x - w / 2.0f, c.y - 5 * pixel / 2.0f, pixel, color);
+		}
+	}
+
 	enum class QuizState{ Off, Asking, Answered, Done };
 	bool countQuizOn = false;
 	QuizState quizState = QuizState::Off;
@@ -1517,7 +1575,7 @@ private:
 		float b = 5.5f;
 
 		if(quizState == QuizState::Asking){
-			std::string q = "SHUFFLE! RUNNING COUNT?";
+			std::string q = "RUNNING COUNT?";
 			DigitFont::drawText(state, q, panel.x + (panel.w - DigitFont::textWidth(q, 5.0f)) / 2.0f, panel.y + 14.0f, 5.0f, white);
 			SDL_FRect minus = doubleMinusButton(), plus = doublePlusButton();
 			drawButton(state, minus, SDL_Color{70, 70, 80, 255});
@@ -3183,7 +3241,6 @@ private:
 			t = t * t * (3.0f - 2.0f * t);
 			return SDL_FPoint{ a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t };
 		};
-		constexpr float BESIDE = 34.0f; // winnings stack, to the right of the bet
 
 		for(ChipAnimation& a : chipAnimations){
 			float t = a.elapsed;
@@ -3193,7 +3250,7 @@ private:
 				continue;
 			}
 
-			SDL_FPoint beside{ a.spot.x + BESIDE, a.spot.y };
+			SDL_FPoint beside = a.beside;
 			float toBankroll = chipAnimationLength(a) - CHIPS_TO_BANKROLL;
 			if(t < toBankroll){
 				if(a.stake > 0)
@@ -3209,7 +3266,9 @@ private:
 				if(a.stake > 0)
 					drawChipStack(state, res, p.x, p.y, { a.stake });
 				if(a.winnings > 0)
-					drawChipStack(state, res, p.x + (a.stake > 0 ? BESIDE * (1.0f - u) : 0.0f), p.y, { a.winnings });
+					drawChipStack(state, res,
+						p.x + (a.stake > 0 ? (a.beside.x - a.spot.x) * (1.0f - u) : 0.0f),
+						p.y + (a.stake > 0 ? (a.beside.y - a.spot.y) * (1.0f - u) : 0.0f), { a.winnings });
 			}
 		}
 	}
@@ -3858,6 +3917,8 @@ public:
 		shoeNeedsReshuffle = false;
 		quizState = QuizState::Off;
 		practiceHeld = 0;
+		statsRoundPending = false;
+		roundSummaryTimer = 0.0f;
 		runningCount = 0;
 
 		for(int i = 0; i < 5; i++){
@@ -4464,6 +4525,7 @@ private:
 	void queueJackpotCallout(int playerIndex, const std::string& title, const std::string& what, int payout){
 		if(stats)
 			stats->bump(Stats::JackpotHits);
+		sound(Sfx::Jackpot);
 		jackpotCallouts.push_back(JackpotCallout{
 			.title = title,
 			.detail = "P" + std::to_string(playerIndex + 1) + "  " + what + "  +" + std::to_string(payout),
@@ -4809,6 +4871,15 @@ private:
 		return seatPoint(playerIndex, 0, topRight ? cardWidth + out : -out, -out);
 	}
 
+	// The player's right of a chip spot, along the seat's own +x (the way
+	// its cards run) -- where a payout's winnings are stacked.
+	SDL_FPoint besideSpot(int playerIndex, SDL_FPoint spot){
+		constexpr float PI = 3.14159265358979323846f;
+		constexpr float BESIDE = 34.0f;
+		float rad = players[playerIndex].calcOffset().rotation * PI / 180.0f;
+		return SDL_FPoint{ spot.x + BESIDE * std::cos(rad), spot.y + BESIDE * std::sin(rad) };
+	}
+
 	// Pays a bet out (credit = everything that comes back, stake included;
 	// isPush when that's just the stake). stake is the bet's own chips,
 	// already sitting at spot; the rest is winnings brought from the tray.
@@ -4828,6 +4899,7 @@ private:
 			.spot = spot,
 			.tray = trayColumnBottom(col),
 			.bankroll = bankrollPoint(playerIndex),
+			.beside = besideSpot(playerIndex, spot),
 			.stake = isPush ? credit : std::min(stake, credit),
 			.winnings = winnings,
 			.columnIndex = col,

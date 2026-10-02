@@ -59,4 +59,31 @@ tap = (np.sin(2 * np.pi * 1320 * t) * np.exp(-t * 90)
 tap[:int(0.002 * SR)] *= np.linspace(0, 1, int(0.002 * SR))
 save('sfx-tap', tap, peak=0.45)
 
+# Wins: soft bell tones (a sine with a quieter octave and fifth above,
+# each note decaying), so they read as "good news" without being loud.
+def bell(freq, length, decay):
+    n = int(length * SR)
+    t = np.arange(n) / SR
+    tone = (np.sin(2 * np.pi * freq * t)
+            + 0.35 * np.sin(2 * np.pi * freq * 2 * t)
+            + 0.15 * np.sin(2 * np.pi * freq * 3 * t)) * np.exp(-t * decay)
+    attack = int(0.004 * SR)
+    tone[:attack] *= np.linspace(0, 1, attack)
+    return tone
+
+def notes(seq, total):
+    out = np.zeros(int(total * SR))
+    for start, freq, length, decay, gain in seq:
+        b = bell(freq, length, decay) * gain
+        i = int(start * SR)
+        out[i:i + len(b)] += b[:len(out) - i]
+    return out
+
+# Blackjack: a quick rising pair (E6, A6).
+save('sfx-win', notes([(0.00, 1318.5, 0.5, 9, 0.8), (0.09, 1760.0, 0.6, 7, 1.0)], 0.75), peak=0.55)
+# A rare side-bet hit: a C-major arpeggio up to a held high C.
+save('sfx-jackpot', notes([(0.00, 523.25, 0.6, 6, 0.7), (0.10, 659.25, 0.6, 6, 0.7),
+                           (0.20, 783.99, 0.6, 6, 0.75), (0.30, 1046.5, 1.2, 3, 1.0),
+                           (0.30, 1568.0, 1.0, 4, 0.35)], 1.5), peak=0.6)
+
 print('wrote', sorted(os.listdir(OUT)))
