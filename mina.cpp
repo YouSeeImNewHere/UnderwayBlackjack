@@ -1086,6 +1086,8 @@ int main(int argc,char *argv[]) {
     ctx->menu.hasSavedGame = ctx->save.gameStarted;
     ctx->stats.load();
     ctx->table.setStats(&ctx->stats);
+    // Phones/tablets get DEAL in the bottom-right corner (Platform.h).
+    ctx->table.setTouchLayout(usesTouchControls());
     // Windows release builds only (see UpdateCheck.h); a no-op elsewhere.
     ctx->update.start();
     // First launch: open HOW TO PLAY before anything else.

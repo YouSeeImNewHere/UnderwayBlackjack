@@ -582,7 +582,23 @@ public:
 		// progressively-further-right cards as it depleted instead of
 		// visibly shrinking back toward shoePosition the way cards are
 		// actually being pulled from.
-		for(int i = shoe.size() - 1; i >= 0; i--){
+		//
+		// Cards already taken by getNextCard() but still waiting in the
+		// deal queue are drawn at the front of the stack until they
+		// actually fly, so the shoe shrinks one card at a time as they
+		// leave instead of all at once when a whole deal is queued.
+		std::vector<int> queuedFromShoe;
+		{
+			std::queue<DealRequest> pending = dealQueue;
+			while(!pending.empty()){
+				DealRequest r = pending.front();
+				if(r.from.x == shoePosition.x && r.from.y == shoePosition.y)
+					queuedFromShoe.push_back(r.card.getValue());
+				pending.pop();
+			}
+		}
+		int stackSize = (int)(queuedFromShoe.size() + shoe.size());
+		for(int i = stackSize - 1; i >= 0; i--){
 			SDL_FRect dest{
 				.x = shoePosition.x + i * shoeCardSpacing,
 				.y = shoePosition.y,
@@ -590,7 +606,8 @@ public:
 				.h = cardHeight
 			};
 
-			if(shoe[i].getValue() == 14)
+			int value = i < (int)queuedFromShoe.size() ? queuedFromShoe[i] : shoe[i - queuedFromShoe.size()].getValue();
+			if(value == 14)
 				SDL_RenderTexture(state.renderer,res.allCards,&shoeYellow,&dest);
 			else
 				SDL_RenderTexture(state.renderer,res.allCards,&shoeBack,&dest);
@@ -619,6 +636,7 @@ public:
 		drawHandTotals(state);
 		drawBankrolls(state);
 		drawHandResults(state);
+		drawSideBetCircles(state);
 
 		if(awaitingBets)
 			drawBetting(state);
@@ -1164,14 +1182,16 @@ private:
 		bool dealerBlackjack = dealerHand.getHandTotal() == 21;
 
 		// Insurance pays 2:1 (the stake back plus twice it) on a dealer
-		// blackjack; otherwise the stake, taken when it was placed, is lost.
+		// blackjack -- 5:1 in Player's Edge when that blackjack is suited;
+		// otherwise the stake, taken when it was placed, is lost.
+		int insuranceOdds = (isPlayersEdge(gameMode) && dealerHand.cards[0].getSuit() == dealerHand.cards[1].getSuit()) ? 5 : 2;
 		for(int i = 0; i < numberOfPlayers; i++){
 			if(insuranceBet[i] <= 0)
 				continue;
 			if(stats)
-				stats->values[Stats::NetWinnings] += dealerBlackjack ? insuranceBet[i] * 2 : -insuranceBet[i];
+				stats->values[Stats::NetWinnings] += dealerBlackjack ? insuranceBet[i] * insuranceOdds : -insuranceBet[i];
 			if(dealerBlackjack)
-				queueChipPayout(i, insuranceBet[i] * 3);
+				queueChipPayout(i, insuranceBet[i] * (insuranceOdds + 1));
 		}
 
 		if(!dealerBlackjack)
@@ -1948,10 +1968,22 @@ private:
 	// on it instead of the true canvas center kept landing off to one
 	// side. 1440x720 is the fixed logical canvas size (see main()'s
 	// SDL_SetRenderLogicalPresentation call), so its center never moves.
+	//
+	// On touch screens it goes in the bottom-right corner instead, where a
+	// right thumb rests (setTouchLayout(), from mina.cpp).
 	SDL_FRect dealButton(){
 		float w = 220.0f, h = 80.0f;
+		if(touchLayout)
+			return SDL_FRect{ .x = 1440.0f - w - 16.0f, .y = 720.0f - 90.0f - 12.0f, .w = w, .h = 90.0f };
 		return SDL_FRect{ .x = 1440.0f / 2.0f - w / 2.0f, .y = 720.0f / 2.0f - h / 2.0f, .w = w, .h = h };
 	}
+
+	bool touchLayout = false;
+
+public:
+	void setTouchLayout(bool touch){ touchLayout = touch; }
+
+private:
 
 	void drawButton(SDLState& state, const SDL_FRect& rect, SDL_Color color){
 		SDL_SetRenderDrawColor(state.renderer, color.r, color.g, color.b, color.a);
@@ -2231,6 +2263,82 @@ private:
 			DigitFont::drawText(state, change.text, labelX[i], changeY[i], changePixel, change.color);
 			changeY[i] += 5 * changePixel + 4.0f;
 		}
+	}
+
+	// During a round, each side bet sits as a small black chip-circle on a
+	// corner of its seat's betting spot showing the amount -- top right for
+	// the first side bet (Lucky Ladies, Lucky Stiff, Match Up), top left
+	// for a second one (Match Down) -- and turns green on a win, red on a
+	// loss, grey on a push once it's settled. "Top" is toward the dealer,
+	// whatever way the seat faces.
+	void drawSideBetCircles(SDLState& state){
+		if(awaitingBets || !hasAnySideBet(gameMode) || dealer.hands[0].getHandSize() == 0)
+			return;
+
+		for(int i = 0; i < numberOfPlayers; i++){
+			if(!initialTwoCards[i].valid)
+				continue;
+
+			if(isPlayersEdge(gameMode)){
+				drawSideBetCircle(state, i, true, players[i].getMatchUpBet(), matchUpResult[i]);
+				drawSideBetCircle(state, i, false, players[i].getMatchDownBet(), matchDownResult[i]);
+			} else{
+				drawSideBetCircle(state, i, true, players[i].getSideBet(), sideBetResult[i]);
+			}
+		}
+	}
+
+	void drawSideBetCircle(SDLState& state, int playerIndex, bool topRight, int amount, HandResult result){
+		if(amount <= 0)
+			return;
+
+		// The spot's corner in the seat's own frame (the first card's
+		// top-left is the origin, cards run +x, the dealer is -y), rotated
+		// the same way the seat's cards are.
+		constexpr float PI = 3.14159265358979323846f;
+		constexpr float RADIUS = 21.0f;
+		float rad = players[playerIndex].calcOffset().rotation * PI / 180.0f;
+		float cosT = std::cos(rad), sinT = std::sin(rad);
+		float localX = topRight ? cardWidth + 6.0f : -6.0f;
+		float localY = -6.0f;
+		Point anchor = players[playerIndex].getSeatAnchor();
+		float cx = anchor.x + (localX * cosT - localY * sinT);
+		float cy = anchor.y + (localX * sinT + localY * cosT);
+
+		SDL_FColor fill{0.05f, 0.05f, 0.05f, 1.0f};
+		if(result == HandResult::Win) fill = SDL_FColor{0.15f, 0.62f, 0.25f, 1.0f};
+		else if(result == HandResult::Loss) fill = SDL_FColor{0.75f, 0.16f, 0.16f, 1.0f};
+		else if(result == HandResult::Push) fill = SDL_FColor{0.45f, 0.45f, 0.45f, 1.0f};
+		fillCircle(state, cx, cy, RADIUS + 2.0f, SDL_FColor{1.0f, 1.0f, 1.0f, 1.0f});
+		fillCircle(state, cx, cy, RADIUS, fill);
+
+		std::string text = std::to_string(amount);
+		float pixel = 3.0f;
+		float w = DigitFont::textWidth(text, pixel);
+		float maxW = RADIUS * 2.0f - 8.0f;
+		if(w > maxW){
+			pixel *= maxW / w;
+			w = DigitFont::textWidth(text, pixel);
+		}
+		DigitFont::drawText(state, text, cx - w / 2.0f, cy - 5 * pixel / 2.0f, pixel, SDL_Color{255, 255, 255, 255});
+	}
+
+	static void fillCircle(SDLState& state, float cx, float cy, float r, SDL_FColor color){
+		constexpr int SEGMENTS = 28;
+		constexpr float PI = 3.14159265358979323846f;
+		SDL_Vertex verts[SEGMENTS + 2];
+		verts[0] = SDL_Vertex{ SDL_FPoint{cx, cy}, color, SDL_FPoint{0, 0} };
+		for(int k = 0; k <= SEGMENTS; k++){
+			float a = 2.0f * PI * k / SEGMENTS;
+			verts[k + 1] = SDL_Vertex{ SDL_FPoint{cx + r * std::cos(a), cy + r * std::sin(a)}, color, SDL_FPoint{0, 0} };
+		}
+		int indices[SEGMENTS * 3];
+		for(int k = 0; k < SEGMENTS; k++){
+			indices[k * 3] = 0;
+			indices[k * 3 + 1] = k + 1;
+			indices[k * 3 + 2] = k + 2;
+		}
+		SDL_RenderGeometry(state.renderer, nullptr, verts, SEGMENTS + 2, indices, SEGMENTS * 3);
 	}
 
 	// Under the ACTIVE HAND HUD box (bottom right), during actual play
@@ -2703,6 +2811,10 @@ private:
 		if(isPlayersEdge(gameMode) && hand.getDoubleCount() >= MAX_PLAYERS_EDGE_DOUBLES)
 			return false;
 		if(hand.isSplitAces() && !allowsHitSplitAces())
+			return false;
+		// Double-deck games don't allow doubling after a split
+		// (Clearwater's double deck rules); shoe games do.
+		if(hand.isFromSplit() && numberOfDecks <= 2 && !isPlayersEdge(gameMode))
 			return false;
 
 		if(isFreeBet(gameMode) && isFreeDoubleEligible())
@@ -3363,6 +3475,33 @@ private:
 		}
 	}
 
+	// Player's Edge Super Bonus (Clearwater): a hand of three suited 7s,
+	// not split or doubled, while the dealer shows a 7, wins a flat $1,000
+	// on a bet under $25 or $5,000 on $25 or more -- on top of its 7-7-7
+	// bonus -- and every other player in the round gets a $50 Envy Bonus.
+	// Returns the hand's extra credit (0 if it doesn't qualify).
+	int superBonus(int playerIndex, Hand& hand){
+		if(hand.getHandSize() != 3 || hand.isFromSplit() || hand.getDoubleCount() > 0)
+			return 0;
+		if(dealer.hands[0].getHandSize() < 1 || dealer.hands[0].cards[0].getValue() != 7)
+			return 0;
+		for(Card& c : hand.cards)
+			if(c.getValue() != 7 || c.getSuit() != hand.cards[0].getSuit())
+				return 0;
+
+		int bonus = hand.getBet() >= 25 ? 5000 : 1000;
+		queueJackpotCallout(playerIndex, "SUPER BONUS!", "SUITED 777 VS DEALER 7", bonus);
+		for(int j = 0; j < numberOfPlayers; j++){
+			if(j == playerIndex || !initialTwoCards[j].valid)
+				continue;
+			queueChipPayout(j, ENVY_BONUS);
+			if(stats)
+				stats->values[Stats::NetWinnings] += ENVY_BONUS;
+		}
+		return bonus;
+	}
+	static constexpr int ENVY_BONUS = 50;
+
 	// Match Down is judged against the dealer's hole card, so it settles
 	// the moment that card is turned over -- before the dealer draws
 	// (dealDealer()), or in dealerPeek()'s dealer-blackjack path via
@@ -3454,8 +3593,9 @@ private:
 
 			if(is678 || is777){
 				bool allSameSuit = suits[0] == suits[1] && suits[1] == suits[2];
-				bool allSpades = allSameSuit && suits[0] == 0; // 0 = spade, Card.h
-				if(allSpades)
+				// Clearwater pays the top tier on all diamonds.
+				bool allDiamonds = allSameSuit && suits[0] == 2; // 2 = diamond, Card.h
+				if(allDiamonds)
 					return bet + bet * 3;
 				if(allSameSuit)
 					return bet + bet * 2;
@@ -3641,13 +3781,14 @@ private:
 		SDL_SetRenderDrawBlendMode(state.renderer, SDL_BLENDMODE_NONE);
 	}
 
-	// Lucky Ladies, the standard pay table (as dealt in Washington card
-	// rooms): any first-two-card 20 wins, soft 20 (A-9) included --
-	//   Queen of Hearts pair, dealer has blackjack   1000:1
-	//   Queen of Hearts pair                          125:1
-	//   matched 20 (same rank and suit)                19:1
-	//   suited 20                                       9:1
-	//   any other 20                                    4:1
+	// Lucky Ladies, Clearwater Casino's pay table: any first-two-card 20
+	// wins, soft 20 (A-9) included --
+	//                                              2 deck   6 deck
+	//   Queen of Hearts pair, dealer has blackjack  1000:1   1000:1
+	//   Queen of Hearts pair                         200:1    125:1
+	//   matched 20 (same rank and suit)               25:1     19:1
+	//   suited 20                                     10:1      9:1
+	//   any other 20                                   4:1      4:1
 	// Only the best tier pays. Returns the total credit (wager +
 	// winnings), or 0 if the hand isn't a 20.
 	int evaluateLuckyLadies(int playerIndex, int wager){
@@ -3663,12 +3804,14 @@ private:
 		bool matched = suited && c.value1 == c.value2;
 		bool queenOfHeartsPair = matched && c.value1 == 12 && c.suit1 == 3;
 
+		// The 2-deck game pays more on the top three tiers.
+		bool twoDeck = numberOfDecks <= 2;
 		if(queenOfHeartsPair)
-			return wager + wager * (dealerHasBlackjack() ? 1000 : 125);
+			return wager + wager * (dealerHasBlackjack() ? 1000 : (twoDeck ? 200 : 125));
 		if(matched)
-			return wager + wager * 19;
+			return wager + wager * (twoDeck ? 25 : 19);
 		if(suited)
-			return wager + wager * 9;
+			return wager + wager * (twoDeck ? 10 : 9);
 		return wager + wager * 4;
 	}
 
@@ -3712,15 +3855,16 @@ private:
 				unsuitedMatches++;
 		}
 
+		// Clearwater's Player's Edge 21 Match the Dealer table.
 		int multiplier = 0;
 		if(suitedMatches == 2)
-			multiplier = 20;
+			multiplier = 18;
 		else if(suitedMatches == 1 && unsuitedMatches == 1)
-			multiplier = 14;
+			multiplier = 13;
 		else if(suitedMatches == 1)
-			multiplier = 11;
+			multiplier = 9;
 		else if(unsuitedMatches == 2)
-			multiplier = 7;
+			multiplier = 8;
 		else if(unsuitedMatches == 1)
 			multiplier = 4;
 
@@ -3975,6 +4119,8 @@ private:
 				Hand& hand = players[activePlayer].hands[handIdx];
 				int bet = hand.getBet();
 				int credit = isPlayersEdge(gameMode) ? spanish21Credit(hand, 0, false, false) : bet + bet * 3 / 2;
+				if(isPlayersEdge(gameMode))
+					credit += superBonus(activePlayer, hand);
 				if(stats)
 					stats->recordHand(credit - bet, true, false, natural, false, false);
 				hand.setResult(HandResult::Win);
