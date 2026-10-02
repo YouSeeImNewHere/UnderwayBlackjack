@@ -2606,16 +2606,15 @@ private:
 			drawChipStack(state, res, c.x, c.y + 4.0f, { amount });
 	}
 
-	// Each hand's main bet as chips on the bottom-left corner of its
-	// betting spot. Split hands each get their own stack beside their
-	// cards; a double stacks its chips on top of the original bet.
+	// Each hand's main bet as chips on the bottom-left corner of the
+	// betting spot. Split hands each get their own stack in a row beside
+	// it (betSpot()); a double stacks its chips on top of the original bet.
 	void drawMainBetChips(SDLState& state, Resources& res){
-		float out = SPOT_MARGIN + 4.0f;
 		for(int i = 0; i < numberOfPlayers; i++){
 			Person& p = players[i];
 			if(awaitingBets){
 				if(p.getBankroll() > 0 && p.getBet() > 0){
-					SDL_FPoint c = seatPoint(i, 0, -out, cardHeight + out);
+					SDL_FPoint c = betSpot(i, 0);
 					drawChipStack(state, res, c.x, c.y, { p.getBet() });
 				}
 				continue;
@@ -2634,7 +2633,7 @@ private:
 				layers.push_back(base);
 				for(int k = 0; k < doubles; k++)
 					layers.push_back(base << k);
-				SDL_FPoint c = seatPoint(i, h, -out, cardHeight + out);
+				SDL_FPoint c = betSpot(i, h);
 				drawChipStack(state, res, c.x, c.y, layers);
 			}
 		}
@@ -4334,11 +4333,13 @@ private:
 		return SDL_FPoint{ seatCenterX(playerIndex), 25.0f };
 	}
 
-	// Where a hand's main bet chips sit: the bottom-left corner of its
-	// spot (drawMainBetChips()).
+	// Where a hand's main bet chips sit: the bottom-left corner of the
+	// seat's spot, and each split hand's stack in a row beside it, to the
+	// player's left (drawMainBetChips()).
+	static constexpr float SPLIT_STACK_GAP = 40.0f;
 	SDL_FPoint betSpot(int playerIndex, int hand){
 		float out = SPOT_MARGIN + 4.0f;
-		return seatPoint(playerIndex, hand, -out, cardHeight + out);
+		return seatPoint(playerIndex, 0, -out - hand * SPLIT_STACK_GAP, cardHeight + out);
 	}
 
 	// A side bet's circle: top right (first side bet) or top left (Match Down).
