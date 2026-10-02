@@ -23,6 +23,14 @@ public:
 	int dealerSpeed = SaveData::DEFAULT_DEALER_SPEED;
 	bool faceDownDoubles = false;
 	bool hideInactiveHands = false;
+	// SOUND row: card and chip sound effects.
+	bool soundEffects = true;
+	// DOUBLE FOR LESS row: pressing double asks how much (up to the bet)
+	// instead of always doubling the full bet.
+	bool doubleForLess = false;
+	// DEALER HITS SOFT 17 row: off = the dealer stands on soft 17 (and
+	// the strategy charts switch to match). Free Bet's dealer always hits.
+	bool dealerHitsSoft17 = true;
 
 	// Set by mina.cpp right before this screen shows (from GameModeMenu's
 	// pick, pre-game, or Table::getGameMode() when reopened from the pause
@@ -127,6 +135,16 @@ public:
 		drawRowLabel(state, ROW_Y[2], "HIDE HANDS TIL YOUR TURN");
 		drawToggleButton(state, toggleButton(2), hideInactiveHands);
 
+		drawRowLabel(state, ROW_Y[3], "SOUND");
+		drawToggleButton(state, toggleButton(3), soundEffects);
+
+		drawRowLabel(state, ROW_Y[4], "DOUBLE FOR LESS");
+		drawToggleButton(state, toggleButton(4), doubleForLess);
+
+		bool soft17Choice = !isFreeBet(gameMode);
+		drawRowLabel(state, ROW_Y[5], soft17Choice ? "DEALER HITS SOFT 17" : "DEALER HITS SOFT 17 - ALWAYS");
+		drawToggleButton(state, toggleButton(5), soft17Choice ? dealerHitsSoft17 : true);
+
 		drawSpeedDemo(state, res);
 
 		SDL_FRect go = confirmButton();
@@ -165,6 +183,10 @@ public:
 		if(faceDownDoublesAllowed())
 			rects.push_back(toggleButton(1));
 		rects.push_back(toggleButton(2));
+		rects.push_back(toggleButton(3));
+		rects.push_back(toggleButton(4));
+		if(!isFreeBet(gameMode))
+			rects.push_back(toggleButton(5));
 		rects.push_back(backButton());
 		rects.push_back(confirmButton());
 		return rects;
@@ -202,6 +224,18 @@ public:
 		if(SDL_PointInRectFloat(&p, &hideHands))
 			hideInactiveHands = !hideInactiveHands;
 
+		SDL_FRect soundButton = toggleButton(3);
+		if(SDL_PointInRectFloat(&p, &soundButton))
+			soundEffects = !soundEffects;
+
+		SDL_FRect lessButton = toggleButton(4);
+		if(SDL_PointInRectFloat(&p, &lessButton))
+			doubleForLess = !doubleForLess;
+
+		SDL_FRect soft17Button = toggleButton(5);
+		if(!isFreeBet(gameMode) && SDL_PointInRectFloat(&p, &soft17Button))
+			dealerHitsSoft17 = !dealerHitsSoft17;
+
 		SDL_FRect confirm = confirmButton();
 		if(SDL_PointInRectFloat(&p, &confirm))
 			return true;
@@ -215,17 +249,17 @@ private:
 	static constexpr SDL_Color WHITE{255, 255, 255, 255};
 
 	// Same left-caption/right-controls shape as SetupMenu's stepper rows,
-	// just 3 rows instead of a per-player block -- LABEL_X is where a
+	// just 6 rows instead of a per-player block -- LABEL_X is where a
 	// row's caption starts, CONTROL_X where its buttons start.
 	static constexpr float LABEL_X = 380.0f;
 	static constexpr float CONTROL_X = 760.0f;
-	static constexpr float ROW_H = 70.0f;
-	static constexpr float ROW_Y[3] = {160.0f, 280.0f, 400.0f};
+	static constexpr float ROW_H = 60.0f;
+	static constexpr float ROW_Y[6] = {120.0f, 232.0f, 300.0f, 368.0f, 436.0f, 504.0f};
 
 	// Demo card track -- off to the right of the 3 rows above, clear of
 	// their controls (the slider ends at CONTROL_X + SLIDER_W, 1200).
 	static constexpr float DEMO_X = 1250.0f;
-	static constexpr float DEMO_TOP_Y = 150.0f;
+	static constexpr float DEMO_TOP_Y = 130.0f;
 	static constexpr float DEMO_BOTTOM_Y = 480.0f;
 	static constexpr float DEMO_BASE_DURATION = 0.6f; // mirrors Table::DEAL_DURATION
 	static constexpr float DEMO_LOOP_PAUSE = 0.4f;
@@ -329,11 +363,11 @@ private:
 	// GO and BACK sit side by side, the pair centered.
 	SDL_FRect confirmButton(){
 		float w = 260.0f, h = 56.0f;
-		return SDL_FRect{ .x = 720.0f + 10.0f, .y = 520.0f, .w = w, .h = h };
+		return SDL_FRect{ .x = 720.0f + 10.0f, .y = 600.0f, .w = w, .h = h };
 	}
 
 	SDL_FRect backButton(){
 		float w = 200.0f, h = 56.0f;
-		return SDL_FRect{ .x = 720.0f - 10.0f - w, .y = 520.0f, .w = w, .h = h };
+		return SDL_FRect{ .x = 720.0f - 10.0f - w, .y = 600.0f, .w = w, .h = h };
 	}
 };

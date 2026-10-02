@@ -100,6 +100,10 @@ set(GAME_ASSETS
     ${CMAKE_CURRENT_SOURCE_DIR}/Table5Player.png
     ${CMAKE_CURRENT_SOURCE_DIR}/Arrow.png
     ${CMAKE_CURRENT_SOURCE_DIR}/Chips.png)
+# Sound effects (tools/make_sounds.py) ship next to the PNGs, flat, the
+# same as on every other platform -- Audio.h looks them up by bare name.
+file(GLOB GAME_SOUNDS ${CMAKE_CURRENT_SOURCE_DIR}/sounds/*.wav)
+list(APPEND GAME_ASSETS ${GAME_SOUNDS})
 
 if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
     set(IOS_RESOURCES

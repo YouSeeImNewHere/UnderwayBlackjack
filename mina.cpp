@@ -15,6 +15,7 @@
 #include "SetupMenu.h"
 #include "PauseMenu.h"
 #include "StrategyChart.h"
+#include "ChartsMenu.h"
 #include "AboutMenu.h"
 #include "GesturesMenu.h"
 #include "KeyboardMenu.h"
@@ -22,6 +23,7 @@
 #include "TutorialMenu.h"
 #include "Stats.h"
 #include "UpdateCheck.h"
+#include "Audio.h"
 #include "SaveData.h"
 
 enum class AppScreen {
@@ -34,6 +36,7 @@ enum class AppScreen {
     Keyboard,
     Stats,
     Tutorial,
+    Charts,
     Playing
 };
 
@@ -81,14 +84,17 @@ struct AppContext {
     // as Strategy/About).
     GesturesMenu gesturesMenu;
     KeyboardMenu keyboardMenu;
+    ChartsMenu chartsMenu;
     StatsMenu statsMenu;
     TutorialMenu tutorialMenu;
     Stats stats;
     UpdateCheck update;
+    Audio audio;
     SaveData save;
     AppScreen screen = AppScreen::Menu;
     // Remembered between GameModeMenu and applySetupComplete().
     GameMode chosenMode = GameMode::TwoDeck;
+    Training chosenTraining = Training::None;
     // Which mode's rules AppScreen::GameModeAbout is currently showing --
     // set right before switching to that screen, read by the draw
     // dispatch below. Reuses the same AboutMenu instance PauseState::About
@@ -174,11 +180,22 @@ static void applyOptionsToTable(AppContext& ctx){
     ctx.table.setDealerSpeedFactor(ctx.gameOptionsMenu.dealerSpeedFactor());
     ctx.table.setFaceDownDoubles(ctx.gameOptionsMenu.faceDownDoubles);
     ctx.table.setHideInactiveHands(ctx.gameOptionsMenu.hideInactiveHands);
+    ctx.table.setAskDoubleAmount(ctx.gameOptionsMenu.doubleForLess);
+    ctx.table.setDealerHitsSoft17(ctx.gameOptionsMenu.dealerHitsSoft17);
+}
+
+// PRACTICE / COUNT QUIZ (GameModeMenu): which training game, if any, the
+// table plays on top of the chosen mode.
+static void applyTraining(AppContext& ctx, Training training){
+    ctx.table.setPracticeMode(training == Training::Practice);
+    ctx.table.setCountQuiz(training == Training::CountQuiz);
 }
 
 static void saveOptions(AppContext& ctx){
     ctx.save.saveOptions(ctx.gameOptionsMenu.dealerSpeed,
-        ctx.gameOptionsMenu.faceDownDoubles, ctx.gameOptionsMenu.hideInactiveHands);
+        ctx.gameOptionsMenu.faceDownDoubles, ctx.gameOptionsMenu.hideInactiveHands,
+        ctx.gameOptionsMenu.soundEffects, ctx.gameOptionsMenu.doubleForLess,
+        ctx.gameOptionsMenu.dealerHitsSoft17);
 }
 
 // Shared by both mouse and touch handling below: applies whichever menu
@@ -188,6 +205,7 @@ static void saveOptions(AppContext& ctx){
 static void applyMenuChoice(AppContext& ctx, MenuChoice choice){
     switch(choice){
         case MenuChoice::Start:
+            ctx.gameModeMenu.training = Training::None;
             ctx.screen = AppScreen::GameMode;
         break;
 
@@ -198,6 +216,7 @@ static void applyMenuChoice(AppContext& ctx, MenuChoice choice){
                 ctx.table.restoreProgress(ctx.save.currentBankrolls, ctx.save.totalBuyIns);
             ctx.gameOptionsMenu.setGameMode(static_cast<GameMode>(ctx.save.gameModeIndex));
             applyOptionsToTable(ctx);
+            applyTraining(ctx, static_cast<Training>(ctx.save.training));
             ctx.table.startGame();
             ctx.screen = AppScreen::Playing;
         break;
@@ -215,6 +234,7 @@ static void applyMenuChoice(AppContext& ctx, MenuChoice choice){
             ctx.save.clear();
             ctx.table.resetForNewGame();
             ctx.setupMenu = SetupMenu();
+            ctx.gameModeMenu.training = Training::None;
             ctx.screen = AppScreen::GameMode;
         break;
 
@@ -226,7 +246,14 @@ static void applyMenuChoice(AppContext& ctx, MenuChoice choice){
             ctx.screen = AppScreen::Keyboard;
         break;
 
+        case MenuChoice::Charts:
+            ctx.chartsMenu.open(ctx.save.gameStarted ? static_cast<GameMode>(ctx.save.gameModeIndex) : GameMode::SixDeck,
+                ctx.gameOptionsMenu.dealerHitsSoft17);
+            ctx.screen = AppScreen::Charts;
+        break;
+
         case MenuChoice::Stats:
+            ctx.statsMenu.open(Stats::AllGames);
             ctx.screen = AppScreen::Stats;
         break;
 
@@ -257,7 +284,9 @@ static void applyGameModeChoice(AppContext& ctx, GameMode mode){
         return;
 
     ctx.chosenMode = mode;
+    ctx.chosenTraining = ctx.gameModeMenu.training;
     ctx.setupMenu.setGameMode(mode);
+    ctx.setupMenu.training = ctx.chosenTraining != Training::None;
     ctx.gameOptionsMenu.setGameMode(mode);
     ctx.screen = AppScreen::GameOptions;
 }
@@ -283,10 +312,20 @@ static void applySetupComplete(AppContext& ctx){
         initialBets[i] = ctx.setupMenu.playerConfigs[i].minBet;
         sideBetSizes[i] = ctx.setupMenu.playerConfigs[i].sideBetSize;
     }
+    // Training games are played for skill, not money: a plain stake that
+    // never runs out (Table puts each bankroll back after every round).
+    if(ctx.chosenTraining != Training::None){
+        for(int i = 0; i < 5; i++){
+            bankrolls[i] = 100000;
+            initialBets[i] = 25;
+            sideBetSizes[i] = 0;
+        }
+    }
 
     ctx.table.configureGameMode(ctx.chosenMode);
     ctx.table.configurePlayers(ctx.setupMenu.numberOfPlayers, bankrolls, initialBets, sideBetSizes);
-    ctx.save.saveGameConfig(static_cast<int>(ctx.chosenMode), ctx.setupMenu.numberOfPlayers, bankrolls, initialBets, sideBetSizes);
+    applyTraining(ctx, ctx.chosenTraining);
+    ctx.save.saveGameConfig(static_cast<int>(ctx.chosenMode), static_cast<int>(ctx.chosenTraining), ctx.setupMenu.numberOfPlayers, bankrolls, initialBets, sideBetSizes);
     ctx.table.startGame();
     ctx.screen = AppScreen::Playing;
 }
@@ -329,6 +368,7 @@ static void applyPauseChoice(AppContext& ctx, PauseChoice choice){
         break;
 
         case PauseChoice::Stats:
+            ctx.statsMenu.open(Stats::scopeFor(ctx.table.getGameMode()));
             ctx.pauseState = PauseState::Stats;
         break;
 
@@ -449,6 +489,10 @@ static void goBack(AppContext& ctx){
         ctx.screen = AppScreen::Menu;
         return;
     case AppScreen::GameMode:
+        if(ctx.gameModeMenu.leaveTraining())
+            return;
+        [[fallthrough]];
+    case AppScreen::Charts:
     case AppScreen::Gestures:
     case AppScreen::Keyboard:
     case AppScreen::Stats:
@@ -495,7 +539,22 @@ static void goBack(AppContext& ctx){
 // gameplay), in window coordinates -- the one place mouse, touch and
 // arrow-key "Enter" all route through, so each screen's buttons behave
 // identically however they were pressed.
+static std::vector<SDL_FRect> currentFocusRects(AppContext& ctx);
+
 static void handleMenuClick(AppContext& ctx, float wx, float wy){
+    // A soft tap for anything that's a button on this screen.
+    {
+        float lx, ly;
+        if(SDL_RenderCoordinatesFromWindow(ctx.state.renderer, wx, wy, &lx, &ly)){
+            SDL_FPoint p{lx, ly};
+            for(const SDL_FRect& r : currentFocusRects(ctx))
+                if(SDL_PointInRectFloat(&p, &r)){
+                    ctx.audio.play(Sfx::Tap);
+                    break;
+                }
+        }
+    }
+
     switch(ctx.screen){
     case AppScreen::Menu:
         applyMenuChoice(ctx, ctx.menu.handlePoint(ctx.state, wx, wy));
@@ -536,6 +595,10 @@ static void handleMenuClick(AppContext& ctx, float wx, float wy){
         return;
     case AppScreen::Keyboard:
         if(ctx.keyboardMenu.handlePoint(ctx.state, wx, wy))
+            goBack(ctx);
+        return;
+    case AppScreen::Charts:
+        if(ctx.chartsMenu.handlePoint(ctx.state, wx, wy))
             goBack(ctx);
         return;
     case AppScreen::Stats: {
@@ -608,6 +671,7 @@ static std::vector<SDL_FRect> currentFocusRects(AppContext& ctx){
     case AppScreen::Setup:         return ctx.setupMenu.focusRects();
     case AppScreen::Gestures:      return ctx.gesturesMenu.focusRects();
     case AppScreen::Keyboard:      return ctx.keyboardMenu.focusRects();
+    case AppScreen::Charts:        return ctx.chartsMenu.focusRects();
     case AppScreen::Stats:         return ctx.statsMenu.focusRects();
     case AppScreen::Tutorial:      return ctx.tutorialMenu.focusRects();
     case AppScreen::Playing:       break;
@@ -737,6 +801,7 @@ static SDL_Color letterboxColor(const AppContext &ctx) {
     case AppScreen::Setup:
         return setupGreen;
     case AppScreen::GameModeAbout:
+    case AppScreen::Charts:
     case AppScreen::Gestures:
     case AppScreen::Keyboard:
     case AppScreen::Stats:
@@ -776,6 +841,14 @@ static void mainLoopIteration(void *arg) {
         {
         case SDL_EVENT_QUIT:
             ctx.running = false;
+        break;
+
+        // A phone switching away from the game: no sound in the background.
+        case SDL_EVENT_DID_ENTER_BACKGROUND:
+            ctx.audio.pause(true);
+        break;
+        case SDL_EVENT_WILL_ENTER_FOREGROUND:
+            ctx.audio.pause(false);
         break;
 
         case SDL_EVENT_WINDOW_RESIZED:
@@ -828,8 +901,10 @@ static void mainLoopIteration(void *arg) {
                     if(event.type == SDL_EVENT_FINGER_UP){
                         float wx = event.tfinger.x * ctx.state.width;
                         float wy = event.tfinger.y * ctx.state.height;
-                        if(ctx.uiClaimedButton == ClaimedUIButton::Pause && isPauseButtonHit(ctx, wx, wy))
+                        if(ctx.uiClaimedButton == ClaimedUIButton::Pause && isPauseButtonHit(ctx, wx, wy)){
+                            ctx.audio.play(Sfx::Tap);
                             ctx.pauseState = PauseState::Menu;
+                        }
                         else if(ctx.uiClaimedButton == ClaimedUIButton::Tip && ctx.table.isQuickTipButtonHit(ctx.state, wx, wy))
                             ctx.table.toggleQuickTip();
                         else if(ctx.uiClaimedButton == ClaimedUIButton::CardCount && ctx.table.isCardCountToggleHit(ctx.state, wx, wy))
@@ -853,6 +928,17 @@ static void mainLoopIteration(void *arg) {
                     ctx.focusIndex = -1;
                     handleMenuClick(ctx, event.tfinger.x * ctx.state.width, event.tfinger.y * ctx.state.height);
                 }
+            } else if(ctx.screen == AppScreen::Playing && ctx.table.isCountQuizShowing()){
+                if(event.type == SDL_EVENT_FINGER_UP)
+                    ctx.table.handleCountQuizPoint(ctx.state,
+                        event.tfinger.x * ctx.state.width,
+                        event.tfinger.y * ctx.state.height);
+            } else if(ctx.screen == AppScreen::Playing && ctx.table.isChoosingDouble()){
+                // Double-for-less panel: -/+/DOUBLE/CANCEL buttons.
+                if(event.type == SDL_EVENT_FINGER_UP)
+                    ctx.table.handleDoublePoint(ctx.state,
+                        event.tfinger.x * ctx.state.width,
+                        event.tfinger.y * ctx.state.height);
             } else if(ctx.screen == AppScreen::Playing && ctx.table.isAwaitingInsurance()){
                 // Insurance/even money prompt: YES/NO buttons, not gestures.
                 if(event.type == SDL_EVENT_FINGER_UP)
@@ -900,12 +986,18 @@ static void mainLoopIteration(void *arg) {
                 if(inMenu(ctx)){
                     ctx.focusIndex = -1;
                     handleMenuClick(ctx, event.button.x, event.button.y);
-                } else if(ctx.screen == AppScreen::Playing && isPauseButtonHit(ctx, event.button.x, event.button.y))
+                } else if(ctx.screen == AppScreen::Playing && isPauseButtonHit(ctx, event.button.x, event.button.y)){
+                    ctx.audio.play(Sfx::Tap);
                     ctx.pauseState = PauseState::Menu;
+                }
                 else if(ctx.screen == AppScreen::Playing && ctx.table.isQuickTipButtonHit(ctx.state, event.button.x, event.button.y))
                     ctx.table.toggleQuickTip();
                 else if(ctx.screen == AppScreen::Playing && ctx.table.isCardCountToggleHit(ctx.state, event.button.x, event.button.y))
                     ctx.table.toggleCardCount();
+                else if(ctx.screen == AppScreen::Playing && ctx.table.isCountQuizShowing())
+                    ctx.table.handleCountQuizPoint(ctx.state, event.button.x, event.button.y);
+                else if(ctx.screen == AppScreen::Playing && ctx.table.isChoosingDouble())
+                    ctx.table.handleDoublePoint(ctx.state, event.button.x, event.button.y);
                 else if(ctx.screen == AppScreen::Playing && ctx.table.isAwaitingInsurance())
                     ctx.table.handleInsurancePoint(ctx.state, event.button.x, event.button.y);
                 else if(ctx.screen == AppScreen::Playing && ctx.table.isAwaitingBets())
@@ -924,6 +1016,10 @@ static void mainLoopIteration(void *arg) {
 
             // Android's system Back arrives as AC_BACK -- same as Esc.
             if(key == SDL_SCANCODE_ESCAPE || key == SDL_SCANCODE_AC_BACK){
+                if(ctx.screen == AppScreen::Playing && ctx.pauseState == PauseState::None && ctx.table.isChoosingDouble()){
+                    ctx.table.cancelDoubleChoice();
+                    break;
+                }
                 goBack(ctx);
                 break;
             }
@@ -980,6 +1076,10 @@ static void mainLoopIteration(void *arg) {
             || (ctx.screen == AppScreen::Playing && ctx.pauseState == PauseState::Options))
         ctx.gameOptionsMenu.update(deltaTime);
 
+    // Game Options' SOUND switch takes effect as soon as it's flipped
+    // (BACK restores the menu's old value, and with it this).
+    ctx.audio.effectsOn = ctx.gameOptionsMenu.soundEffects;
+
     switch(ctx.update.installState()){
         case UpdateCheck::Install::Done:
             // The new files are in place: start the new copy and quit this one.
@@ -1028,6 +1128,8 @@ static void mainLoopIteration(void *arg) {
         ctx.gesturesMenu.draw(ctx.state, ctx.res);
     else if(ctx.screen == AppScreen::Keyboard)
         ctx.keyboardMenu.draw(ctx.state, ctx.res);
+    else if(ctx.screen == AppScreen::Charts)
+        ctx.chartsMenu.draw(ctx.state);
     else if(ctx.screen == AppScreen::Stats)
         ctx.statsMenu.draw(ctx.state, ctx.res, ctx.stats);
     else if(ctx.screen == AppScreen::Tutorial)
@@ -1086,6 +1188,8 @@ int main(int argc,char *argv[]) {
     ctx->menu.hasSavedGame = ctx->save.gameStarted;
     ctx->stats.load();
     ctx->table.setStats(&ctx->stats);
+    // Phones/tablets get DEAL in the bottom-right corner (Platform.h).
+    ctx->table.setTouchLayout(usesTouchControls());
     // Windows release builds only (see UpdateCheck.h); a no-op elsewhere.
     ctx->update.start();
     // First launch: open HOW TO PLAY before anything else.
@@ -1098,6 +1202,9 @@ int main(int argc,char *argv[]) {
         ctx->gameOptionsMenu.dealerSpeed = ctx->save.dealerSpeed;
         ctx->gameOptionsMenu.faceDownDoubles = ctx->save.faceDownDoubles;
         ctx->gameOptionsMenu.hideInactiveHands = ctx->save.hideInactiveHands;
+        ctx->gameOptionsMenu.soundEffects = ctx->save.soundEffects;
+        ctx->gameOptionsMenu.doubleForLess = ctx->save.doubleForLess;
+        ctx->gameOptionsMenu.dealerHitsSoft17 = ctx->save.dealerHitsSoft17;
     }
 
 #ifdef __EMSCRIPTEN__
@@ -1124,6 +1231,10 @@ int main(int argc,char *argv[]) {
 
     //load game assets
     ctx->res.load(ctx->state);
+
+    // Sound (Audio.h): silent if there's no audio device or files.
+    ctx->audio.init();
+    ctx->table.setSoundPlayer([ctx](Sfx sfx){ ctx->audio.play(sfx); });
 
     ctx->prevTime = SDL_GetTicks();
 

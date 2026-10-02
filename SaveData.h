@@ -59,6 +59,12 @@ struct SaveData
 	static constexpr int DEFAULT_DEALER_SPEED = 40;
 	bool faceDownDoubles = false;
 	bool hideInactiveHands = false;
+	bool soundEffects = true;
+	bool doubleForLess = false;
+	bool dealerHitsSoft17 = true;
+	// A training game (GameModeMenu's Training) on top of gameModeIndex:
+	// 0 none, 1 practice, 2 count quiz.
+	int training = 0;
 
 	// HOW TO PLAY opens by itself until it's been closed once.
 	bool tutorialSeen = false;
@@ -79,6 +85,10 @@ struct SaveData
 		faceDownDoubles = webGet(5, 0) != 0;
 		hideInactiveHands = webGet(6, 0) != 0;
 		tutorialSeen = webGet(7, 0) != 0;
+		soundEffects = webGet(9, 1) != 0;
+		doubleForLess = webGet(10, 0) != 0;
+		training = webGet(11, 0);
+		dealerHitsSoft17 = webGet(12, 1) != 0;
 		for(int i = 0; i < 5; i++){
 			bankrolls[i] = webGetSeat(0, i, 500);
 			initialBets[i] = webGetSeat(1, i, 25);
@@ -126,6 +136,10 @@ struct SaveData
 			else if(key == "faceDownDoubles") faceDownDoubles = value != 0;
 			else if(key == "hideInactiveHands") hideInactiveHands = value != 0;
 			else if(key == "tutorialSeen") tutorialSeen = value != 0;
+			else if(key == "soundEffects") soundEffects = value != 0;
+			else if(key == "doubleForLess") doubleForLess = value != 0;
+			else if(key == "training") training = value;
+			else if(key == "dealerHitsSoft17") dealerHitsSoft17 = value != 0;
 			else if(seat >= 0 && base == "bankroll") bankrolls[seat] = value;
 			else if(seat >= 0 && base == "bet") initialBets[seat] = value;
 			else if(seat >= 0 && base == "sideBet") sideBetSizes[seat] = value;
@@ -149,9 +163,10 @@ struct SaveData
 	// player configured (game mode from GameModeMenu, players/bankrolls/
 	// side-bet size from SetupMenu) so Resume can reconstruct it on a
 	// future launch. Starts a fresh game, so any old progress is dropped.
-	void saveGameConfig(int modeIndex, int players, const int bankrollValues[5], const int betValues[5], const int sideBetValues[5]){
+	void saveGameConfig(int modeIndex, int trainingGame, int players, const int bankrollValues[5], const int betValues[5], const int sideBetValues[5]){
 		gameStarted = true;
 		gameModeIndex = modeIndex;
+		training = trainingGame;
 		numberOfPlayers = players;
 		hasProgress = false;
 		for(int i = 0; i < 5; i++){
@@ -183,11 +198,14 @@ struct SaveData
 	// Whenever Game Options are applied (pre-game or from the pause menu).
 	// Kept even with no game saved, so the next new game starts from the
 	// player's last choices too.
-	void saveOptions(int speed, bool faceDown, bool hideHands){
+	void saveOptions(int speed, bool faceDown, bool hideHands, bool effects, bool forLess, bool hitsSoft17){
 		hasOptions = true;
 		dealerSpeed = speed;
 		faceDownDoubles = faceDown;
 		hideInactiveHands = hideHands;
+		soundEffects = effects;
+		doubleForLess = forLess;
+		dealerHitsSoft17 = hitsSoft17;
 		write();
 	}
 
@@ -230,9 +248,15 @@ private:
 			localStorage.setItem('underwayBlackjackFaceDownDoubles', $6);
 			localStorage.setItem('underwayBlackjackHideHands', $7);
 			localStorage.setItem('underwayBlackjackTutorialSeen', $8);
+			localStorage.setItem('underwayBlackjackSoundEffects', $9);
 		}, gameStarted ? 1 : 0, gameModeIndex, numberOfPlayers, hasProgress ? 1 : 0,
 		   hasOptions ? 1 : 0, dealerSpeed, faceDownDoubles ? 1 : 0, hideInactiveHands ? 1 : 0,
-		   tutorialSeen ? 1 : 0);
+		   tutorialSeen ? 1 : 0, soundEffects ? 1 : 0);
+		EM_ASM({
+			localStorage.setItem('underwayBlackjackDoubleForLess', $0);
+			localStorage.setItem('underwayBlackjackTraining', $1);
+			localStorage.setItem('underwayBlackjackHitSoft17', $2);
+		}, doubleForLess ? 1 : 0, training, dealerHitsSoft17 ? 1 : 0);
 		for(int i = 0; i < 5; i++){
 			EM_ASM({
 				localStorage.setItem('underwayBlackjackBankroll' + $0, $1);
@@ -254,6 +278,10 @@ private:
 		out << "faceDownDoubles=" << (faceDownDoubles ? 1 : 0) << "\n";
 		out << "hideInactiveHands=" << (hideInactiveHands ? 1 : 0) << "\n";
 		out << "tutorialSeen=" << (tutorialSeen ? 1 : 0) << "\n";
+		out << "soundEffects=" << (soundEffects ? 1 : 0) << "\n";
+		out << "doubleForLess=" << (doubleForLess ? 1 : 0) << "\n";
+		out << "training=" << training << "\n";
+		out << "dealerHitsSoft17=" << (dealerHitsSoft17 ? 1 : 0) << "\n";
 		for(int i = 0; i < 5; i++){
 			out << "bankroll" << i << "=" << bankrolls[i] << "\n";
 			out << "bet" << i << "=" << initialBets[i] << "\n";
@@ -271,7 +299,7 @@ private:
 	// literal) would split its argument and break the build.
 	static int webGet(int which, int def){
 		return EM_ASM_INT({
-			var keys = 'underwayBlackjackMode|underwayBlackjackPlayers|underwayBlackjackHasProgress|underwayBlackjackHasOptions|underwayBlackjackDealerSpeed|underwayBlackjackFaceDownDoubles|underwayBlackjackHideHands|underwayBlackjackTutorialSeen|underwayBlackjackDealerSpeedPct'.split('|');
+			var keys = 'underwayBlackjackMode|underwayBlackjackPlayers|underwayBlackjackHasProgress|underwayBlackjackHasOptions|underwayBlackjackDealerSpeed|underwayBlackjackFaceDownDoubles|underwayBlackjackHideHands|underwayBlackjackTutorialSeen|underwayBlackjackDealerSpeedPct|underwayBlackjackSoundEffects|underwayBlackjackDoubleForLess|underwayBlackjackTraining|underwayBlackjackHitSoft17'.split('|');
 			var v = localStorage.getItem(keys[$0]);
 			return v === null ? $1 : parseInt(v);
 		}, which, def);

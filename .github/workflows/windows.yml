@@ -38,6 +38,7 @@ jobs:
           New-Item -ItemType Directory -Force dist/UnderwayBlackjack | Out-Null
           Copy-Item build/Release/UnderwayBlackjack.exe dist/UnderwayBlackjack/
           Copy-Item Cards.png, Table5Player.png, Arrow.png, Chips.png dist/UnderwayBlackjack/
+          Copy-Item sounds/*.wav dist/UnderwayBlackjack/
           Compress-Archive -Path dist/UnderwayBlackjack -DestinationPath dist/UnderwayBlackjack-windows.zip
 
       - uses: actions/upload-artifact@v5

@@ -66,6 +66,9 @@ public:
 		gameMode = mode;
 	}
 
+	// Practice / Count Quiz: no money, so only the number of players.
+	bool training = false;
+
 	void draw(SDLState& state, Resources& res){
 		SDL_SetRenderDrawColor(state.renderer, 15, 55, 28, 255);
 		SDL_RenderFillRect(state.renderer, nullptr);
@@ -74,9 +77,13 @@ public:
 
 		playerPage = clampedPage();
 		int startIdx = playerPage * 3;
-		int endIdx = std::min(numberOfPlayers, startIdx + 3);
+		int endIdx = training ? startIdx : std::min(numberOfPlayers, startIdx + 3);
 
-		if(maxPage() > 0){
+		if(training){
+			std::string note = "NO BETS IN THIS GAME - JUST PICK HOW MANY HANDS";
+			DigitFont::drawText(state, note, (1440.0f - DigitFont::textWidth(note, 3.5f)) / 2.0f, 185.0f, 3.5f, SDL_Color{230, 210, 140, 255});
+		}
+		if(maxPage() > 0 && !training){
 			SDL_FRect prev = pagePrevButton();
 			drawButton(state, prev, SDL_Color{80, 80, 80, 255});
 			float symPixel = 8.0f;
@@ -115,7 +122,7 @@ public:
 		SDL_FPoint p{x, y};
 		playerPage = clampedPage();
 		int startIdx = playerPage * 3;
-		int endIdx = std::min(numberOfPlayers, startIdx + 3);
+		int endIdx = training ? startIdx : std::min(numberOfPlayers, startIdx + 3);
 		SDL_FRect back = backButton(endIdx - startIdx);
 		return SDL_PointInRectFloat(&p, &back);
 	}
@@ -130,13 +137,13 @@ public:
 		rects.push_back(players.plus);
 
 		playerPage = clampedPage();
-		if(maxPage() > 0){
+		if(maxPage() > 0 && !training){
 			rects.push_back(pagePrevButton());
 			rects.push_back(pageNextButton());
 		}
 
 		int startIdx = playerPage * 3;
-		int endIdx = std::min(numberOfPlayers, startIdx + 3);
+		int endIdx = training ? startIdx : std::min(numberOfPlayers, startIdx + 3);
 		for(int i = startIdx; i < endIdx; i++){
 			int row = i - startIdx;
 			if(!playerConfigs[i].useCalculator){
@@ -183,7 +190,7 @@ public:
 			numberOfPlayers = std::min(5, numberOfPlayers + 1);
 
 		playerPage = clampedPage();
-		if(maxPage() > 0){
+		if(maxPage() > 0 && !training){
 			SDL_FRect prev = pagePrevButton();
 			SDL_FRect next = pageNextButton();
 			if(SDL_PointInRectFloat(&p, &prev))
@@ -193,7 +200,7 @@ public:
 		}
 
 		int startIdx = playerPage * 3;
-		int endIdx = std::min(numberOfPlayers, startIdx + 3);
+		int endIdx = training ? startIdx : std::min(numberOfPlayers, startIdx + 3);
 		for(int i = startIdx; i < endIdx; i++)
 			handlePlayerRowPoint(i, i - startIdx, p);
 

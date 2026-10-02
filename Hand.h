@@ -21,9 +21,9 @@ public:
 	// The hand's resting rotation (matches its seat's direction) -- set
 	// once, whenever the hand is created (see Person's constructor and
 	// addBlankHand()), not recomputed on every draw. A card's own rotation
-	// only needs touching at two moments: when it's actually dealt into
-	// this hand (addCard()), and if the hand busts afterward (checkIfBreak(),
-	// the +15 tilt) -- draw() itself never writes to a card's rotation.
+	// is set once, when it's dealt into this hand (addCard()); a bust
+	// leaves the cards exactly where they landed and is shown with a BUST
+	// label instead (Table::drawHandResults()).
 	void setBaseRotation(float rotation){
 		baseRotation = rotation;
 		applyRotationToAllCards();
@@ -36,7 +36,7 @@ public:
 		// with that sign or the card visibly snaps 180 degrees the instant
 		// it lands, since this overwrites whatever rotation the animation
 		// arrived at.
-		card.setRotation(baseRotation - (doubleHand ? 90 : 0) + (bust ? 15 : 0));
+		card.setRotation(baseRotation - (doubleHand ? 90 : 0));
 		cards.push_back(card);
 		if(card.getValue() == 1)
 			aceLocations.insert(cards.size() - 1);
@@ -106,9 +106,20 @@ public:
 	}
 
 	void doubleBet(){
-		bet *= 2;
+		doubleBy(bet);
+	}
+
+	// Doubling for less (Emerald Queen allows any amount up to the bet):
+	// adds `extra` on top. The bet before the first double is kept as
+	// getBaseBet(), for drawing the double's chips on top of it.
+	void doubleBy(int extra){
+		if(doubleCount == 0)
+			baseBet = bet;
+		bet += extra;
 		doubleCount++;
 	}
+
+	int getBaseBet() const{ return doubleCount > 0 ? baseBet : bet; }
 
 	// How many times this hand has been doubled (Player's Edge can
 	// redouble -- see Table::canDoubleActiveHand()/onHit()).
@@ -137,12 +148,23 @@ public:
 	// bust state/tilt checkIfBreak() gives a hand that actually goes over
 	// 21, even though its total never did -- surrendering forfeits the hand
 	// same as busting does, so it should look the part.
+	// A surrendered hand counts as lost like a bust (Table::onSurrender()),
+	// and is labelled SURRENDER instead of BUST while it's swept away.
 	void forceBust(){
-		if(!bust){
-			bust = true;
-			applyRotationToAllCards();
-		}
+		bust = true;
 	}
+
+	void markSurrendered(){
+		surrendered = true;
+		bust = true;
+	}
+
+	bool isSurrendered() const{ return surrendered; }
+
+	// A bust's chips are taken as soon as it busts (Table::checkBreak()),
+	// not again when the round settles.
+	void markChipsCollected(){ chipsCollected = true; }
+	bool isChipsCollected() const{ return chipsCollected; }
 
 	// Set on both hands when a pair is split (Table::onSplit()). fromSplit
 	// drives the automatic second card when play reaches a split hand;
@@ -197,16 +219,21 @@ public:
 		}
 
 		bust = runningTotal > 21;
-		// Only re-stamp every card's rotation when bust actually just
-		// changed -- this runs after *every* card dealt, not just ones
-		// that bust, and applyRotationToAllCards() blindly overwrites
-		// whatever each card's rotation was (e.g. a doubled card's
-		// extra tilt), so calling it unconditionally here was wiping
-		// that out the instant any card landed, bust or not.
-		if(bust != wasBust)
-			applyRotationToAllCards();
+		(void)wasBust;
 		std::cout << "Running total: " << runningTotal << std::endl;
 		return bust;
+	}
+
+	// A soft total: an ace is being counted as 11 (A-6 is a soft 17).
+	bool isSoftTotal(){
+		int hard = 0;
+		bool ace = false;
+		for(Card& c : cards){
+			int v = c.getValue();
+			hard += v > 10 ? 10 : v;
+			ace = ace || v == 1;
+		}
+		return ace && hard + 10 <= 21 && hard + 10 == getHandTotal();
 	}
 
 	int getHandTotal(){
@@ -266,18 +293,21 @@ public:
 
 private:
 	bool bust = false;
+	bool surrendered = false;
+	bool chipsCollected = false;
 	bool fromSplit = false;
 	int doubleCount = 0;
 	bool splitAces = false;
 	std::set<int> aceLocations;
 	float baseRotation = 0;
 	int bet = 0;
+	int baseBet = 0;
 	int freeBetAmount = 0;
 	HandResult result = HandResult::None;
 
 	void applyRotationToAllCards(){
 		for(Card& c : cards){
-			c.setRotation(bust ? baseRotation + 15 : baseRotation);
+			c.setRotation(baseRotation);
 		}
 	}
 };

@@ -20,15 +20,35 @@ enum class GameMode{
 	SixDeckFreeBet
 };
 
+// The two training games, picked on the bottom row of GameModeMenu. Each
+// is played on top of a regular game, picked next: PRACTICE uses that
+// game's strategy table, COUNT QUIZ its shoe.
+enum class Training{ None, Practice, CountQuiz };
+
 class GameModeMenu
 {
 public:
+	// Set once PRACTICE or COUNT QUIZ is picked: the menu then asks which
+	// game to play it with. Read by mina.cpp along with the chosen mode.
+	Training training = Training::None;
+
+	// Back to the plain game list (BACK while picking for a training game).
+	bool leaveTraining(){
+		if(training == Training::None)
+			return false;
+		training = Training::None;
+		return true;
+	}
+
 	void draw(SDLState& state, Resources& res){
 		SDL_SetRenderDrawColor(state.renderer, 20, 70, 35, 255);
 		SDL_RenderFillRect(state.renderer, nullptr);
 
 		float titlePixel = 7.0f;
-		std::string title = "CHOOSE A GAME";
+		std::string title = training == Training::Practice ? "PRACTICE: CHOOSE A STRATEGY TABLE"
+			: training == Training::CountQuiz ? "COUNT QUIZ: CHOOSE A GAME" : "CHOOSE A GAME";
+		if(DigitFont::textWidth(title, titlePixel) > 1360.0f)
+			titlePixel *= 1360.0f / DigitFont::textWidth(title, titlePixel);
 		float titleW = DigitFont::textWidth(title, titlePixel);
 		DigitFont::drawText(state, title, (1440.0f - titleW) / 2.0f, 60.0f, titlePixel, SDL_Color{255, 255, 255, 255});
 
@@ -40,6 +60,16 @@ public:
 		drawButton(state, sixDeckPlayersEdgeButton(), SDL_Color{60, 100, 150, 255}, "PLAYERS EDGE 6D", 4.0f);
 		drawButton(state, luckyStiffButton(), SDL_Color{150, 90, 50, 255}, "LUCKY STIFF 8 DECK", 5.0f);
 		drawButton(state, freeBetButton(), SDL_Color{50, 140, 130, 255}, "FREE BET BLACKJACK 6 DECK", 4.0f);
+		if(training == Training::None){
+			drawButton(state, practiceButton_, SDL_Color{150, 120, 40, 255}, "PRACTICE", 5.0f);
+			drawButton(state, countQuizButton_, SDL_Color{150, 120, 40, 255}, "COUNT QUIZ", 5.0f);
+		} else{
+			std::string hint = training == Training::Practice
+				? "OFF-CHART MOVES ARE CAUGHT BEFORE THEY PLAY"
+				: "AFTER EVERY ROUND, NAME THE RUNNING COUNT";
+			float hp = 3.5f;
+			DigitFont::drawText(state, hint, (1440.0f - DigitFont::textWidth(hint, hp)) / 2.0f, ROW6_Y + (BTN_H - 5 * hp) / 2.0f, hp, SDL_Color{230, 210, 140, 255});
+		}
 
 		// One ABOUT button per row, not per mode button -- the rules text
 		// for a variant doesn't actually differ between its 2-deck and
@@ -69,14 +99,19 @@ public:
 
 	// Every button, for mina.cpp's arrow-key navigation.
 	std::vector<SDL_FRect> focusRects(){
-		return {
+		std::vector<SDL_FRect> rects{
 			twoDeckButton_, sixDeckButton_, standardAboutButton_,
 			twoDeckLuckyLadiesButton_, sixDeckLuckyLadiesButton_, luckyLadiesAboutButton_,
 			twoDeckPlayersEdgeButton_, sixDeckPlayersEdgeButton_, playersEdgeAboutButton_,
 			luckyStiffButton_, luckyStiffAboutButton_,
 			freeBetButton_, freeBetAboutButton_,
-			backButton_
 		};
+		if(training == Training::None){
+			rects.push_back(practiceButton_);
+			rects.push_back(countQuizButton_);
+		}
+		rects.push_back(backButton_);
+		return rects;
 	}
 
 	// windowX/windowY: raw event coordinates in window space, same
@@ -131,6 +166,15 @@ public:
 		if(SDL_PointInRectFloat(&p, &freeBetButton_))
 			return GameMode::SixDeckFreeBet;
 
+		// PRACTICE / COUNT QUIZ: the same list again, now picking which
+		// game to train on.
+		if(training == Training::None){
+			if(SDL_PointInRectFloat(&p, &practiceButton_))
+				training = Training::Practice;
+			else if(SDL_PointInRectFloat(&p, &countQuizButton_))
+				training = Training::CountQuiz;
+		}
+
 		return GameMode::None;
 	}
 
@@ -141,16 +185,17 @@ private:
 	// the others). Centered as a block: BLOCK_W wide, starting at BLOCK_X
 	// so the whole block sits in the middle of the 1440-wide canvas.
 	static constexpr float BTN_W = 300.0f;
-	static constexpr float BTN_H = 70.0f;
+	static constexpr float BTN_H = 62.0f;
 	static constexpr float COL_GAP = 40.0f;
-	static constexpr float ROW_GAP = 14.0f;
+	static constexpr float ROW_GAP = 12.0f;
 	static constexpr float BLOCK_W = BTN_W * 2 + COL_GAP;
 	static constexpr float BLOCK_X = (1440.0f - BLOCK_W) / 2.0f;
-	static constexpr float ROW1_Y = 140.0f;
+	static constexpr float ROW1_Y = 122.0f;
 	static constexpr float ROW2_Y = ROW1_Y + BTN_H + ROW_GAP;
 	static constexpr float ROW3_Y = ROW2_Y + BTN_H + ROW_GAP;
 	static constexpr float ROW4_Y = ROW3_Y + BTN_H + ROW_GAP;
 	static constexpr float ROW5_Y = ROW4_Y + BTN_H + ROW_GAP;
+	static constexpr float ROW6_Y = ROW5_Y + BTN_H + ROW_GAP;
 
 	SDL_FRect twoDeckButton_{ .x = BLOCK_X, .y = ROW1_Y, .w = BTN_W, .h = BTN_H };
 	SDL_FRect sixDeckButton_{ .x = BLOCK_X + BTN_W + COL_GAP, .y = ROW1_Y, .w = BTN_W, .h = BTN_H };
@@ -160,6 +205,8 @@ private:
 	SDL_FRect sixDeckPlayersEdgeButton_{ .x = BLOCK_X + BTN_W + COL_GAP, .y = ROW3_Y, .w = BTN_W, .h = BTN_H };
 	SDL_FRect luckyStiffButton_{ .x = BLOCK_X, .y = ROW4_Y, .w = BLOCK_W, .h = BTN_H };
 	SDL_FRect freeBetButton_{ .x = BLOCK_X, .y = ROW5_Y, .w = BLOCK_W, .h = BTN_H };
+	SDL_FRect practiceButton_{ .x = BLOCK_X, .y = ROW6_Y, .w = BTN_W, .h = BTN_H };
+	SDL_FRect countQuizButton_{ .x = BLOCK_X + BTN_W + COL_GAP, .y = ROW6_Y, .w = BTN_W, .h = BTN_H };
 
 	// One per row, to the right of the block (which ends at BLOCK_X +
 	// BLOCK_W) -- there's a wide, otherwise-empty margin out there (the
@@ -173,7 +220,7 @@ private:
 	SDL_FRect luckyStiffAboutButton_{ .x = ABOUT_BTN_X, .y = ROW4_Y, .w = ABOUT_BTN_W, .h = BTN_H };
 	SDL_FRect freeBetAboutButton_{ .x = ABOUT_BTN_X, .y = ROW5_Y, .w = ABOUT_BTN_W, .h = BTN_H };
 	// Same size/x as the other screens' BACK buttons, under the last row.
-	SDL_FRect backButton_{ .x = 620, .y = ROW5_Y + BTN_H + 40.0f, .w = 200, .h = 56 };
+	SDL_FRect backButton_{ .x = 620, .y = ROW6_Y + BTN_H + 22.0f, .w = 200, .h = 56 };
 
 	SDL_FRect standardAboutButton(){ return standardAboutButton_; }
 	SDL_FRect luckyLadiesAboutButton(){ return luckyLadiesAboutButton_; }
@@ -241,10 +288,9 @@ inline bool isFreeBet(GameMode mode){
 
 // Every side-bet family -- SetupMenu's bankroll calculator just needs to
 // know "does at least one side bet apply here," not which one. Free Bet
-// Blackjack has no side bet of its own (its "free" doubles/splits aren't
-// a wager at all), so it's deliberately not included here.
+// Blackjack has two (Emerald Queen's): Push 22 and Pot of Gold.
 inline bool hasAnySideBet(GameMode mode){
-	return hasLuckyLadies(mode) || isPlayersEdge(mode) || hasLuckyStiff(mode);
+	return hasLuckyLadies(mode) || isPlayersEdge(mode) || hasLuckyStiff(mode) || isFreeBet(mode);
 }
 
 // How many side bets SetupMenu's bankroll calculator needs to stake for
@@ -253,7 +299,7 @@ inline bool hasAnySideBet(GameMode mode){
 // Edge, whose Match Up and Match Down are both wagered every round
 // (Person::setInitialMatchBets() seeds them equally).
 inline int sideBetCountFor(GameMode mode){
-	if(isPlayersEdge(mode))
+	if(isPlayersEdge(mode) || isFreeBet(mode))
 		return 2;
 	if(hasLuckyLadies(mode) || hasLuckyStiff(mode))
 		return 1;

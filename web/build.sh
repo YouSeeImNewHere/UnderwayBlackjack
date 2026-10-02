@@ -32,6 +32,7 @@ em++ \
     --preload-file "$PROJECT_DIR/Table5Player.png@Table5Player.png" \
     --preload-file "$PROJECT_DIR/Arrow.png@Arrow.png" \
     --preload-file "$PROJECT_DIR/Chips.png@Chips.png" \
+    $(for f in "$PROJECT_DIR"/sounds/*.wav; do printf -- '--preload-file %s@%s ' "$f" "$(basename "$f")"; done) \
     --shell-file "$SCRIPT_DIR/shell.html" \
     -sUSE_WEBGL2=1 \
     -sALLOW_MEMORY_GROWTH=1 \
