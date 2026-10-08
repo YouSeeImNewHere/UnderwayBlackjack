@@ -128,6 +128,13 @@ public:
 		return COL_LABELS[col];
 	}
 
+	// A cell's text for these rules ("S", "DS", "S4"...).
+	static std::string cellLabel(const Rules& rules, int section, int row, int col){
+		return cellText(rules, section, row, col, code(rules.set, section, row, col));
+	}
+
+	static int rowCount(int section){ return section == 1 ? 8 : 10; }
+
 	static const char* rowLabel(int section, int row){
 		if(section == 0) return HARD_LABELS[row];
 		if(section == 1) return SOFT_LABELS[row];

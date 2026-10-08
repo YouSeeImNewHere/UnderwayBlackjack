@@ -107,6 +107,13 @@ public:
 		SDL_RenderTextureRotated(state.renderer,res.allCards,&source,&dest,rotation,&rotationTopLeft,SDL_FLIP_NONE);
 	}
 
+	// The card face up at its position, `scale` times the table size (the
+	// portrait training screens show bigger cards).
+	void drawScaled(SDLState& state, Resources& res, float scale){
+		SDL_FRect dest{ .x = position.x, .y = position.y, .w = cardWidth * scale, .h = cardHeight * scale };
+		SDL_RenderTexture(state.renderer, res.allCards, &src, &dest);
+	}
+
 private:
 	// 0 - spade, 1 - club, 2 - diamond, 3 - heart
 	int suit;

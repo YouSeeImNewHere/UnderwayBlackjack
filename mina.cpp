@@ -146,6 +146,8 @@ struct AppContext {
     // saveProgress() runs once per betting phase (see mainLoopIteration);
     // reset whenever bets close.
     bool progressSavedThisBetting = false;
+    // The training drills are portrait screens (see updateOrientation()).
+    bool portraitUI = false;
 
     AppContext() : table(3, true, 2) {}
 };
@@ -433,6 +435,11 @@ static AppContext *g_ctx = nullptr;
 // media query every time the window size is (re)computed.
 static bool g_rotatedForPortrait = false;
 
+#ifdef SDL_PLATFORM_IOS
+// ios/Orientation.mm: asks iOS to rotate to what SDL_HINT_ORIENTATIONS now allows.
+extern "C" void UB_RequestOrientation(SDL_Window* window, bool portrait);
+#endif
+
 // Shared by main()'s initial sizing and onBrowserResize(): works out the
 // largest 1440:720-letterboxed size that fits the current browser viewport.
 // When the CSS is rotating the canvas 90deg for portrait, the width/height
@@ -443,7 +450,9 @@ static void computeLetterboxedWindowSize(AppContext *ctx, int &outW, int &outH) 
     double viewportW = EM_ASM_DOUBLE({ return window.innerWidth; });
     double viewportH = EM_ASM_DOUBLE({ return window.innerHeight; });
 
-    g_rotatedForPortrait = EM_ASM_INT({
+    // A portrait screen (the training drills) is shown as it is, never
+    // rotated sideways -- see web/shell.html's portrait-ui class.
+    g_rotatedForPortrait = !ctx->portraitUI && EM_ASM_INT({
         return window.matchMedia('(pointer: coarse) and (orientation: portrait)').matches ? 1 : 0;
     });
 
@@ -933,6 +942,56 @@ static SDL_Color letterboxColor(const AppContext &ctx) {
     return SDL_Color{0, 0, 0, 255};
 }
 
+// The training drills (hub, strategy drill, review, counting speed, true
+// count) are portrait screens, held in one hand: 720 x 1440 instead of
+// 1440 x 720. Entering one turns a phone to portrait (Android through SDL's
+// orientation hint, iOS through ios/Orientation.mm, the web by turning off
+// its sideways rotation); leaving turns it back. Phones and tablets only: a
+// desktop keeps the landscape layout of these screens.
+static bool wantsPortrait(const AppContext& ctx){
+    if(!usesTouchControls())
+        return false;
+    switch(ctx.screen){
+    case AppScreen::Training:
+    case AppScreen::Drill:
+    case AppScreen::Review:
+    case AppScreen::CountDrill:
+    case AppScreen::TrueCount:
+        return true;
+    default:
+        return false;
+    }
+}
+
+static void updateOrientation(AppContext& ctx){
+    bool want = wantsPortrait(ctx);
+    if(want == ctx.portraitUI)
+        return;
+    ctx.portraitUI = want;
+    TrainingUI::portrait = want;
+    ctx.focusIndex = -1;
+    ctx.state.logW = want ? 720 : 1440;
+    ctx.state.logH = want ? 1440 : 720;
+    SDL_SetRenderLogicalPresentation(ctx.state.renderer, ctx.state.logW, ctx.state.logH, SDL_LOGICAL_PRESENTATION_LETTERBOX);
+#if defined(SDL_PLATFORM_IOS) || defined(SDL_PLATFORM_ANDROID)
+    SDL_SetHint(SDL_HINT_ORIENTATIONS, want ? "Portrait" : "LandscapeLeft LandscapeRight");
+#endif
+#ifdef SDL_PLATFORM_ANDROID
+    // SDL re-reads the orientation hint when the window's resizable flag
+    // changes; flip it and back to apply the new one.
+    bool resizable = (SDL_GetWindowFlags(ctx.state.window) & SDL_WINDOW_RESIZABLE) != 0;
+    SDL_SetWindowResizable(ctx.state.window, !resizable);
+    SDL_SetWindowResizable(ctx.state.window, resizable);
+#endif
+#ifdef SDL_PLATFORM_IOS
+    UB_RequestOrientation(ctx.state.window, want);
+#endif
+#ifdef __EMSCRIPTEN__
+    EM_ASM({ document.body.classList.toggle('portrait-ui', $0 != 0); }, want ? 1 : 0);
+    onBrowserResize();
+#endif
+}
+
 static void mainLoopIteration(void *arg) {
     AppContext &ctx = *static_cast<AppContext *>(arg);
 
@@ -1187,6 +1246,8 @@ static void mainLoopIteration(void *arg) {
 
     // Save every seat's bankroll/bets once per betting phase, after the
     // last round's payouts have landed -- so Resume picks up from here.
+    updateOrientation(ctx);
+
     if(ctx.screen == AppScreen::Playing){
         if(!ctx.table.isAwaitingBets())
             ctx.progressSavedThisBetting = false;
