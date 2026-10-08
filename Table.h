@@ -3613,10 +3613,25 @@ private:
 			int tc = trueCountFloor();
 			int units = IndexPlays::betUnits(tc);
 			std::string ramp = "TRUE COUNT " + IndexPlays::signedNum(tc) + " - BET " + std::to_string(units) + (units == 1 ? " UNIT" : " UNITS");
+			// Lucky Ladies pays at a high count (IndexPlays::luckyLadiesIndex).
+			std::string side;
+			bool sideOn = false;
+			if(hasLuckyLadies(gameMode)){
+				int index = IndexPlays::luckyLadiesIndex(deckCountFor(gameMode));
+				sideOn = tc >= index;
+				side = sideOn ? "   SIDE BET: YES" : "   SIDE BET: NO TILL " + IndexPlays::signedNum(index);
+			}
 			float rp = 3.4f;
-			float w = DigitFont::textWidth(ramp, rp);
+			float w = DigitFont::textWidth(ramp + side, rp);
+			if(w > 680.0f){
+				rp *= 680.0f / w;
+				w = DigitFont::textWidth(ramp + side, rp);
+			}
 			float x = std::clamp(deal.x + deal.w / 2.0f - w / 2.0f, 10.0f, 1430.0f - w);
 			DigitFont::drawText(state, ramp, x, deal.y - 26.0f, rp, SDL_Color{255, 225, 80, 255});
+			if(!side.empty())
+				DigitFont::drawText(state, side, x + DigitFont::textWidth(ramp, rp), deal.y - 26.0f, rp,
+					sideOn ? SDL_Color{110, 230, 110, 255} : SDL_Color{255, 200, 120, 255});
 		}
 		for(int i = 0; i < numberOfPlayers; i++){
 			if(players[i].getBankroll() <= 0){

@@ -1241,56 +1241,104 @@ private:
 };
 
 // ---------------------------------------------------------------------
+// House edges and per-hand standard deviations measured with this game's
+// own engine playing the published charts: main bets over 3-4 million
+// rounds per game (dealer-hits: the average of 3 runs, each good to about
+// +-0.05%), side bets over 20 million rounds each, flat betting.
+namespace HouseEdge{
+	inline constexpr float EDGE_6D_H17 = 0.0055f, EDGE_6D_S17 = 0.0032f;
+	inline constexpr float EDGE_2D_H17 = 0.0055f, EDGE_2D_S17 = 0.0039f;
+	inline constexpr float EDGE_8D_H17 = 0.0060f, EDGE_8D_S17 = 0.0028f;
+	inline constexpr float EDGE_PE2_H17 = 0.0057f, EDGE_PE2_S17 = 0.0013f;
+	inline constexpr float EDGE_PE6_H17 = 0.0068f, EDGE_PE6_S17 = 0.0033f;
+	inline constexpr float EDGE_FREE_BET = 0.0109f;
+
+	struct SideBet{ const char* name; float edge; float sd; };
+	enum{ LL_2D, LL_6D, MATCH_UP_2D, MATCH_DOWN_2D, MATCH_UP_6D, MATCH_DOWN_6D, LUCKY_STIFF, PUSH_22, POT_OF_GOLD, SIDE_COUNT };
+	inline const SideBet& sideBet(int i){
+		static const SideBet S[SIDE_COUNT] = {
+			{ "LUCKY LADIES", 0.256f, 4.57f }, { "LUCKY LADIES", 0.250f, 4.98f },
+			{ "MATCH UP", 0.163f, 2.18f }, { "MATCH DOWN", 0.163f, 2.18f },
+			{ "MATCH UP", 0.031f, 2.45f }, { "MATCH DOWN", 0.030f, 2.45f },
+			{ "LUCKY STIFF", 0.107f, 2.25f }, { "PUSH 22", 0.059f, 4.20f }, { "POT OF GOLD", 0.087f, 3.97f },
+		};
+		return S[i];
+	}
+}
+
+// ---------------------------------------------------------------------
+// BANKROLL PLANNER: what a session at a chosen game, bet, side bet, pace
+// and length is expected to cost, how widely it swings, and how much money
+// to bring. The main bet and the side bet are treated as independent.
 class BankrollMenu
 {
 public:
-	// House edge (main bet, perfect basic strategy) and standard deviation
-	// per hand, in bets -- measured with this game's own engine, playing
-	// the charts, over 3 million rounds each.
-	struct Preset{ const char* name; float edge; float sd; };
-	static const Preset* presets(){
-		static const Preset P[4] = {
-			{ "BLACKJACK 6-8 DECKS", 0.0055f, 1.15f },
-			{ "BLACKJACK 2 DECKS", 0.0055f, 1.15f },
-			{ "SPANISH 21 / PLAYERS EDGE", 0.0065f, 1.16f },
-			{ "FREE BET BLACKJACK", 0.0110f, 1.07f },
+	struct Game{ const char* name; float edgeH17, edgeS17, sd; std::vector<int> sides; };
+	static const std::vector<Game>& games(){
+		using namespace HouseEdge;
+		static const std::vector<Game> G = {
+			{ "BLACKJACK 6 DECKS", EDGE_6D_H17, EDGE_6D_S17, 1.15f, { LL_6D } },
+			{ "BLACKJACK 2 DECKS", EDGE_2D_H17, EDGE_2D_S17, 1.15f, { LL_2D } },
+			{ "LUCKY STIFF 8 DECKS", EDGE_8D_H17, EDGE_8D_S17, 1.15f, { LUCKY_STIFF } },
+			{ "PLAYERS EDGE 2 DECKS", EDGE_PE2_H17, EDGE_PE2_S17, 1.16f, { MATCH_UP_2D, MATCH_DOWN_2D } },
+			{ "PLAYERS EDGE 6 DECKS", EDGE_PE6_H17, EDGE_PE6_S17, 1.16f, { MATCH_UP_6D, MATCH_DOWN_6D } },
+			{ "FREE BET 6 DECKS", EDGE_FREE_BET, EDGE_FREE_BET, 1.07f, { PUSH_22, POT_OF_GOLD } },
 		};
-		return P;
+		return G;
 	}
-	static constexpr int PRESET_COUNT = 4;
 
 	void draw(SDLState& state){
 		using namespace TrainingUI;
 		clear(state);
 		text(state, "BANKROLL PLANNER", 20.0f, 6.0f, WHITE);
-		const Preset& p = presets()[game];
-		button(state, gameButton, SDL_Color{150, 120, 40, 255}, std::string("GAME: ") + p.name, 4.0f);
+		text(state, "PERFECT BASIC STRATEGY ON THE MAIN BET, FLAT BETTING, SIDE BET EVERY HAND", 60.0f, 2.8f, DIM);
+		const Game& g = games()[game];
+		bool freeBet = g.edgeH17 == g.edgeS17;
+		SDL_Color on{60, 90, 150, 255}, fixed{55, 60, 58, 255};
+		button(state, gameButton, SDL_Color{150, 120, 40, 255}, std::string("GAME: ") + g.name, 4.0f);
+		button(state, soft17Button, freeBet ? fixed : on, std::string("SOFT 17: ") + (freeBet || hitsSoft17 ? "HITS" : "STANDS"), 4.0f);
+		std::string sideLabel = "SIDE BET: NONE";
+		if(side > 0){
+			const HouseEdge::SideBet& sb = HouseEdge::sideBet(g.sides[side - 1]);
+			char edge[16];
+			std::snprintf(edge, sizeof(edge), "%.1f%%", sb.edge * 100.0f);
+			sideLabel = std::string("SIDE BET: ") + sb.name + " - " + edge + " EDGE";
+		}
+		button(state, sideButton, SDL_Color{120, 70, 140, 255}, sideLabel, 4.0f);
 		drawStepper(state, 0, "BET", "$" + std::to_string(BETS[betIndex]));
-		drawStepper(state, 1, "HANDS PER HOUR", std::to_string(handsPerHour));
-		drawStepper(state, 2, "HOURS", std::to_string(hours));
+		drawStepper(state, 1, "SIDE BET", side > 0 ? "$" + std::to_string(SIDE_BETS[sideIndex]) : "-");
+		drawStepper(state, 2, "HANDS PER HOUR", std::to_string(handsPerHour));
+		drawStepper(state, 3, "HOURS", std::to_string(hours));
 
 		long hands = (long)handsPerHour * hours;
-		double bet = BETS[betIndex];
-		double mean = -p.edge * bet * hands;
-		double sd = p.sd * bet * std::sqrt((double)hands);
+		double bet = BETS[betIndex], sideBet = side > 0 ? SIDE_BETS[sideIndex] : 0.0;
+		double edge = freeBet || hitsSoft17 ? g.edgeH17 : g.edgeS17;
+		double mainMean = -edge * bet * hands, sideMean = 0.0, var = g.sd * g.sd * bet * bet * hands;
+		if(side > 0){
+			const HouseEdge::SideBet& sb = HouseEdge::sideBet(g.sides[side - 1]);
+			sideMean = -sb.edge * sideBet * hands;
+			var += sb.sd * sb.sd * sideBet * sideBet * hands;
+		}
+		double mean = mainMean + sideMean, sd = std::sqrt(var);
 		auto money = [](double v){
 			long r = std::lround(std::fabs(v));
 			return std::string(v < -0.5 ? "-$" : "$") + std::to_string(r);
 		};
 		auto plusMoney = [&](double v){ return v >= 0.5 ? "+" + money(v) : money(v); };
-		float y = 330.0f;
+		float y = 422.0f;
 		auto row = [&](const std::string& label, const std::string& value, SDL_Color c){
-			DigitFont::drawText(state, label, 180.0f, y, 3.6f, GOLD);
-			DigitFont::drawText(state, value, 1260.0f - DigitFont::textWidth(value, 4.2f), y - 2.0f, 4.2f, c);
-			y += 40.0f;
+			DigitFont::drawText(state, label, 180.0f, y, 3.4f, GOLD);
+			DigitFont::drawText(state, value, 1260.0f - DigitFont::textWidth(value, 4.0f), y - 2.0f, 4.0f, c);
+			y += 30.0f;
 		};
-		row("YOUR TOTAL ACTION, " + std::to_string(hands) + " HANDS", "$" + std::to_string((long)(bet * hands)), WHITE);
+		row("YOUR TOTAL ACTION, " + std::to_string(hands) + " HANDS", "$" + std::to_string((long)((bet + sideBet) * hands)), WHITE);
 		row("EXPECTED RESULT", plusMoney(mean), RED);
+		if(side > 0)
+			row("OF THAT, MAIN BET / SIDE BET", plusMoney(mainMean) + " / " + plusMoney(sideMean), RED);
 		row("2 IN 3 SESSIONS END BETWEEN", plusMoney(mean - sd) + " AND " + plusMoney(mean + sd), WHITE);
 		row("1 IN 20 SESSIONS LOSE AT LEAST", money(-(mean - 1.645 * sd)), RED);
 		row("BRING THIS TO BE 95% SURE NOT TO GO BROKE", money(bankrollFor(0.05, mean, sd, hands)), GREEN);
 		row("BRING THIS TO BE 99% SURE", money(bankrollFor(0.01, mean, sd, hands)), GREEN);
-		text(state, "ASSUMES PERFECT BASIC STRATEGY ON THE MAIN BET. SIDE BETS COST FAR MORE", 590.0f, 3.0f, DIM);
 		button(state, backButton, SDL_Color{80, 80, 80, 255}, "BACK", 6.0f);
 	}
 
@@ -1300,9 +1348,15 @@ public:
 			return false;
 		if(TrainingUI::hit(p, backButton))
 			return true;
-		if(TrainingUI::hit(p, gameButton))
-			game = (game + 1) % PRESET_COUNT;
-		for(int i = 0; i < 3; i++){
+		if(TrainingUI::hit(p, gameButton)){
+			game = (game + 1) % (int)games().size();
+			side = 0;
+		}
+		if(TrainingUI::hit(p, soft17Button))
+			hitsSoft17 = !hitsSoft17;
+		if(TrainingUI::hit(p, sideButton))
+			side = (side + 1) % ((int)games()[game].sides.size() + 1);
+		for(int i = 0; i < 4; i++){
 			if(TrainingUI::hit(p, minusRect(i))) step(i, -1);
 			if(TrainingUI::hit(p, plusRect(i))) step(i, 1);
 		}
@@ -1310,8 +1364,8 @@ public:
 	}
 
 	std::vector<SDL_FRect> focusRects(){
-		std::vector<SDL_FRect> r{ gameButton };
-		for(int i = 0; i < 3; i++){
+		std::vector<SDL_FRect> r{ gameButton, soft17Button, sideButton };
+		for(int i = 0; i < 4; i++){
 			r.push_back(minusRect(i));
 			r.push_back(plusRect(i));
 		}
@@ -1343,13 +1397,17 @@ public:
 
 private:
 	static constexpr int BETS[10] = { 5, 10, 15, 25, 50, 75, 100, 200, 300, 500 };
-	int game = 0, betIndex = 3, handsPerHour = 70, hours = 3;
+	static constexpr int SIDE_BETS[8] = { 1, 2, 5, 10, 15, 25, 50, 100 };
+	int game = 0, side = 0, betIndex = 3, sideIndex = 2, handsPerHour = 70, hours = 3;
+	bool hitsSoft17 = true;
 
-	SDL_FRect gameButton{ .x = 420, .y = 85, .w = 600, .h = 56 };
+	SDL_FRect gameButton{ .x = 300, .y = 84, .w = 560, .h = 50 };
+	SDL_FRect soft17Button{ .x = 880, .y = 84, .w = 260, .h = 50 };
+	SDL_FRect sideButton{ .x = 300, .y = 144, .w = 840, .h = 50 };
 	SDL_FRect backButton{ .x = 620, .y = 640, .w = 200, .h = 56 };
 
-	SDL_FRect minusRect(int i){ return SDL_FRect{ .x = 760, .y = 160.0f + i * 54.0f, .w = 60, .h = 46 }; }
-	SDL_FRect plusRect(int i){ return SDL_FRect{ .x = 1000, .y = 160.0f + i * 54.0f, .w = 60, .h = 46 }; }
+	SDL_FRect minusRect(int i){ return SDL_FRect{ .x = 760, .y = 208.0f + i * 50.0f, .w = 60, .h = 44 }; }
+	SDL_FRect plusRect(int i){ return SDL_FRect{ .x = 1000, .y = 208.0f + i * 50.0f, .w = 60, .h = 44 }; }
 
 	void drawStepper(SDLState& state, int i, const std::string& label, const std::string& value){
 		using namespace TrainingUI;
@@ -1361,7 +1419,8 @@ private:
 
 	void step(int i, int d){
 		if(i == 0) betIndex = std::clamp(betIndex + d, 0, 9);
-		else if(i == 1) handsPerHour = std::clamp(handsPerHour + 10 * d, 30, 150);
+		else if(i == 1) sideIndex = std::clamp(sideIndex + d, 0, 7);
+		else if(i == 2) handsPerHour = std::clamp(handsPerHour + 10 * d, 30, 150);
 		else hours = std::clamp(hours + d, 1, 24);
 	}
 };
@@ -1381,30 +1440,31 @@ public:
 
 	static const std::vector<Row>& mainGames(){
 		static const std::vector<Row> rows = sortedByEdge({
-			{ "BLACKJACK 6 DECKS", "DEALER STANDS SOFT 17 - LUCKY LADIES 6D TOO", EDGE_6D_S17, 1.15f },
-			{ "BLACKJACK 6 DECKS", "DEALER HITS SOFT 17 - LUCKY LADIES 6D TOO", EDGE_6D_H17, 1.15f },
-			{ "BLACKJACK 2 DECKS", "DEALER STANDS SOFT 17 - LUCKY LADIES 2D TOO", EDGE_2D_S17, 1.15f },
-			{ "BLACKJACK 2 DECKS", "DEALER HITS SOFT 17 - LUCKY LADIES 2D TOO", EDGE_2D_H17, 1.15f },
-			{ "LUCKY STIFF 8 DECKS", "DEALER STANDS SOFT 17", EDGE_8D_S17, 1.15f },
-			{ "LUCKY STIFF 8 DECKS", "DEALER HITS SOFT 17", EDGE_8D_H17, 1.15f },
-			{ "PLAYERS EDGE 2 DECKS", "DEALER STANDS SOFT 17", EDGE_PE2_S17, 1.16f },
-			{ "PLAYERS EDGE 2 DECKS", "DEALER HITS SOFT 17", EDGE_PE2_H17, 1.16f },
-			{ "PLAYERS EDGE 6 DECKS", "DEALER STANDS SOFT 17", EDGE_PE6_S17, 1.16f },
-			{ "PLAYERS EDGE 6 DECKS", "DEALER HITS SOFT 17", EDGE_PE6_H17, 1.16f },
-			{ "FREE BET 6 DECKS", "DEALER ALWAYS HITS SOFT 17", EDGE_FREE_BET, 1.07f },
+			{ "BLACKJACK 6 DECKS", "DEALER STANDS SOFT 17 - LUCKY LADIES 6D TOO", HouseEdge::EDGE_6D_S17, 1.15f },
+			{ "BLACKJACK 6 DECKS", "DEALER HITS SOFT 17 - LUCKY LADIES 6D TOO", HouseEdge::EDGE_6D_H17, 1.15f },
+			{ "BLACKJACK 2 DECKS", "DEALER STANDS SOFT 17 - LUCKY LADIES 2D TOO", HouseEdge::EDGE_2D_S17, 1.15f },
+			{ "BLACKJACK 2 DECKS", "DEALER HITS SOFT 17 - LUCKY LADIES 2D TOO", HouseEdge::EDGE_2D_H17, 1.15f },
+			{ "LUCKY STIFF 8 DECKS", "DEALER STANDS SOFT 17", HouseEdge::EDGE_8D_S17, 1.15f },
+			{ "LUCKY STIFF 8 DECKS", "DEALER HITS SOFT 17", HouseEdge::EDGE_8D_H17, 1.15f },
+			{ "PLAYERS EDGE 2 DECKS", "DEALER STANDS SOFT 17", HouseEdge::EDGE_PE2_S17, 1.16f },
+			{ "PLAYERS EDGE 2 DECKS", "DEALER HITS SOFT 17", HouseEdge::EDGE_PE2_H17, 1.16f },
+			{ "PLAYERS EDGE 6 DECKS", "DEALER STANDS SOFT 17", HouseEdge::EDGE_PE6_S17, 1.16f },
+			{ "PLAYERS EDGE 6 DECKS", "DEALER HITS SOFT 17", HouseEdge::EDGE_PE6_H17, 1.16f },
+			{ "FREE BET 6 DECKS", "DEALER ALWAYS HITS SOFT 17", HouseEdge::EDGE_FREE_BET, 1.07f },
 		});
 		return rows;
 	}
 
 	static const std::vector<Row>& sideBets(){
 		static const std::vector<Row> rows = sortedByEdge({
-			{ "MATCH UP OR DOWN", "PLAYERS EDGE 6 DECKS", 0.031f, 0.0f },
-			{ "PUSH 22", "FREE BET", 0.060f, 0.0f },
-			{ "INSURANCE, NOT COUNTING", "HALF A BET, ONLY OFFERED VS AN ACE - 1 HAND IN 13", 0.074f, 0.0f, 0.5f / 13.0f },
-			{ "POT OF GOLD", "FREE BET", 0.085f, 0.0f },
-			{ "LUCKY STIFF", "LUCKY STIFF", 0.108f, 0.0f },
-			{ "MATCH UP OR DOWN", "PLAYERS EDGE 2 DECKS", 0.163f, 0.0f },
-			{ "LUCKY LADIES", "2 OR 6 DECKS", 0.249f, 0.0f },
+			{ "MATCH UP OR DOWN 6 DECKS", "COUNT DOES NOT HELP - NEVER PAYS, BUT CHEAPEST", 0.031f, 2.45f },
+			{ "PUSH 22", "NEVER PAYS - LEAST BAD AT LOW COUNTS", 0.059f, 4.20f },
+			{ "INSURANCE, NOT COUNTING", "PAYS AT TRUE COUNT +3 OR MORE - VS AN ACE ONLY", 0.074f, 0.0f, 0.5f / 13.0f },
+			{ "POT OF GOLD", "PAYS AT TRUE COUNT -4 OR LOWER, ABOUT +9%", 0.087f, 3.97f },
+			{ "LUCKY STIFF", "NEVER PAYS - WORSE AT HIGH COUNTS", 0.107f, 2.25f },
+			{ "MATCH UP OR DOWN 2 DECKS", "COUNT DOES NOT HELP - SKIP IT", 0.163f, 2.18f },
+			{ "LUCKY LADIES 6 DECKS", "PAYS AT TRUE COUNT +8 OR MORE, ABOUT +11%", 0.250f, 4.98f },
+			{ "LUCKY LADIES 2 DECKS", "PAYS AT TRUE COUNT +7 OR MORE, +3 TO +24%", 0.256f, 4.57f },
 		});
 		return rows;
 	}
@@ -1436,7 +1496,8 @@ public:
 			// Rank, best first.
 			SDL_Color c = rankColor((float)i / std::max<size_t>(1, rows.size() - 1));
 			DigitFont::drawText(state, std::to_string(i + 1) + ". " + r.name, X_NAME, y, 3.0f, WHITE);
-			DigitFont::drawText(state, r.rules, X_NAME + 36.0f, y + 19.0f, 2.2f, DIM);
+			float rulesPixel = std::min(2.2f, 2.2f * (X_BAR - X_NAME - 56.0f) / std::max(1.0f, DigitFont::textWidth(r.rules, 2.2f)));
+			DigitFont::drawText(state, r.rules, X_NAME + 36.0f, y + 19.0f, rulesPixel, DIM);
 
 			float w = BAR_W * r.edge / maxEdge;
 			SDL_FRect bar{ .x = X_BAR, .y = y + 4.0f, .w = std::max(3.0f, w), .h = 18.0f };
@@ -1452,7 +1513,7 @@ public:
 		}
 
 		std::string tip = showingSideBets
-			? "EVERY SIDE BET HERE COSTS MORE THAN THE MAIN GAME. SKIP THEM TO MAKE YOUR MONEY LAST"
+			? "FLAT BET, EVERY SIDE BET LOSES. COUNTERS: ONLY AT THE COUNTS SHOWN, OTHERWISE SKIP IT"
 			: "LOWER IS BETTER. NO GAME BEATS THE HOUSE WITH BASIC STRATEGY ALONE - COUNTING CAN";
 		text(state, tip, 572.0f, 3.0f, GOLD);
 
@@ -1481,16 +1542,6 @@ public:
 	std::vector<SDL_FRect> focusRects(){ return { minusButton, plusButton, pageButton, backButton }; }
 
 private:
-	// Measured main-bet house edges (see the class comment).
-	// (dealer-hits: the average of 3 runs; each run is good to about
-	// +-0.05%.)
-	static constexpr float EDGE_6D_H17 = 0.0055f, EDGE_6D_S17 = 0.0032f;
-	static constexpr float EDGE_2D_H17 = 0.0055f, EDGE_2D_S17 = 0.0039f;
-	static constexpr float EDGE_8D_H17 = 0.0060f, EDGE_8D_S17 = 0.0028f;
-	static constexpr float EDGE_PE2_H17 = 0.0057f, EDGE_PE2_S17 = 0.0013f;
-	static constexpr float EDGE_PE6_H17 = 0.0068f, EDGE_PE6_S17 = 0.0033f;
-	static constexpr float EDGE_FREE_BET = 0.0109f;
-
 	static constexpr int BETS[10] = { 5, 10, 15, 25, 50, 75, 100, 200, 300, 500 };
 	int betIndex = 3;
 	bool showingSideBets = false;
