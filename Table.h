@@ -786,6 +786,7 @@ public:
 		drawChipAnimations(state, res);
 		drawInsurancePrompt(state);
 		drawDoublePanel(state);
+		drawBuyInPrompt(state);
 		drawPracticeNote(state);
 		drawRefusedNote(state);
 		drawRoundSummary(state);
@@ -813,7 +814,7 @@ public:
 	bool tableIdle(){
 		return !cardAnimation.has_value() && dealQueue.empty() && pauseTimer <= 0.0f && !awaitingBets
 			&& !awaitingNewRound && !awaitingInitialDeal && !awaitingPeek && !awaitingInsurance && !shuffling
-			&& !choosingDouble;
+			&& !choosingDouble && !buyInAction;
 	}
 
 	// A split hand starts with just the one card it was split off with;
@@ -955,6 +956,16 @@ public:
 							if(!event.key.repeat) skipCountQuiz(); break;
 						default: break;
 					}
+					break;
+				}
+				if(buyInAction){
+					if(event.key.repeat)
+						break;
+					SDL_Scancode sc = event.key.scancode;
+					if(sc == SDL_SCANCODE_Y || sc == SDL_SCANCODE_RETURN || sc == SDL_SCANCODE_KP_ENTER || sc == SDL_SCANCODE_SPACE)
+						acceptBuyIn();
+					else if(sc == SDL_SCANCODE_N || sc == SDL_SCANCODE_BACKSPACE)
+						declineBuyIn();
 					break;
 				}
 				if(choosingDouble){
@@ -1490,6 +1501,48 @@ public:
 		}
 	}
 
+	// The buy-in offer for a double or split the player can't afford.
+	bool isOfferingBuyIn() const{ return buyInAction != 0; }
+
+	// How much more the offer buys: whole buy-ins until the move's covered.
+	int buyInNeeded(){
+		Person& p = players[activePlayer];
+		int need = p.getActiveHandBet() - p.getBankroll();
+		int unit = std::max(1, p.getBuyInAmount());
+		int n = std::max(1, (need + unit - 1) / unit);
+		return n * unit;
+	}
+
+	void acceptBuyIn(){
+		if(!buyInAction)
+			return;
+		char action = buyInAction;
+		buyInAction = 0;
+		Person& p = players[activePlayer];
+		int unit = std::max(1, p.getBuyInAmount());
+		int amount = buyInNeeded();
+		for(int added = 0; added < amount; added += unit)
+			p.rebuy();
+		queueBankrollChange(activePlayer, amount);
+		sound(Sfx::ChipBet);
+		playerAction(action);
+	}
+
+	void declineBuyIn(){
+		buyInAction = 0;
+		sound(Sfx::Tap);
+	}
+
+	void handleBuyInPoint(SDLState& state, float windowX, float windowY){
+		float x, y;
+		if(!SDL_RenderCoordinatesFromWindow(state.renderer, windowX, windowY, &x, &y))
+			return;
+		SDL_FPoint p{x, y};
+		SDL_FRect yes = insuranceYesButton(), no = insuranceNoButton();
+		if(SDL_PointInRectFloat(&p, &yes)) acceptBuyIn();
+		else if(SDL_PointInRectFloat(&p, &no)) declineBuyIn();
+	}
+
 	// Count quiz panel (see openCountQuiz()).
 	bool isCountQuizShowing() const{ return quizState == QuizState::Asking || quizState == QuizState::Answered; }
 
@@ -1785,6 +1838,42 @@ public:
 	// mina.cpp saves the trainer when this is set (then clears it).
 	bool trainerDirty = false;
 private:
+
+	char buyInAction = 0; // 'D' or 'P' waiting on the buy-in offer
+	bool ignoreFunds = false;
+
+	// True when the only thing stopping a double/split is the bankroll.
+	bool blockedOnlyByMoney(char action){
+		if(isTraining())
+			return false;
+		ignoreFunds = true;
+		bool possible = action == 'D' ? canDoubleActiveHand() : canSplitActiveHand();
+		ignoreFunds = false;
+		return possible;
+	}
+
+	void drawBuyInPrompt(SDLState& state){
+		if(!buyInAction)
+			return;
+		SDL_FRect panel = insurancePanel();
+		SDL_SetRenderDrawColor(state.renderer, 15, 25, 18, 255);
+		SDL_RenderFillRect(state.renderer, &panel);
+		SDL_SetRenderDrawColor(state.renderer, 255, 210, 40, 255);
+		for(int k = 0; k < 3; k++){
+			SDL_FRect ring{ panel.x - k, panel.y - k, panel.w + 2 * k, panel.h + 2 * k };
+			SDL_RenderRect(state.renderer, &ring);
+		}
+		std::string q = buyInAction == 'D' ? "NOT ENOUGH CHIPS TO DOUBLE" : "NOT ENOUGH CHIPS TO SPLIT";
+		std::string sub = "BUY IN FOR $" + std::to_string(buyInNeeded()) + " MORE?";
+		DigitFont::drawText(state, q, panel.x + (panel.w - DigitFont::textWidth(q, 4.5f)) / 2.0f, panel.y + 20.0f, 4.5f, SDL_Color{255, 255, 255, 255});
+		DigitFont::drawText(state, sub, panel.x + (panel.w - DigitFont::textWidth(sub, 4.0f)) / 2.0f, panel.y + 58.0f, 4.0f, SDL_Color{255, 225, 80, 255});
+		SDL_FRect yes = insuranceYesButton(), no = insuranceNoButton();
+		drawButton(state, yes, SDL_Color{60, 130, 70, 255});
+		drawButton(state, no, SDL_Color{110, 60, 60, 255});
+		float b = 5.5f;
+		DigitFont::drawText(state, "BUY IN", yes.x + (yes.w - DigitFont::textWidth("BUY IN", b)) / 2.0f, yes.y + (yes.h - 5 * b) / 2.0f, b, SDL_Color{255, 255, 255, 255});
+		DigitFont::drawText(state, "CANCEL", no.x + (no.w - DigitFont::textWidth("CANCEL", b)) / 2.0f, no.y + (no.h - 5 * b) / 2.0f, b, SDL_Color{255, 255, 255, 255});
+	}
 
 	bool askDoubleAmount = false;
 	bool choosingDouble = false;
@@ -3608,6 +3697,13 @@ private:
 			default: break;
 		}
 
+		// A double or split the player can't afford: offer to buy in for
+		// more chips (Person::rebuy()) instead of just refusing it.
+		if(!legal && (action == 'D' || action == 'P') && acceptingPlayerInput() && blockedOnlyByMoney(action)){
+			buyInAction = action;
+			sound(Sfx::Tap);
+			return;
+		}
 		if(!legal && acceptingPlayerInput()){
 			refuseMove(action);
 			return;
@@ -3880,7 +3976,7 @@ private:
 			return false;
 
 		bool free = isFreeBet(gameMode) && isFreeSplitEligible();
-		if(!free && p.getBankroll() < hand.getBet())
+		if(!free && !ignoreFunds && p.getBankroll() < hand.getBet())
 			return false;
 
 		int v0 = hand.cards[0].getValue();
@@ -3919,7 +4015,7 @@ private:
 		if(isFreeBet(gameMode) && isFreeDoubleEligible())
 			return true;
 
-		return p.getBankroll() >= hand.getBet();
+		return ignoreFunds || p.getBankroll() >= hand.getBet();
 	}
 
 	void onSplit(){

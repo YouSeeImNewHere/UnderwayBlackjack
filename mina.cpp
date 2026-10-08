@@ -1038,6 +1038,11 @@ static void mainLoopIteration(void *arg) {
                     ctx.table.handleCountQuizPoint(ctx.state,
                         event.tfinger.x * ctx.state.width,
                         event.tfinger.y * ctx.state.height);
+            } else if(ctx.screen == AppScreen::Playing && ctx.table.isOfferingBuyIn()){
+                if(event.type == SDL_EVENT_FINGER_UP)
+                    ctx.table.handleBuyInPoint(ctx.state,
+                        event.tfinger.x * ctx.state.width,
+                        event.tfinger.y * ctx.state.height);
             } else if(ctx.screen == AppScreen::Playing && ctx.table.isChoosingDouble()){
                 // Double-for-less panel: -/+/DOUBLE/CANCEL buttons.
                 if(event.type == SDL_EVENT_FINGER_UP)
@@ -1101,6 +1106,8 @@ static void mainLoopIteration(void *arg) {
                     ctx.table.toggleCardCount();
                 else if(ctx.screen == AppScreen::Playing && ctx.table.isCountQuizShowing())
                     ctx.table.handleCountQuizPoint(ctx.state, event.button.x, event.button.y);
+                else if(ctx.screen == AppScreen::Playing && ctx.table.isOfferingBuyIn())
+                    ctx.table.handleBuyInPoint(ctx.state, event.button.x, event.button.y);
                 else if(ctx.screen == AppScreen::Playing && ctx.table.isChoosingDouble())
                     ctx.table.handleDoublePoint(ctx.state, event.button.x, event.button.y);
                 else if(ctx.screen == AppScreen::Playing && ctx.table.isAwaitingInsurance())
@@ -1123,6 +1130,10 @@ static void mainLoopIteration(void *arg) {
             if(key == SDL_SCANCODE_ESCAPE || key == SDL_SCANCODE_AC_BACK){
                 if(ctx.screen == AppScreen::Playing && ctx.pauseState == PauseState::None && ctx.table.isChoosingDouble()){
                     ctx.table.cancelDoubleChoice();
+                    break;
+                }
+                if(ctx.screen == AppScreen::Playing && ctx.pauseState == PauseState::None && ctx.table.isOfferingBuyIn()){
+                    ctx.table.declineBuyIn();
                     break;
                 }
                 goBack(ctx);

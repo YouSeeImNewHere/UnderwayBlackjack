@@ -217,6 +217,8 @@ public:
 	// initialBankroll rises by that same amount, since it now needs to
 	// cover this new money too before drawBankrolls() calls the player
 	// break-even again.
+	int getBuyInAmount() const{ return buyInAmount; }
+
 	void rebuy(){
 		bankroll += buyInAmount;
 		initialBankroll += buyInAmount;
