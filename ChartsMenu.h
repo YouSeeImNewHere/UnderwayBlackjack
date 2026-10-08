@@ -21,6 +21,8 @@ struct RuleSelector
 	bool das = true;
 	bool surrender = true;
 	bool indexPlays = false;
+	// Portrait screens lay the buttons out 2 across instead of one row.
+	bool grid = false;
 
 	// Starts on the chart for a game.
 	void open(GameMode mode, bool dealerHitsSoft17){
@@ -104,6 +106,8 @@ struct RuleSelector
 	}
 
 	SDL_FRect button(int i, float y, int n){
+		if(grid)
+			return SDL_FRect{ .x = 20.0f + (i % 2) * 350.0f, .y = y + (i / 2) * 62.0f, .w = 330.0f, .h = 54.0f };
 		static const float W5[5] = { 250.0f, 190.0f, 260.0f, 360.0f, 260.0f };
 		static const float W6[6] = { 220.0f, 160.0f, 210.0f, 300.0f, 220.0f, 220.0f };
 		const float* W = n == 6 ? W6 : W5;

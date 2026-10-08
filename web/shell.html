@@ -94,6 +94,13 @@
             #status {
                 display: none;
             }
+
+            /* The portrait training screens are drawn upright already --
+               mina.cpp sets this class while one is showing. */
+            body.portrait-ui canvas {
+                position: static;
+                transform: none;
+            }
         }
     </style>
 </head>

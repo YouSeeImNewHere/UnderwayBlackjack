@@ -87,6 +87,36 @@ public:
 
 		drawColumn(state, left, 150.0f);
 		drawColumn(state, right, 780.0f);
+		drawNetBreakdown(state, all);
+	}
+
+	// Where NET WINNINGS comes from, so the pages visibly add up: for one
+	// game, its hands (with insurance and bonuses) and its side bets; for
+	// all games, each game's own net plus anything played before stats
+	// were kept per game.
+	void drawNetBreakdown(SDLState& state, const Stats& stats){
+		std::string line;
+		if(scope == Stats::AllGames){
+			static const char* SHORT[Stats::ScopeCount] = { "", "STANDARD", "LUCKY LADIES", "PLAYERS EDGE", "LUCKY STIFF", "FREE BET" };
+			long long counted = 0;
+			line = "NET BY GAME:";
+			for(int g = Stats::StandardGame; g < Stats::ScopeCount; g++){
+				long long n = stats.get(g, Stats::NetWinnings);
+				counted += n;
+				line += std::string("  ") + SHORT[g] + " " + signedNum(n);
+			}
+			long long earlier = stats.get(Stats::AllGames, Stats::NetWinnings) - counted;
+			if(earlier != 0)
+				line += "  EARLIER " + signedNum(earlier);
+		} else{
+			long long sides = 0;
+			for(int b = 0; b < Stats::SideBetCount; b++)
+				sides += stats.get(scope, (Stats::SideBet)b, Stats::SideWon) - stats.get(scope, (Stats::SideBet)b, Stats::SideLost);
+			long long net = stats.get(scope, Stats::NetWinnings);
+			line = "NET WINNINGS " + signedNum(net) + " =  HANDS AND INSURANCE " + signedNum(net - sides) + "  +  SIDE BETS " + signedNum(sides);
+		}
+		float pixel = std::min(3.2f, 1400.0f / DigitFont::textWidth(line, 1.0f));
+		DigitFont::drawText(state, line, (1440.0f - DigitFont::textWidth(line, pixel)) / 2.0f, 596.0f, pixel, SDL_Color{150, 200, 150, 255});
 	}
 
 	// One row per side bet: how often and how much was bet, against how
