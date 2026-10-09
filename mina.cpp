@@ -27,6 +27,11 @@
 #include "Audio.h"
 #include "SaveData.h"
 
+#ifdef SDL_PLATFORM_IOS
+// ios/Orientation.mm: asks iOS to rotate to what SDL_HINT_ORIENTATIONS now allows.
+extern "C" void UB_RequestOrientation(SDL_Window* window, bool portrait);
+#endif
+
 enum class AppScreen {
     Menu,
     GameMode,
@@ -434,11 +439,6 @@ static AppContext *g_ctx = nullptr;
 // whenever this is true. Kept in sync with the CSS by re-checking the same
 // media query every time the window size is (re)computed.
 static bool g_rotatedForPortrait = false;
-
-#ifdef SDL_PLATFORM_IOS
-// ios/Orientation.mm: asks iOS to rotate to what SDL_HINT_ORIENTATIONS now allows.
-extern "C" void UB_RequestOrientation(SDL_Window* window, bool portrait);
-#endif
 
 // Shared by main()'s initial sizing and onBrowserResize(): works out the
 // largest 1440:720-letterboxed size that fits the current browser viewport.
