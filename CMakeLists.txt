@@ -106,9 +106,11 @@ file(GLOB GAME_SOUNDS ${CMAKE_CURRENT_SOURCE_DIR}/sounds/*.wav)
 list(APPEND GAME_ASSETS ${GAME_SOUNDS})
 
 if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
-    # ios/Orientation.mm turns the screen for the portrait training drills.
-    enable_language(OBJCXX)
-    list(APPEND GAME_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/ios/Orientation.mm)
+    # ios/Orientation.m turns the screen for the portrait training drills.
+    # Plain Objective-C: enabling OBJCXX makes CMake build SDL_image's .m
+    # files as Objective-C++, which they don't compile as.
+    enable_language(OBJC)
+    list(APPEND GAME_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/ios/Orientation.m)
     set(IOS_RESOURCES
         ${CMAKE_CURRENT_SOURCE_DIR}/ios/Assets.xcassets
         ${CMAKE_CURRENT_SOURCE_DIR}/ios/LaunchScreen.storyboard)

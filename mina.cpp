@@ -28,7 +28,7 @@
 #include "SaveData.h"
 
 #ifdef SDL_PLATFORM_IOS
-// ios/Orientation.mm: asks iOS to rotate to what SDL_HINT_ORIENTATIONS now allows.
+// ios/Orientation.m: asks iOS to rotate to what SDL_HINT_ORIENTATIONS now allows.
 extern "C" void UB_RequestOrientation(SDL_Window* window, bool portrait);
 #endif
 
@@ -945,7 +945,7 @@ static SDL_Color letterboxColor(const AppContext &ctx) {
 // The training drills (hub, strategy drill, review, counting speed, true
 // count) are portrait screens, held in one hand: 720 x 1440 instead of
 // 1440 x 720. Entering one turns a phone to portrait (Android through SDL's
-// orientation hint, iOS through ios/Orientation.mm, the web by turning off
+// orientation hint, iOS through ios/Orientation.m, the web by turning off
 // its sideways rotation); leaving turns it back. Phones and tablets only: a
 // desktop keeps the landscape layout of these screens.
 static bool wantsPortrait(const AppContext& ctx){

@@ -6,7 +6,7 @@
 #import <UIKit/UIKit.h>
 #include <SDL3/SDL.h>
 
-extern "C" void UB_RequestOrientation(SDL_Window* window, bool portrait)
+void UB_RequestOrientation(SDL_Window* window, bool portrait)
 {
     @autoreleasepool {
         UIWindow* uiwindow = (__bridge UIWindow*)SDL_GetPointerProperty(SDL_GetWindowProperties(window),
