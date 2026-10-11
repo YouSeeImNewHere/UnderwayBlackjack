@@ -35,6 +35,9 @@ public:
 	// in TIP / practice, a bet ramp while betting, and an insurance hint.
 	// Standard games only.
 	bool indexPlays = false;
+	// AUTO SHUFFLER row: a continuous shuffling machine -- the cards go
+	// back in after every round, so counting gets nothing.
+	bool autoShuffler = false;
 
 	// Set by mina.cpp right before this screen shows (from GameModeMenu's
 	// pick, pre-game, or Table::getGameMode() when reopened from the pause
@@ -158,6 +161,17 @@ public:
 		drawRowLabel(state, ROW_Y[6], indexChoice ? "INDEX PLAYS - COUNTING" : "INDEX PLAYS - STANDARD ONLY");
 		drawToggleButton(state, toggleButton(6), indexChoice && indexPlays);
 
+		drawRowLabel(state, ROW_Y[7], "AUTO SHUFFLER");
+		drawToggleButton(state, toggleButton(7), autoShuffler);
+		if(autoShuffler){
+			// Why the count stays near zero, beside the switch.
+			float pixel = 2.8f;
+			SDL_Color dim{180, 200, 180, 255};
+			float x = CONTROL_X + TOGGLE_BTN_W + 16.0f;
+			DigitFont::drawText(state, "SHUFFLED EVERY ROUND", x, ROW_Y[7] + 8.0f, pixel, dim);
+			DigitFont::drawText(state, "COUNTING DOES NOT WORK", x, ROW_Y[7] + ROW_H - 5 * pixel - 8.0f, pixel, dim);
+		}
+
 		drawSpeedDemo(state, res);
 
 		SDL_FRect go = confirmButton();
@@ -202,6 +216,7 @@ public:
 			rects.push_back(toggleButton(5));
 		if(!isPlayersEdge(gameMode) && !isFreeBet(gameMode))
 			rects.push_back(toggleButton(6));
+		rects.push_back(toggleButton(7));
 		rects.push_back(backButton());
 		rects.push_back(confirmButton());
 		return rects;
@@ -255,6 +270,10 @@ public:
 		if(!isPlayersEdge(gameMode) && !isFreeBet(gameMode) && SDL_PointInRectFloat(&p, &indexButton))
 			indexPlays = !indexPlays;
 
+		SDL_FRect shufflerButton = toggleButton(7);
+		if(SDL_PointInRectFloat(&p, &shufflerButton))
+			autoShuffler = !autoShuffler;
+
 		SDL_FRect confirm = confirmButton();
 		if(SDL_PointInRectFloat(&p, &confirm))
 			return true;
@@ -268,18 +287,18 @@ private:
 	static constexpr SDL_Color WHITE{255, 255, 255, 255};
 
 	// Same left-caption/right-controls shape as SetupMenu's stepper rows,
-	// just 7 rows instead of a per-player block -- LABEL_X is where a
+	// just 8 rows instead of a per-player block -- LABEL_X is where a
 	// row's caption starts, CONTROL_X where its buttons start.
 	static constexpr float LABEL_X = 380.0f;
 	static constexpr float CONTROL_X = 760.0f;
-	static constexpr float ROW_H = 58.0f;
-	static constexpr float ROW_Y[7] = {110.0f, 222.0f, 288.0f, 354.0f, 420.0f, 486.0f, 552.0f};
+	static constexpr float ROW_H = 52.0f;
+	static constexpr float ROW_Y[8] = {110.0f, 214.0f, 274.0f, 334.0f, 394.0f, 454.0f, 514.0f, 574.0f};
 
 	// Demo card track -- off to the right of the 3 rows above, clear of
 	// their controls (the slider ends at CONTROL_X + SLIDER_W, 1200).
 	static constexpr float DEMO_X = 1250.0f;
 	static constexpr float DEMO_TOP_Y = 130.0f;
-	static constexpr float DEMO_BOTTOM_Y = 480.0f;
+	static constexpr float DEMO_BOTTOM_Y = 410.0f;
 	static constexpr float DEMO_BASE_DURATION = 0.6f; // mirrors Table::DEAL_DURATION
 	static constexpr float DEMO_LOOP_PAUSE = 0.4f;
 	float demoElapsed = 0.0f;
@@ -382,11 +401,11 @@ private:
 	// GO and BACK sit side by side, the pair centered.
 	SDL_FRect confirmButton(){
 		float w = 260.0f, h = 56.0f;
-		return SDL_FRect{ .x = 720.0f + 10.0f, .y = 636.0f, .w = w, .h = h };
+		return SDL_FRect{ .x = 720.0f + 10.0f, .y = 646.0f, .w = w, .h = h };
 	}
 
 	SDL_FRect backButton(){
 		float w = 200.0f, h = 56.0f;
-		return SDL_FRect{ .x = 720.0f - 10.0f - w, .y = 636.0f, .w = w, .h = h };
+		return SDL_FRect{ .x = 720.0f - 10.0f - w, .y = 646.0f, .w = w, .h = h };
 	}
 };

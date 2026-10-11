@@ -18,6 +18,7 @@
 #include "ChartsMenu.h"
 #include "TrainingMenus.h"
 #include "SettingsMenu.h"
+#include "CountingMenus.h"
 #include "Haptics.h"
 #include "AboutMenu.h"
 #include "GesturesMenu.h"
@@ -52,6 +53,9 @@ enum class AppScreen {
     TrueCount,
     Bankroll,
     Odds,
+    Ramp,
+    RampDrill,
+    SessionLog,
     Settings,
     Playing
 };
@@ -107,6 +111,9 @@ struct AppContext {
     CountDrillMenu countDrillMenu;
     TrueCountMenu trueCountMenu;
     BankrollMenu bankrollMenu;
+    RampMenu rampMenu;
+    RampDrillMenu rampDrillMenu;
+    SessionLogMenu sessionLogMenu;
     SettingsMenu settingsMenu;
     Haptics haptics;
     int drillMissesSeen = 0;
@@ -207,6 +214,7 @@ static void applyOptionsToTable(AppContext& ctx){
     ctx.table.setAskDoubleAmount(ctx.gameOptionsMenu.doubleForLess);
     ctx.table.setDealerHitsSoft17(ctx.gameOptionsMenu.dealerHitsSoft17);
     ctx.table.setIndexPlays(ctx.gameOptionsMenu.indexPlays);
+    ctx.table.setAutoShuffler(ctx.gameOptionsMenu.autoShuffler);
 }
 
 // PRACTICE / COUNT QUIZ (GameModeMenu): which training game, if any, the
@@ -220,7 +228,8 @@ static void saveOptions(AppContext& ctx){
     ctx.save.saveOptions(ctx.gameOptionsMenu.dealerSpeed,
         ctx.gameOptionsMenu.faceDownDoubles, ctx.gameOptionsMenu.hideInactiveHands,
         ctx.gameOptionsMenu.soundEffects, ctx.gameOptionsMenu.doubleForLess,
-        ctx.gameOptionsMenu.dealerHitsSoft17, ctx.gameOptionsMenu.indexPlays);
+        ctx.gameOptionsMenu.dealerHitsSoft17, ctx.gameOptionsMenu.indexPlays,
+        ctx.gameOptionsMenu.autoShuffler);
 }
 
 // Shared by both mouse and touch handling below: applies whichever menu
@@ -563,9 +572,13 @@ static void goBack(AppContext& ctx){
     case AppScreen::TrueCount:
     case AppScreen::Bankroll:
     case AppScreen::Odds:
-        if(ctx.drillMenu.dirty || ctx.countDrillMenu.dirty || ctx.trueCountMenu.dirty){
+    case AppScreen::Ramp:
+    case AppScreen::RampDrill:
+    case AppScreen::SessionLog:
+        if(ctx.drillMenu.dirty || ctx.countDrillMenu.dirty || ctx.trueCountMenu.dirty || ctx.rampDrillMenu.dirty || ctx.sessionLogMenu.dirty){
             ctx.trainer.save();
             ctx.drillMenu.dirty = ctx.countDrillMenu.dirty = ctx.trueCountMenu.dirty = false;
+            ctx.rampDrillMenu.dirty = ctx.sessionLogMenu.dirty = false;
         }
         ctx.screen = AppScreen::Training;
         return;
@@ -711,6 +724,18 @@ static void handleMenuClick(AppContext& ctx, float wx, float wy){
             case TrainingMenu::ODDS:
                 ctx.screen = AppScreen::Odds;
             break;
+            case TrainingMenu::RAMP:
+                ctx.rampMenu.open(ctx.save.unitBets[0]);
+                ctx.screen = AppScreen::Ramp;
+            break;
+            case TrainingMenu::RAMP_DRILL:
+                ctx.rampDrillMenu.open(ctx.trainer);
+                ctx.screen = AppScreen::RampDrill;
+            break;
+            case TrainingMenu::SESSIONS:
+                ctx.sessionLogMenu.open(ctx.trainer, ctx.save.unitBets[0]);
+                ctx.screen = AppScreen::SessionLog;
+            break;
             case TrainingMenu::BACK:
                 goBack(ctx);
             break;
@@ -741,6 +766,18 @@ static void handleMenuClick(AppContext& ctx, float wx, float wy){
         return;
     case AppScreen::Odds:
         if(ctx.oddsMenu.handlePoint(ctx.state, wx, wy))
+            goBack(ctx);
+        return;
+    case AppScreen::Ramp:
+        if(ctx.rampMenu.handlePoint(ctx.state, wx, wy))
+            goBack(ctx);
+        return;
+    case AppScreen::RampDrill:
+        if(ctx.rampDrillMenu.handlePoint(ctx.state, wx, wy))
+            goBack(ctx);
+        return;
+    case AppScreen::SessionLog:
+        if(ctx.sessionLogMenu.handlePoint(ctx.state, wx, wy))
             goBack(ctx);
         return;
     case AppScreen::Settings:
@@ -822,6 +859,9 @@ static std::vector<SDL_FRect> currentFocusRects(AppContext& ctx){
     case AppScreen::Bankroll:      return ctx.bankrollMenu.focusRects();
     case AppScreen::Settings:      return ctx.settingsMenu.focusRects();
     case AppScreen::Odds:          return ctx.oddsMenu.focusRects();
+    case AppScreen::Ramp:          return ctx.rampMenu.focusRects();
+    case AppScreen::RampDrill:     return ctx.rampDrillMenu.focusRects();
+    case AppScreen::SessionLog:    return ctx.sessionLogMenu.focusRects();
     case AppScreen::Stats:         return ctx.statsMenu.focusRects();
     case AppScreen::Tutorial:      return ctx.tutorialMenu.focusRects();
     case AppScreen::Playing:       break;
@@ -967,6 +1007,9 @@ static SDL_Color letterboxColor(const AppContext &ctx) {
     case AppScreen::TrueCount:
     case AppScreen::Bankroll:
     case AppScreen::Odds:
+    case AppScreen::Ramp:
+    case AppScreen::RampDrill:
+    case AppScreen::SessionLog:
     case AppScreen::Gestures:
     case AppScreen::Keyboard:
     case AppScreen::Stats:
@@ -1008,6 +1051,7 @@ static bool wantsPortrait(const AppContext& ctx){
     case AppScreen::Review:
     case AppScreen::CountDrill:
     case AppScreen::TrueCount:
+    case AppScreen::RampDrill:
         return true;
     default:
         return false;
@@ -1280,6 +1324,10 @@ static void mainLoopIteration(void *arg) {
                     ctx.drillMenu.handleKey(key);
                     break;
                 }
+                if(ctx.screen == AppScreen::RampDrill && (RampDrillMenu::takesKey(key) || (isEnter && ctx.rampDrillMenu.waitingForNext()))){
+                    ctx.rampDrillMenu.handleKey(key);
+                    break;
+                }
                 if(ctx.screen == AppScreen::CountDrill && (ctx.countDrillMenu.takesKey(key) || (isEnter && ctx.focusIndex < 0))){
                     ctx.countDrillMenu.handleKey(key);
                     break;
@@ -1351,6 +1399,8 @@ static void mainLoopIteration(void *arg) {
         ctx.drillMenu.update(deltaTime);
     else if(ctx.screen == AppScreen::CountDrill)
         ctx.countDrillMenu.update(deltaTime);
+    else if(ctx.screen == AppScreen::RampDrill)
+        ctx.rampDrillMenu.update(deltaTime);
 
     // Game Options' SOUND switch takes effect as soon as it's flipped
     // (BACK restores the menu's old value, and with it this).
@@ -1361,11 +1411,15 @@ static void mainLoopIteration(void *arg) {
     ctx.table.setOneHandedGestures(ctx.settingsMenu.oneHandedTable);
     ctx.table.setPenetration(ctx.settingsMenu.penetration);
     ctx.haptics.on = ctx.settingsMenu.vibrate;
+    // The count quiz panel's TIMING button: keep it saved.
+    if(ctx.table.quizRandom != ctx.save.quizRandom)
+        ctx.save.saveQuizRandom(ctx.table.quizRandom);
     // A missed strategy-drill answer: a buzz.
-    if(ctx.drillMenu.misses != ctx.drillMissesSeen){
-        if(ctx.drillMenu.misses > ctx.drillMissesSeen)
+    int misses = ctx.drillMenu.misses + ctx.rampDrillMenu.misses;
+    if(misses != ctx.drillMissesSeen){
+        if(misses > ctx.drillMissesSeen)
             ctx.haptics.buzz(Haptics::Wrong);
-        ctx.drillMissesSeen = ctx.drillMenu.misses;
+        ctx.drillMissesSeen = misses;
     }
     ctx.gesturesMenu.oneHanded = ctx.settingsMenu.oneHandedTable;
     ctx.tutorialMenu.oneHanded = ctx.settingsMenu.oneHandedTable;
@@ -1436,6 +1490,12 @@ static void mainLoopIteration(void *arg) {
         ctx.bankrollMenu.draw(ctx.state);
     else if(ctx.screen == AppScreen::Odds)
         ctx.oddsMenu.draw(ctx.state);
+    else if(ctx.screen == AppScreen::Ramp)
+        ctx.rampMenu.draw(ctx.state);
+    else if(ctx.screen == AppScreen::RampDrill)
+        ctx.rampDrillMenu.draw(ctx.state);
+    else if(ctx.screen == AppScreen::SessionLog)
+        ctx.sessionLogMenu.draw(ctx.state);
     else if(ctx.screen == AppScreen::Stats)
         ctx.statsMenu.draw(ctx.state, ctx.res, ctx.stats);
     else if(ctx.screen == AppScreen::Tutorial)
@@ -1510,6 +1570,7 @@ int main(int argc,char *argv[]) {
     ctx->settingsMenu.oneHandedTable = ctx->save.oneHandedTable;
     ctx->settingsMenu.penetration = ctx->save.penetration;
     ctx->settingsMenu.vibrate = ctx->save.vibrate;
+    ctx->table.setQuizRandom(ctx->save.quizRandom);
     // Last-used Game Options, for Resume and for the next new game alike.
     if(ctx->save.hasOptions){
         ctx->gameOptionsMenu.dealerSpeed = ctx->save.dealerSpeed;
@@ -1519,6 +1580,7 @@ int main(int argc,char *argv[]) {
         ctx->gameOptionsMenu.doubleForLess = ctx->save.doubleForLess;
         ctx->gameOptionsMenu.dealerHitsSoft17 = ctx->save.dealerHitsSoft17;
         ctx->gameOptionsMenu.indexPlays = ctx->save.indexPlays;
+        ctx->gameOptionsMenu.autoShuffler = ctx->save.autoShuffler;
     }
 
 #ifdef __EMSCRIPTEN__

@@ -20,6 +20,7 @@
 #define private public
 #include "Table.h"
 #include "TrainingMenus.h"
+#include "CountingMenus.h"
 #undef private
 #include "Stats.h"
 static int fails=0;
@@ -480,5 +481,24 @@ int main(){
     double at = 100.0 * t.cutCardAt / t.shoeCardsAtShuffle;
     std::string what = "cut card near " + std::to_string(pct) + "% (got " + std::to_string((int)at) + ")";
     CHECK(std::fabs(at - pct) <= 1.5, what.c_str()); }
+  out("Auto shuffler");
+  { T x(GameMode::SixDeck); x.t.setAutoShuffler(true); x.t.makeShoe();
+    bool noCut = std::none_of(x.t.shoe.begin(), x.t.shoe.end(), [](Card& c){ return c.getValue() == 14; });
+    CHECK(noCut && x.t.shoe.size() == 312, "no cut card in the shoe");
+    x.deal({C(10),C(10),C(9),C(7)}); x.settle(); x.key(SDL_SCANCODE_S); x.toBetting();
+    CHECK(x.t.shoe.size() == 312 && x.t.discard.empty(), "cards go back in after the round");
+    CHECK(x.t.getRunningCount() == 0, "count starts over");
+    x.t.setAutoShuffler(false); x.deal({C(10),C(10),C(9),C(7)}); x.settle(); x.key(SDL_SCANCODE_S); x.toBetting();
+    bool cut = std::any_of(x.t.shoe.begin(), x.t.shoe.end(), [](Card& c){ return c.getValue() == 14; });
+    CHECK(cut, "switching it off cuts a normal shoe"); }
+  out("Session log dates and the bet ramp");
+  CHECK(SessionLogMenu::addDays(20261231, 1) == 20270101, "Dec 31 + 1 day is Jan 1");
+  CHECK(SessionLogMenu::addDays(20280301, -1) == 20280229, "Mar 1 2028 - 1 day is Feb 29");
+  CHECK(IndexPlays::betUnits(1) == 1 && IndexPlays::betUnits(2) == 2 && IndexPlays::betUnits(3) == 4 && IndexPlays::betUnits(4) == 6 && IndexPlays::betUnits(5) == 8 && IndexPlays::betUnits(-3) == 1, "ramp 1, 2, 4, 6, 8");
+  { Trainer tr; tr.sessions.push_back({20261011, 0, 30, 25, 140}); tr.rampDrills = 7; tr.rampDrillsRight = 5;
+    Trainer back; back.fromInts(tr.toInts());
+    CHECK(back.sessions.size() == 1 && back.sessions[0].result == 140 && back.rampDrillsRight == 5, "sessions and ramp drill saved and loaded");
+    back.reset();
+    CHECK(back.sessions.size() == 1 && back.rampDrills == 0, "reset training keeps the session log"); }
   std::cout.rdbuf(old); printf("\n%s (%d failed)\n", fails?"SOME FAILED":"ALL PASSED", fails); return fails;
 }

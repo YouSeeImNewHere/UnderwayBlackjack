@@ -1213,9 +1213,17 @@ public:
 				// The count quiz game plays each hand by the strategy
 				// table, at a pace you can follow and count along with.
 				if(countQuizOn && tableIdle() && acceptingPlayerInput()){
+					// RANDOM timing can stop a hand partway for the count
+					// (cards count once they're face up, so it's fair).
+					if(isCountQuizShowing())
+						return;
 					autoPlayTimer += deltaTime;
 					if(autoPlayTimer >= AUTO_PLAY_DELAY * dealerSpeedFactor){
 						autoPlayTimer = 0.0f;
+						if(quizRandom && quizState == QuizState::Off && quizRng() % 6 == 0){
+							openCountQuiz();
+							return;
+						}
 						autoPlay();
 					}
 					return;
@@ -1230,9 +1238,16 @@ public:
 				// have landed, ask for the running count before betting
 				// (or the shuffle) goes on.
 				if(awaitingNewRound && countQuizOn && quizState != QuizState::Done){
-					if(quizState == QuizState::Off)
-						openCountQuiz();
-					return;
+					// RANDOM timing: after about one round in three (and
+					// not again if this round was already stopped).
+					if(quizState == QuizState::Off){
+						if(!quizRandom || quizRng() % 3 == 0)
+							openCountQuiz();
+						else
+							quizState = QuizState::Done;
+					}
+					if(quizState != QuizState::Done)
+						return;
 				}
 				if(awaitingNewRound){
 					awaitingNewRound = false;
@@ -1242,6 +1257,17 @@ public:
 					// in discard by this point (dealQueue's empty, nothing
 					// is animating) -- safe to sweep it and cut a fresh
 					// shoe before opening bets on the next round.
+					// An auto shuffler takes the round's cards back in
+					// and reshuffles while the next bets go out -- no
+					// shuffle pause, no cut card, a fresh count.
+					if(autoShuffler && !shoeNeedsReshuffle){
+						discard.clear();
+						makeShoe();
+						runningCount = 0;
+						lastVerifiedCount = 0;
+						openBettingPhase();
+						return;
+					}
 					if(shoeNeedsReshuffle){
 						// The discards are gathered up and shuffled on the
 						// table, to the shuffle sound, before going back in
@@ -1559,6 +1585,13 @@ public:
 	// Count quiz panel (see openCountQuiz()).
 	bool isCountQuizShowing() const{ return quizState == QuizState::Asking || quizState == QuizState::Answered; }
 
+	// The count quiz's timing: after every round, or (RANDOM) at random
+	// moments -- after some rounds, partway through others. The panel's
+	// TIMING button switches it; mina.cpp saves it.
+	bool quizRandom = false;
+	void setQuizRandom(bool on){ quizRandom = on; }
+	SDL_FRect quizTimingButton(){ return SDL_FRect{ .x = 520, .y = 456, .w = 400, .h = 40 }; }
+
 	void nudgeCountGuess(int dir){
 		if(quizState != QuizState::Asking)
 			return;
@@ -1595,6 +1628,12 @@ public:
 			return;
 		SDL_FPoint p{x, y};
 		SDL_FRect minus = doubleMinusButton(), plus = doublePlusButton(), ok = insuranceYesButton(), skip = insuranceNoButton();
+		SDL_FRect timing = quizTimingButton();
+		if(SDL_PointInRectFloat(&p, &timing)){
+			quizRandom = !quizRandom;
+			sound(Sfx::Tap);
+			return;
+		}
 		if(quizState == QuizState::Asking){
 			if(SDL_PointInRectFloat(&p, &minus)) nudgeCountGuess(-1);
 			else if(SDL_PointInRectFloat(&p, &plus)) nudgeCountGuess(1);
@@ -1667,6 +1706,7 @@ private:
 	}
 
 	enum class QuizState{ Off, Asking, Answered, Done };
+	std::mt19937 quizRng{ std::random_device{}() };
 	bool countQuizOn = false;
 	QuizState quizState = QuizState::Off;
 	int quizGuess = 0;
@@ -1808,22 +1848,38 @@ private:
 	void drawOneHandedHint(SDLState& state){
 		if(!oneHandedGestures || !touchLayout || oneHandedHintRounds <= 0 || !acceptingPlayerInput())
 			return;
-		static const char* LINES[2] = { "TAP: HIT     SWIPE LEFT OR RIGHT: STAND     HOLD: SPLIT",
-			"SWIPE UP: DOUBLE     SWIPE DOWN: SURRENDER" };
-		SDL_FRect bar{ 240.0f, 436.0f, 960.0f, 52.0f };
+		// A vertical list in the left of the dealer's card box -- the
+		// dealer's cards fill it from the right, and while you're acting
+		// there are only two of them.
+		static const char* GESTURE[5] = { "TAP", "SWIPE SIDEWAYS", "SWIPE UP", "SWIPE DOWN", "HOLD" };
+		static const char* MOVE[5] = { "HIT", "STAND", "DOUBLE", "SURRENDER", "SPLIT" };
+		SDL_FRect panel{ 380.0f, 284.0f, 456.0f, 140.0f };
 		SDL_SetRenderDrawColor(state.renderer, 15, 25, 18, 255);
-		SDL_RenderFillRect(state.renderer, &bar);
+		SDL_RenderFillRect(state.renderer, &panel);
 		SDL_SetRenderDrawColor(state.renderer, 255, 210, 40, 255);
-		SDL_RenderRect(state.renderer, &bar);
-		float p = std::min(3.0f, (bar.w - 30.0f) / DigitFont::textWidth(LINES[0], 1.0f));
-		for(int i = 0; i < 2; i++){
-			DigitFont::drawText(state, LINES[i], bar.x + (bar.w - DigitFont::textWidth(LINES[i], p)) / 2.0f, bar.y + 7.0f + i * 23.0f, p, SDL_Color{255, 225, 80, 255});
+		SDL_RenderRect(state.renderer, &panel);
+		// Gestures in one column, moves in the next, as large as fits.
+		const float gap = 22.0f, pad = 14.0f;
+		const float unitW = DigitFont::textWidth("SWIPE SIDEWAYS", 1.0f) + DigitFont::textWidth("SURRENDER", 1.0f);
+		const float p = std::min(3.4f, (panel.w - 2 * pad - gap) / unitW);
+		const float rowH = 26.0f, top = panel.y + (panel.h - 4 * rowH - 5 * p) / 2.0f;
+		const float moveX = panel.x + pad + DigitFont::textWidth("SWIPE SIDEWAYS", p) + gap;
+		for(int i = 0; i < 5; i++){
+			float y = top + i * rowH;
+			DigitFont::drawText(state, GESTURE[i], panel.x + pad, y, p, SDL_Color{255, 225, 80, 255});
+			DigitFont::drawText(state, MOVE[i], moveX, y, p, SDL_Color{255, 255, 255, 255});
 		}
 	}
 
 	void drawCountQuiz(SDLState& state){
 		if(!isCountQuizShowing())
 			return;
+		{
+			SDL_FRect t = quizTimingButton();
+			drawButton(state, t, SDL_Color{60, 90, 150, 255});
+			std::string label = quizRandom ? "TIMING: RANDOM" : "TIMING: EVERY ROUND";
+			DigitFont::drawText(state, label, t.x + (t.w - DigitFont::textWidth(label, 3.2f)) / 2.0f, t.y + (t.h - 16.0f) / 2.0f, 3.2f, SDL_Color{255, 255, 255, 255});
+		}
 		SDL_FRect panel = insurancePanel();
 		SDL_SetRenderDrawColor(state.renderer, 15, 25, 18, 255);
 		SDL_RenderFillRect(state.renderer, &panel);
@@ -2917,6 +2973,17 @@ public:
 	// card, in percent; 0 = random (half to seven eighths). Next shoe on.
 	void setPenetration(int pct){ penetrationPct = pct; }
 	int penetrationPct = 0;
+	// Game Options' AUTO SHUFFLER: a continuous shuffling machine. Every
+	// round's cards go straight back in and the shoe is reshuffled, so
+	// there's no cut card and the count starts from zero each round.
+	// Turning it off mid-game cuts a proper shoe at the end of the round.
+	void setAutoShuffler(bool on){
+		if(autoShuffler && !on)
+			shoeNeedsReshuffle = true;
+		autoShuffler = on;
+	}
+	bool getAutoShuffler() const{ return autoShuffler; }
+	bool autoShuffler = false;
 	int shoeCardsAtShuffle = 0, cutCardAt = 0;
 
 	// INDEX PLAYS' bet ramp counts in units of each seat's starting bet
@@ -4655,10 +4722,18 @@ private:
 		}
 		std::uniform_int_distribution<> dist(lo, hi); // Inclusive range
 
-		int randomValue = dist(genn);
-		values.insert(values.begin() + randomValue,c(0,14));
-		shoeCardsAtShuffle = (int)values.size();
-		cutCardAt = randomValue;
+		// An auto shuffler has no cut card and burns nothing.
+		if(autoShuffler){
+			needsBurnCard = false;
+			shoeCardsAtShuffle = 0;
+			cutCardAt = 0;
+		}
+		else{
+			int randomValue = dist(genn);
+			values.insert(values.begin() + randomValue,c(0,14));
+			shoeCardsAtShuffle = (int)values.size();
+			cutCardAt = randomValue;
+		}
 
 		// The on-table stack's total width is capped at MAX_SHOE_STACK_WIDTH
 		// regardless of deck count, instead of a fixed 3px-per-card step --

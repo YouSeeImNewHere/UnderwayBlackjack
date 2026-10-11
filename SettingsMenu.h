@@ -69,19 +69,23 @@ public:
 		DigitFont::drawText(state, oneHandedTable ? "SWIPE UP DOUBLE, DOWN SURRENDER, HOLD SPLIT" : "TWO FINGERS DOUBLE AND SPLIT",
 			LEFT_LABEL, rowY(3) + ROW_H + 4.0f, 2.6f, DIM);
 
-		label(state, RIGHT_LABEL, rowY(0), "DEALER SPEED");
+		label(state, RIGHT_LABEL, rightRowY(0), "DEALER SPEED");
 		drawSlider(state, sliderRect(1), options->dealerSpeed, options->speedLabel(), "SLOW", "FAST");
-		label(state, RIGHT_LABEL, rowY(1), "FACE-DOWN DOUBLES");
+		label(state, RIGHT_LABEL, rightRowY(1), "FACE-DOWN DOUBLES");
 		drawToggle(state, toggleRect(RIGHT_CONTROL, 1), options->faceDownDoubles);
-		label(state, RIGHT_LABEL, rowY(2), "HIDE HANDS TIL YOUR TURN");
+		label(state, RIGHT_LABEL, rightRowY(2), "HIDE HANDS TIL YOUR TURN");
 		drawToggle(state, toggleRect(RIGHT_CONTROL, 2), options->hideInactiveHands);
-		label(state, RIGHT_LABEL, rowY(3), "DOUBLE FOR LESS");
+		label(state, RIGHT_LABEL, rightRowY(3), "DOUBLE FOR LESS");
 		drawToggle(state, toggleRect(RIGHT_CONTROL, 3), options->doubleForLess);
-		label(state, RIGHT_LABEL, rowY(4), soft17Choice() ? "DEALER HITS SOFT 17" : "SOFT 17 - ALWAYS HITS");
+		label(state, RIGHT_LABEL, rightRowY(4), soft17Choice() ? "DEALER HITS SOFT 17" : "SOFT 17 - ALWAYS HITS");
 		drawToggle(state, toggleRect(RIGHT_CONTROL, 4), soft17Choice() ? options->dealerHitsSoft17 : true, soft17Choice());
-		label(state, RIGHT_LABEL, rowY(5), indexChoice() ? "INDEX PLAYS" : "INDEX PLAYS - STANDARD ONLY");
+		label(state, RIGHT_LABEL, rightRowY(5), indexChoice() ? "INDEX PLAYS" : "INDEX PLAYS - STANDARD ONLY");
 		drawToggle(state, toggleRect(RIGHT_CONTROL, 5), indexChoice() && options->indexPlays, indexChoice());
-		DigitFont::drawText(state, "COUNT DEVIATIONS IN TIP AND CHARTS", RIGHT_LABEL, rowY(5) + ROW_H + 4.0f, 2.6f, DIM);
+		DigitFont::drawText(state, "COUNT DEVIATIONS IN TIP AND CHARTS", RIGHT_LABEL, rightRowY(5) + ROW_H + 3.0f, 2.6f, DIM);
+		label(state, RIGHT_LABEL, rightRowY(6), "AUTO SHUFFLER");
+		drawToggle(state, toggleRect(RIGHT_CONTROL, 6), options->autoShuffler);
+		DigitFont::drawText(state, options->autoShuffler ? "SHUFFLED EVERY ROUND - NO COUNTING" : "A SHOE WITH A CUT CARD",
+			RIGHT_LABEL, rightRowY(6) + ROW_H + 3.0f, 2.6f, DIM);
 
 		label(state, LEFT_LABEL, rowY(4), "PENETRATION");
 		button(state, penetrationButton(), SDL_Color{60, 90, 150, 255}, penetration == 0 ? "RANDOM" : std::to_string(penetration) + "%", 5.0f);
@@ -90,7 +94,7 @@ public:
 		button(state, resetStatsButton, armed == RESET_STATS ? SDL_Color{170, 50, 50, 255} : SDL_Color{90, 60, 60, 255},
 			armed == RESET_STATS ? "TAP AGAIN TO RESET" : "RESET STATS", 4.0f);
 		if(!note.empty())
-			centered(state, note, 600.0f, 3.2f, GREEN);
+			DigitFont::drawText(state, note, LEFT_LABEL, resetTrainingButton.y + ROW_H + 10.0f, 3.2f, GREEN);
 		button(state, backButton, SDL_Color{80, 80, 80, 255}, "BACK", 6.0f);
 	}
 
@@ -144,6 +148,7 @@ public:
 		if(hit(p, toggleRect(RIGHT_CONTROL, 3))) options->doubleForLess = !options->doubleForLess;
 		if(soft17Choice() && hit(p, toggleRect(RIGHT_CONTROL, 4))) options->dealerHitsSoft17 = !options->dealerHitsSoft17;
 		if(indexChoice() && hit(p, toggleRect(RIGHT_CONTROL, 5))) options->indexPlays = !options->indexPlays;
+		if(hit(p, toggleRect(RIGHT_CONTROL, 6))) options->autoShuffler = !options->autoShuffler;
 		if(hit(p, penetrationButton())){
 			static const int STEPS[7] = { 0, 60, 65, 70, 75, 80, 85 };
 			int i = 0;
@@ -179,7 +184,7 @@ public:
 		return { sliderRect(0), sliderRect(1), // VOLUME_FOCUS_INDEX, SPEED_FOCUS_INDEX
 			soundButton(), vibrateButton(), toggleRect(LEFT_CONTROL, 2), toggleRect(LEFT_CONTROL, 3),
 			toggleRect(RIGHT_CONTROL, 1), toggleRect(RIGHT_CONTROL, 2), toggleRect(RIGHT_CONTROL, 3),
-			toggleRect(RIGHT_CONTROL, 4), toggleRect(RIGHT_CONTROL, 5),
+			toggleRect(RIGHT_CONTROL, 4), toggleRect(RIGHT_CONTROL, 5), toggleRect(RIGHT_CONTROL, 6),
 			penetrationButton(), resetTrainingButton, resetStatsButton, backButton };
 	}
 
@@ -210,6 +215,12 @@ private:
 	SDL_FRect backButton{ .x = 620, .y = 640, .w = 200, .h = 56 };
 
 	static float rowY(int row){ return 136.0f + row * 76.0f; }
+	// The TABLE column has one more row, so its rows sit a little closer.
+	// (Room under the dealer speed slider, and under the two captioned rows.)
+	static float rightRowY(int row){
+		static constexpr float Y[7] = { 136.0f, 214.0f, 278.0f, 342.0f, 406.0f, 470.0f, 540.0f };
+		return Y[std::clamp(row, 0, 6)];
+	}
 
 	SDL_FRect sliderRect(int i) const{
 		return SDL_FRect{ .x = i == 0 ? LEFT_CONTROL : RIGHT_CONTROL, .y = rowY(0), .w = SLIDER_W, .h = ROW_H };
@@ -219,7 +230,7 @@ private:
 		return SDL_FRect{ .x = r.x - 20.0f, .y = r.y - 16.0f, .w = r.w + 40.0f, .h = r.h + 32.0f };
 	}
 	static SDL_FRect toggleRect(float x, int row){
-		return SDL_FRect{ .x = x, .y = rowY(row), .w = 160.0f, .h = ROW_H };
+		return SDL_FRect{ .x = x, .y = x == RIGHT_CONTROL ? rightRowY(row) : rowY(row), .w = 160.0f, .h = ROW_H };
 	}
 
 	void setFromX(int slider, float x){

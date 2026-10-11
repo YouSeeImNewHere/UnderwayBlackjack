@@ -224,6 +224,13 @@ struct Trainer
 	int bestDeckSeconds = 0;  // fastest correct full deck, 0 = none yet
 	int trueCountQuestions = 0, trueCountRight = 0;
 	int deckEstimates = 0, deckEstimatesRight = 0;
+	int rampDrills = 0, rampDrillsRight = 0;     // the BET RAMP DRILL
+
+	// SESSION LOG: real casino sessions, newest last. date is YYYYMMDD,
+	// game an index into SessionLogMenu's game list, tenths of an hour.
+	struct Session{ int date = 0, game = 0, tenthsOfHour = 0, unit = 0, result = 0; };
+	static constexpr int MAX_SESSIONS = 200;
+	std::vector<Session> sessions;
 
 	void record(int set, int section, int row, int col, bool ok, char chosen, char correctMove, int cards, int trueCount, bool fromDrill){
 		int r = cellRow(section, row);
@@ -277,8 +284,12 @@ struct Trainer
 		return 0.4f + 6.0f * missRate + 4.0f * recent + (a < 3 ? 1.0f : 0.0f);
 	}
 
+	// Settings' RESET TRAINING: the drills' progress, but not the session
+	// log (a record of real play, not practice).
 	void reset(){
+		std::vector<Session> keep = sessions;
 		*this = Trainer();
+		sessions = keep;
 	}
 
 	// ---- saving: one flat list of numbers ----
@@ -295,6 +306,11 @@ struct Trainer
 			v.insert(v.end(), { m.set, m.section, m.row, m.col, m.cards, m.chosen, m.correct, m.trueCount, m.fromDrill ? 1 : 0 });
 		}
 		v.insert(v.end(), { speedDrills, speedRight, bestDeckSeconds, trueCountQuestions, trueCountRight, deckEstimates, deckEstimatesRight });
+		// Added later; an older save just ends before these and reads 0s.
+		v.insert(v.end(), { rampDrills, rampDrillsRight });
+		v.push_back((int)sessions.size());
+		for(const Session& x : sessions)
+			v.insert(v.end(), { x.date, x.game, x.tenthsOfHour, x.unit, x.result });
 		return v;
 	}
 
@@ -329,6 +345,14 @@ struct Trainer
 		speedDrills = next(); speedRight = next(); bestDeckSeconds = next();
 		trueCountQuestions = next(); trueCountRight = next();
 		deckEstimates = next(); deckEstimatesRight = next();
+		rampDrills = next(); rampDrillsRight = next();
+		int count = std::clamp(next(), 0, MAX_SESSIONS);
+		sessions.clear();
+		for(int k = 0; k < count; k++){
+			Session x;
+			x.date = next(); x.game = next(); x.tenthsOfHour = next(); x.unit = next(); x.result = next();
+			sessions.push_back(x);
+		}
 	}
 
 	void load(){
