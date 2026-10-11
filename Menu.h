@@ -16,6 +16,7 @@ enum class MenuChoice{
 	Tutorial,
 	Charts,
 	Training,
+	Settings,
 	Update
 };
 
@@ -56,6 +57,7 @@ public:
 		drawButton(state, controlsButton, SDL_Color{60, 90, 150, 255}, "CONTROLS");
 		drawButton(state, chartsButton, SDL_Color{150, 120, 40, 255}, "CHARTS");
 		drawButton(state, trainingButton, SDL_Color{60, 130, 70, 255}, "TRAINING");
+		drawButton(state, settingsButton, SDL_Color{80, 90, 100, 255}, "SETTINGS");
 
 		if(!updateVersion.empty())
 			drawButton(state, updateButton, updating ? SDL_Color{110, 90, 40, 255} : SDL_Color{190, 140, 30, 255},
@@ -98,6 +100,8 @@ public:
 			return MenuChoice::Charts;
 		if(SDL_PointInRectFloat(&p, &trainingButton))
 			return MenuChoice::Training;
+		if(SDL_PointInRectFloat(&p, &settingsButton))
+			return MenuChoice::Settings;
 		if(!updateVersion.empty() && !updating && SDL_PointInRectFloat(&p, &updateButton))
 			return MenuChoice::Update;
 		if(SDL_PointInRectFloat(&p, &tutorialButton))
@@ -110,8 +114,8 @@ public:
 	// navigation (it "clicks" the highlighted one via handlePoint()).
 	std::vector<SDL_FRect> focusRects(){
 		std::vector<SDL_FRect> rects = hasSavedGame
-			? std::vector<SDL_FRect>{ resumeButton, restartButton, tutorialButton, statsButton, controlsButton, chartsButton, trainingButton }
-			: std::vector<SDL_FRect>{ startButton, tutorialButton, statsButton, controlsButton, chartsButton, trainingButton };
+			? std::vector<SDL_FRect>{ resumeButton, restartButton, tutorialButton, statsButton, controlsButton, chartsButton, trainingButton, settingsButton }
+			: std::vector<SDL_FRect>{ startButton, tutorialButton, statsButton, controlsButton, chartsButton, trainingButton, settingsButton };
 		if(!updateVersion.empty())
 			rects.push_back(updateButton);
 		return rects;
@@ -126,8 +130,9 @@ private:
 	SDL_FRect tutorialButton{ .x = 250, .y = 400, .w = 300, .h = 70 };
 	SDL_FRect statsButton{ .x = 570, .y = 400, .w = 300, .h = 70 };
 	SDL_FRect controlsButton{ .x = 890, .y = 400, .w = 300, .h = 70 };
-	SDL_FRect chartsButton{ .x = 410, .y = 490, .w = 300, .h = 70 };
-	SDL_FRect trainingButton{ .x = 730, .y = 490, .w = 300, .h = 70 };
+	SDL_FRect chartsButton{ .x = 250, .y = 490, .w = 300, .h = 70 };
+	SDL_FRect trainingButton{ .x = 570, .y = 490, .w = 300, .h = 70 };
+	SDL_FRect settingsButton{ .x = 890, .y = 490, .w = 300, .h = 70 };
 	SDL_FRect updateButton{ .x = 520, .y = 600, .w = 400, .h = 64 };
 
 	void drawButton(SDLState& state, const SDL_FRect& rect, SDL_Color color, const std::string& label){
