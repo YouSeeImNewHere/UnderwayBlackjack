@@ -67,6 +67,7 @@ struct SaveData
 	bool doubleForLess = false;
 	bool dealerHitsSoft17 = true;
 	bool indexPlays = false;
+	bool autoShuffler = false;
 	// A training game (GameModeMenu's Training) on top of gameModeIndex:
 	// 0 none, 1 practice, 2 count quiz.
 	int training = 0;
@@ -112,6 +113,7 @@ struct SaveData
 		penetration = webGet(17, 0);
 		vibrate = webGet(18, 1) != 0;
 		quizRandom = webGet(19, 0) != 0;
+		autoShuffler = webGet(20, 0) != 0;
 		for(int i = 0; i < 5; i++){
 			bankrolls[i] = webGetSeat(0, i, 500);
 			initialBets[i] = webGetSeat(1, i, 25);
@@ -166,6 +168,7 @@ struct SaveData
 			else if(key == "training") training = value;
 			else if(key == "dealerHitsSoft17") dealerHitsSoft17 = value != 0;
 			else if(key == "indexPlays") indexPlays = value != 0;
+			else if(key == "autoShuffler") autoShuffler = value != 0;
 			else if(key == "volume") volume = value;
 			else if(key == "oneHandedDrill") oneHandedDrill = value != 0;
 			else if(key == "oneHandedTable") oneHandedTable = value != 0;
@@ -234,7 +237,7 @@ struct SaveData
 	// Whenever Game Options are applied (pre-game or from the pause menu).
 	// Kept even with no game saved, so the next new game starts from the
 	// player's last choices too.
-	void saveOptions(int speed, bool faceDown, bool hideHands, bool effects, bool forLess, bool hitsSoft17, bool indexes){
+	void saveOptions(int speed, bool faceDown, bool hideHands, bool effects, bool forLess, bool hitsSoft17, bool indexes, bool shuffler){
 		hasOptions = true;
 		dealerSpeed = speed;
 		faceDownDoubles = faceDown;
@@ -243,6 +246,7 @@ struct SaveData
 		doubleForLess = forLess;
 		dealerHitsSoft17 = hitsSoft17;
 		indexPlays = indexes;
+		autoShuffler = shuffler;
 		write();
 	}
 
@@ -316,6 +320,9 @@ private:
 			localStorage.setItem('underwayBlackjackVibrate', $8);
 			localStorage.setItem('underwayBlackjackQuizRandom', $9);
 		}, doubleForLess ? 1 : 0, training, dealerHitsSoft17 ? 1 : 0, indexPlays ? 1 : 0, volume, oneHandedDrill ? 1 : 0, oneHandedTable ? 1 : 0, penetration, vibrate ? 1 : 0, quizRandom ? 1 : 0);
+		EM_ASM({
+			localStorage.setItem('underwayBlackjackAutoShuffler', $0);
+		}, autoShuffler ? 1 : 0);
 		for(int i = 0; i < 5; i++){
 			EM_ASM({
 				localStorage.setItem('underwayBlackjackBankroll' + $0, $1);
@@ -343,6 +350,7 @@ private:
 		out << "training=" << training << "\n";
 		out << "dealerHitsSoft17=" << (dealerHitsSoft17 ? 1 : 0) << "\n";
 		out << "indexPlays=" << (indexPlays ? 1 : 0) << "\n";
+		out << "autoShuffler=" << (autoShuffler ? 1 : 0) << "\n";
 		out << "volume=" << volume << "\n";
 		out << "oneHandedDrill=" << (oneHandedDrill ? 1 : 0) << "\n";
 		out << "oneHandedTable=" << (oneHandedTable ? 1 : 0) << "\n";
@@ -367,7 +375,7 @@ private:
 	// literal) would split its argument and break the build.
 	static int webGet(int which, int def){
 		return EM_ASM_INT({
-			var keys = 'underwayBlackjackMode|underwayBlackjackPlayers|underwayBlackjackHasProgress|underwayBlackjackHasOptions|underwayBlackjackDealerSpeed|underwayBlackjackFaceDownDoubles|underwayBlackjackHideHands|underwayBlackjackTutorialSeen|underwayBlackjackDealerSpeedPct|underwayBlackjackSoundEffects|underwayBlackjackDoubleForLess|underwayBlackjackTraining|underwayBlackjackHitSoft17|underwayBlackjackIndexPlays|underwayBlackjackVolume|underwayBlackjackOneHandedDrill|underwayBlackjackOneHandedTable|underwayBlackjackPenetration|underwayBlackjackVibrate|underwayBlackjackQuizRandom'.split('|');
+			var keys = 'underwayBlackjackMode|underwayBlackjackPlayers|underwayBlackjackHasProgress|underwayBlackjackHasOptions|underwayBlackjackDealerSpeed|underwayBlackjackFaceDownDoubles|underwayBlackjackHideHands|underwayBlackjackTutorialSeen|underwayBlackjackDealerSpeedPct|underwayBlackjackSoundEffects|underwayBlackjackDoubleForLess|underwayBlackjackTraining|underwayBlackjackHitSoft17|underwayBlackjackIndexPlays|underwayBlackjackVolume|underwayBlackjackOneHandedDrill|underwayBlackjackOneHandedTable|underwayBlackjackPenetration|underwayBlackjackVibrate|underwayBlackjackQuizRandom|underwayBlackjackAutoShuffler'.split('|');
 			var v = localStorage.getItem(keys[$0]);
 			return v === null ? $1 : parseInt(v);
 		}, which, def);

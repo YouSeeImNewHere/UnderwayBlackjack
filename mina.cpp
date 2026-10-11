@@ -214,6 +214,7 @@ static void applyOptionsToTable(AppContext& ctx){
     ctx.table.setAskDoubleAmount(ctx.gameOptionsMenu.doubleForLess);
     ctx.table.setDealerHitsSoft17(ctx.gameOptionsMenu.dealerHitsSoft17);
     ctx.table.setIndexPlays(ctx.gameOptionsMenu.indexPlays);
+    ctx.table.setAutoShuffler(ctx.gameOptionsMenu.autoShuffler);
 }
 
 // PRACTICE / COUNT QUIZ (GameModeMenu): which training game, if any, the
@@ -227,7 +228,8 @@ static void saveOptions(AppContext& ctx){
     ctx.save.saveOptions(ctx.gameOptionsMenu.dealerSpeed,
         ctx.gameOptionsMenu.faceDownDoubles, ctx.gameOptionsMenu.hideInactiveHands,
         ctx.gameOptionsMenu.soundEffects, ctx.gameOptionsMenu.doubleForLess,
-        ctx.gameOptionsMenu.dealerHitsSoft17, ctx.gameOptionsMenu.indexPlays);
+        ctx.gameOptionsMenu.dealerHitsSoft17, ctx.gameOptionsMenu.indexPlays,
+        ctx.gameOptionsMenu.autoShuffler);
 }
 
 // Shared by both mouse and touch handling below: applies whichever menu
@@ -1578,6 +1580,7 @@ int main(int argc,char *argv[]) {
         ctx->gameOptionsMenu.doubleForLess = ctx->save.doubleForLess;
         ctx->gameOptionsMenu.dealerHitsSoft17 = ctx->save.dealerHitsSoft17;
         ctx->gameOptionsMenu.indexPlays = ctx->save.indexPlays;
+        ctx->gameOptionsMenu.autoShuffler = ctx->save.autoShuffler;
     }
 
 #ifdef __EMSCRIPTEN__

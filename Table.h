@@ -1257,6 +1257,17 @@ public:
 					// in discard by this point (dealQueue's empty, nothing
 					// is animating) -- safe to sweep it and cut a fresh
 					// shoe before opening bets on the next round.
+					// An auto shuffler takes the round's cards back in
+					// and reshuffles while the next bets go out -- no
+					// shuffle pause, no cut card, a fresh count.
+					if(autoShuffler && !shoeNeedsReshuffle){
+						discard.clear();
+						makeShoe();
+						runningCount = 0;
+						lastVerifiedCount = 0;
+						openBettingPhase();
+						return;
+					}
 					if(shoeNeedsReshuffle){
 						// The discards are gathered up and shuffled on the
 						// table, to the shuffle sound, before going back in
@@ -2952,6 +2963,17 @@ public:
 	// card, in percent; 0 = random (half to seven eighths). Next shoe on.
 	void setPenetration(int pct){ penetrationPct = pct; }
 	int penetrationPct = 0;
+	// Game Options' AUTO SHUFFLER: a continuous shuffling machine. Every
+	// round's cards go straight back in and the shoe is reshuffled, so
+	// there's no cut card and the count starts from zero each round.
+	// Turning it off mid-game cuts a proper shoe at the end of the round.
+	void setAutoShuffler(bool on){
+		if(autoShuffler && !on)
+			shoeNeedsReshuffle = true;
+		autoShuffler = on;
+	}
+	bool getAutoShuffler() const{ return autoShuffler; }
+	bool autoShuffler = false;
 	int shoeCardsAtShuffle = 0, cutCardAt = 0;
 
 	// INDEX PLAYS' bet ramp counts in units of each seat's starting bet
@@ -4690,10 +4712,18 @@ private:
 		}
 		std::uniform_int_distribution<> dist(lo, hi); // Inclusive range
 
-		int randomValue = dist(genn);
-		values.insert(values.begin() + randomValue,c(0,14));
-		shoeCardsAtShuffle = (int)values.size();
-		cutCardAt = randomValue;
+		// An auto shuffler has no cut card and burns nothing.
+		if(autoShuffler){
+			needsBurnCard = false;
+			shoeCardsAtShuffle = 0;
+			cutCardAt = 0;
+		}
+		else{
+			int randomValue = dist(genn);
+			values.insert(values.begin() + randomValue,c(0,14));
+			shoeCardsAtShuffle = (int)values.size();
+			cutCardAt = randomValue;
+		}
 
 		// The on-table stack's total width is capped at MAX_SHOE_STACK_WIDTH
 		// regardless of deck count, instead of a fixed 3px-per-card step --
