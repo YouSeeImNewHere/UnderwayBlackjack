@@ -4290,6 +4290,8 @@ private:
 		Card card = request.card;
 		if(request.from.x == shoePosition.x && request.from.y == shoePosition.y)
 			sound(Sfx::Deal);
+		else if(request.discard)
+			sound(Sfx::Collect); // each card swept to the discard pile
 
 		if(request.removeFromHand){
 			if(request.isDealer)
@@ -4352,14 +4354,6 @@ private:
 
 	// restart the table
 	void clearTable(){
-		// One sweep sound for the whole table's cards.
-		bool anyCards = !dealer.hands[0].cards.empty();
-		for(int i = 0; i < numberOfPlayers && !anyCards; i++)
-			for(const Hand& hand : players[i].hands)
-				anyCards |= !hand.cards.empty();
-		if(anyCards)
-			sound(Sfx::Collect);
-
 		for(int i = 0; i < numberOfPlayers; i++){
 			for(int h = 0; h < players[i].hands.size(); h++){
 				std::vector<Card>& cards = players[i].hands[h].cards;

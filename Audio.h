@@ -37,7 +37,7 @@ public:
 			{ "sfx-tap", nullptr, nullptr },
 			{ "sfx-win", nullptr, nullptr },
 			{ "sfx-jackpot", nullptr, nullptr },
-			{ "sfx-collect", nullptr, nullptr },
+			{ "sfx-collect-1", "sfx-collect-2", "sfx-collect-3" },
 			{ "sfx-chip-bet", nullptr, nullptr },
 		};
 		for(int s = 0; s < (int)Sfx::Count; s++)
