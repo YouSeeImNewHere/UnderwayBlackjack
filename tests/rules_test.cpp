@@ -460,5 +460,25 @@ int main(){
     CHECK(x.t.roundNet[0]==-25 && st.history[Stats::AllGames].back()==0, "then -25, back to 0"); }
   { Stats st; for(int i=0;i<1000;i++){ st.values[0][Stats::NetWinnings]=i; st.recordRound(); }
     CHECK(st.history[0].size()<=Stats::HISTORY_MAX && st.history[0].back()==999, "long history thinned, newest kept"); }
+  out("Bet ramp grading (index plays on)");
+  { T x(GameMode::SixDeck); Stats st; x.t.setStats(&st); x.t.setIndexPlays(true);
+    x.t.runningCount = 400;  // far above +9 whatever is left: 8 units
+    CHECK(x.t.rampBetFor(0) == 8 * 25, "ramp at +9 or more is 8 units of the starting bet");
+    x.deal({C(10),C(10),C(9),C(7)}); x.settle(); x.key(SDL_SCANCODE_S); x.toBetting();
+    CHECK(st.get(Stats::AllGames, Stats::RampBets) == 1 && st.get(Stats::AllGames, Stats::RampBetsCorrect) == 0, "flat 25 at a high count is graded off the ramp");
+    CHECK(x.t.refusedNote.find("RAMP SAYS 8 UNITS: $200") != std::string::npos, "and says what the ramp wanted");
+    x.t.runningCount = 400; x.p().currentBet = 200;
+    x.deal({C(10),C(10),C(9),C(7)}); x.settle(); x.key(SDL_SCANCODE_S); x.toBetting();
+    CHECK(st.get(Stats::AllGames, Stats::RampBetsCorrect) == 1, "200 at that count matches the ramp"); }
+  { T x(GameMode::SixDeck); Stats st; x.t.setStats(&st);
+    x.deal({C(10),C(10),C(9),C(7)}); x.settle(); x.key(SDL_SCANCODE_S); x.toBetting();
+    CHECK(st.get(Stats::AllGames, Stats::RampBets) == 0, "index plays off: bets aren't graded"); }
+  out("Penetration setting");
+  for(int pct : {60, 75, 85}){
+    Table t{1,true,6}; int br[5]={1000,1000,1000,1000,1000}, bets[5]={25,25,25,25,25}, side[5]={0,0,0,0,0};
+    t.configureGameMode(GameMode::SixDeck); t.configurePlayers(1,br,bets,side); t.setPenetration(pct); t.makeShoe();
+    double at = 100.0 * t.cutCardAt / t.shoeCardsAtShuffle;
+    std::string what = "cut card near " + std::to_string(pct) + "% (got " + std::to_string((int)at) + ")";
+    CHECK(std::fabs(at - pct) <= 1.5, what.c_str()); }
   std::cout.rdbuf(old); printf("\n%s (%d failed)\n", fails?"SOME FAILED":"ALL PASSED", fails); return fails;
 }

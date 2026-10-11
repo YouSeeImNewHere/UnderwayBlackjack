@@ -68,6 +68,7 @@ inline GlyphRows glyphFor(char c){
 		case '!': return GlyphRows{{"..#..","..#..","..#..",".....","..#.."}};
 		case '*': return GlyphRows{{".....","#.#.#",".###.","#.#.#","....."}};
 		case '+': return GlyphRows{{".....","..#..",".###.","..#..","....."}};
+		case '=': return GlyphRows{{".....","####.",".....","####.","....."}};
 		case '<': return GlyphRows{{"...#.","..#..",".#...","..#..","...#."}};
 		case '>': return GlyphRows{{".#...","..#..","...#.","..#..",".#..."}};
 		default:  return GlyphRows{{".....",".....",".....",".....","....."}};

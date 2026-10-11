@@ -18,6 +18,7 @@
 #include "ChartsMenu.h"
 #include "TrainingMenus.h"
 #include "SettingsMenu.h"
+#include "Haptics.h"
 #include "AboutMenu.h"
 #include "GesturesMenu.h"
 #include "KeyboardMenu.h"
@@ -107,6 +108,8 @@ struct AppContext {
     TrueCountMenu trueCountMenu;
     BankrollMenu bankrollMenu;
     SettingsMenu settingsMenu;
+    Haptics haptics;
+    int drillMissesSeen = 0;
     OddsMenu oddsMenu;
     StatsMenu statsMenu;
     TutorialMenu tutorialMenu;
@@ -234,6 +237,7 @@ static void applyMenuChoice(AppContext& ctx, MenuChoice choice){
         case MenuChoice::Resume:
             ctx.table.configureGameMode(static_cast<GameMode>(ctx.save.gameModeIndex));
             ctx.table.configurePlayers(ctx.save.numberOfPlayers, ctx.save.bankrolls, ctx.save.initialBets, ctx.save.sideBetSizes);
+            ctx.table.setBetUnits(ctx.save.unitBets);
             if(ctx.save.hasProgress)
                 ctx.table.restoreProgress(ctx.save.currentBankrolls, ctx.save.totalBuyIns);
             ctx.gameOptionsMenu.setGameMode(static_cast<GameMode>(ctx.save.gameModeIndex));
@@ -386,6 +390,7 @@ static void applyPauseChoice(AppContext& ctx, PauseChoice choice){
             // INDEX PLAYS on: the count's deviations on the chart, and the
             // DEVIATIONS list beside BACK.
             ctx.strategyChart.listing = false;
+            ctx.strategyChart.detailSection = -1;
             ctx.strategyChart.marks = nullptr;
             ctx.strategyChart.deviationLines.clear();
             if(ctx.table.indexPlaysActive()){
@@ -400,6 +405,7 @@ static void applyPauseChoice(AppContext& ctx, PauseChoice choice){
                     return false;
                 };
                 ctx.strategyChart.deviationLines = IndexPlays::deviationLines(StrategyChart::active);
+                ctx.strategyChart.deviationFooter = IndexPlays::rampLine();
             }
             ctx.pauseState = PauseState::Strategy;
         break;
@@ -534,7 +540,7 @@ static void goBack(AppContext& ctx){
         [[fallthrough]];
     case AppScreen::Settings:
         saveOptions(ctx);
-        ctx.save.saveSettings(ctx.settingsMenu.volume, ctx.settingsMenu.oneHandedDrill, ctx.settingsMenu.oneHandedTable);
+        ctx.save.saveSettings(ctx.settingsMenu.volume, ctx.settingsMenu.oneHandedDrill, ctx.settingsMenu.oneHandedTable, ctx.settingsMenu.penetration, ctx.settingsMenu.vibrate);
         [[fallthrough]];
     case AppScreen::Charts:
     case AppScreen::Training:
@@ -581,7 +587,7 @@ static void goBack(AppContext& ctx){
         // SETTINGS from the pause menu: changes apply as they're made.
         applyOptionsToTable(ctx);
         saveOptions(ctx);
-        ctx.save.saveSettings(ctx.settingsMenu.volume, ctx.settingsMenu.oneHandedDrill, ctx.settingsMenu.oneHandedTable);
+        ctx.save.saveSettings(ctx.settingsMenu.volume, ctx.settingsMenu.oneHandedDrill, ctx.settingsMenu.oneHandedTable, ctx.settingsMenu.penetration, ctx.settingsMenu.vibrate);
         ctx.pauseState = PauseState::Menu;
         return;
     case PauseState::Strategy:
@@ -1353,6 +1359,14 @@ static void mainLoopIteration(void *arg) {
     ctx.audio.setVolume(ctx.settingsMenu.volume / 100.0f);
     ctx.drillMenu.oneHanded = ctx.settingsMenu.oneHandedDrill;
     ctx.table.setOneHandedGestures(ctx.settingsMenu.oneHandedTable);
+    ctx.table.setPenetration(ctx.settingsMenu.penetration);
+    ctx.haptics.on = ctx.settingsMenu.vibrate;
+    // A missed strategy-drill answer: a buzz.
+    if(ctx.drillMenu.misses != ctx.drillMissesSeen){
+        if(ctx.drillMenu.misses > ctx.drillMissesSeen)
+            ctx.haptics.buzz(Haptics::Wrong);
+        ctx.drillMissesSeen = ctx.drillMenu.misses;
+    }
     ctx.gesturesMenu.oneHanded = ctx.settingsMenu.oneHandedTable;
     ctx.tutorialMenu.oneHanded = ctx.settingsMenu.oneHandedTable;
 
@@ -1494,6 +1508,8 @@ int main(int argc,char *argv[]) {
     ctx->settingsMenu.volume = ctx->save.volume;
     ctx->settingsMenu.oneHandedDrill = ctx->save.oneHandedDrill;
     ctx->settingsMenu.oneHandedTable = ctx->save.oneHandedTable;
+    ctx->settingsMenu.penetration = ctx->save.penetration;
+    ctx->settingsMenu.vibrate = ctx->save.vibrate;
     // Last-used Game Options, for Resume and for the next new game alike.
     if(ctx->save.hasOptions){
         ctx->gameOptionsMenu.dealerSpeed = ctx->save.dealerSpeed;
@@ -1532,7 +1548,15 @@ int main(int argc,char *argv[]) {
 
     // Sound (Audio.h): silent if there's no audio device or files.
     ctx->audio.init();
-    ctx->table.setSoundPlayer([ctx](Sfx sfx){ ctx->audio.play(sfx); });
+    ctx->haptics.init();
+    // Every table sound, plus a buzz for a blackjack and a rare side-bet hit.
+    ctx->table.setSoundPlayer([ctx](Sfx sfx){
+        ctx->audio.play(sfx);
+        if(sfx == Sfx::Win)
+            ctx->haptics.buzz(Haptics::Firm);
+        else if(sfx == Sfx::Jackpot)
+            ctx->haptics.buzz(Haptics::Firm);
+    });
 
     ctx->prevTime = SDL_GetTicks();
 

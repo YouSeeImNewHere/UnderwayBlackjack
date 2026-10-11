@@ -27,6 +27,10 @@ public:
 	bool oneHandedDrill = true;
 	// The table games: every move with one thumb (Table::oneHandedGestures).
 	bool oneHandedTable = false;
+	// How much of the shoe is dealt before the cut card, percent; 0 = random.
+	int penetration = 0;
+	// Short vibrations (Haptics.h) on phones.
+	bool vibrate = true;
 
 	// Focus indices of the two sliders (arrow keys move them, see mina.cpp).
 	static constexpr int VOLUME_FOCUS_INDEX = 0, SPEED_FOCUS_INDEX = 1;
@@ -50,8 +54,12 @@ public:
 
 		label(state, LEFT_LABEL, rowY(0), "VOLUME");
 		drawSlider(state, sliderRect(0), volume, volume == 0 ? "MUTE" : std::to_string(volume) + "%", "", "");
-		label(state, LEFT_LABEL, rowY(1), "SOUND");
-		drawToggle(state, toggleRect(LEFT_CONTROL, 1), options->soundEffects);
+		// SOUND and VIBRATE share a row: each button green when on.
+		label(state, LEFT_LABEL, rowY(1), "EFFECTS");
+		button(state, soundButton(), options->soundEffects ? SDL_Color{60, 130, 70, 255} : SDL_Color{80, 80, 80, 255},
+			options->soundEffects ? "SOUND ON" : "SOUND OFF", 3.6f);
+		button(state, vibrateButton(), vibrate ? SDL_Color{60, 130, 70, 255} : SDL_Color{80, 80, 80, 255},
+			vibrate ? "VIBRATE ON" : "VIBRATE OFF", 3.6f);
 		label(state, LEFT_LABEL, rowY(2), "ONE-HANDED DRILL");
 		drawToggle(state, toggleRect(LEFT_CONTROL, 2), oneHandedDrill);
 		DigitFont::drawText(state, oneHandedDrill ? "PHONES: GESTURES, NO BUTTONS" : "PHONES: TAP THE MOVE BUTTONS",
@@ -75,6 +83,8 @@ public:
 		drawToggle(state, toggleRect(RIGHT_CONTROL, 5), indexChoice() && options->indexPlays, indexChoice());
 		DigitFont::drawText(state, "COUNT DEVIATIONS IN TIP AND CHARTS", RIGHT_LABEL, rowY(5) + ROW_H + 4.0f, 2.6f, DIM);
 
+		label(state, LEFT_LABEL, rowY(4), "PENETRATION");
+		button(state, penetrationButton(), SDL_Color{60, 90, 150, 255}, penetration == 0 ? "RANDOM" : std::to_string(penetration) + "%", 5.0f);
 		button(state, resetTrainingButton, armed == RESET_TRAINING ? SDL_Color{170, 50, 50, 255} : SDL_Color{90, 60, 60, 255},
 			armed == RESET_TRAINING ? "TAP AGAIN TO RESET" : "RESET TRAINING", 4.0f);
 		button(state, resetStatsButton, armed == RESET_STATS ? SDL_Color{170, 50, 50, 255} : SDL_Color{90, 60, 60, 255},
@@ -125,7 +135,8 @@ public:
 		Choice wasArmed = armed;
 		armed = NONE;
 		note.clear();
-		if(hit(p, toggleRect(LEFT_CONTROL, 1))) options->soundEffects = !options->soundEffects;
+		if(hit(p, soundButton())) options->soundEffects = !options->soundEffects;
+		if(hit(p, vibrateButton())) vibrate = !vibrate;
 		if(hit(p, toggleRect(LEFT_CONTROL, 2))) oneHandedDrill = !oneHandedDrill;
 		if(hit(p, toggleRect(LEFT_CONTROL, 3))) oneHandedTable = !oneHandedTable;
 		if(hit(p, toggleRect(RIGHT_CONTROL, 1))) options->faceDownDoubles = !options->faceDownDoubles;
@@ -133,6 +144,12 @@ public:
 		if(hit(p, toggleRect(RIGHT_CONTROL, 3))) options->doubleForLess = !options->doubleForLess;
 		if(soft17Choice() && hit(p, toggleRect(RIGHT_CONTROL, 4))) options->dealerHitsSoft17 = !options->dealerHitsSoft17;
 		if(indexChoice() && hit(p, toggleRect(RIGHT_CONTROL, 5))) options->indexPlays = !options->indexPlays;
+		if(hit(p, penetrationButton())){
+			static const int STEPS[7] = { 0, 60, 65, 70, 75, 80, 85 };
+			int i = 0;
+			while(i < 7 && STEPS[i] != penetration) i++;
+			penetration = STEPS[(i + 1) % 7];
+		}
 		if(hit(p, resetTrainingButton)){
 			if(wasArmed == RESET_TRAINING){
 				note = "TRAINING PROGRESS RESET";
@@ -160,10 +177,10 @@ public:
 
 	std::vector<SDL_FRect> focusRects(){
 		return { sliderRect(0), sliderRect(1), // VOLUME_FOCUS_INDEX, SPEED_FOCUS_INDEX
-			toggleRect(LEFT_CONTROL, 1), toggleRect(LEFT_CONTROL, 2), toggleRect(LEFT_CONTROL, 3),
+			soundButton(), vibrateButton(), toggleRect(LEFT_CONTROL, 2), toggleRect(LEFT_CONTROL, 3),
 			toggleRect(RIGHT_CONTROL, 1), toggleRect(RIGHT_CONTROL, 2), toggleRect(RIGHT_CONTROL, 3),
 			toggleRect(RIGHT_CONTROL, 4), toggleRect(RIGHT_CONTROL, 5),
-			resetTrainingButton, resetStatsButton, backButton };
+			penetrationButton(), resetTrainingButton, resetStatsButton, backButton };
 	}
 
 private:
@@ -182,8 +199,11 @@ private:
 
 	bool playing = false;
 	// Under the left column.
-	SDL_FRect resetTrainingButton{ .x = LEFT_LABEL, .y = 440, .w = 330, .h = ROW_H };
-	SDL_FRect resetStatsButton{ .x = LEFT_LABEL, .y = 516, .w = 330, .h = ROW_H };
+	SDL_FRect resetTrainingButton{ .x = LEFT_LABEL, .y = 516, .w = 320, .h = ROW_H };
+	SDL_FRect resetStatsButton{ .x = LEFT_LABEL + 335.0f, .y = 516, .w = 285, .h = ROW_H };
+	SDL_FRect soundButton() const{ return SDL_FRect{ .x = LEFT_CONTROL - 90.0f, .y = rowY(1), .w = 175, .h = ROW_H }; }
+	SDL_FRect vibrateButton() const{ return SDL_FRect{ .x = LEFT_CONTROL + 95.0f, .y = rowY(1), .w = 185, .h = ROW_H }; }
+	SDL_FRect penetrationButton() const{ return SDL_FRect{ .x = LEFT_CONTROL, .y = rowY(4), .w = 200, .h = ROW_H }; }
 
 	bool soft17Choice() const{ return !playing || options->soft17Choosable(); }
 	bool indexChoice() const{ return !playing || options->indexChoosable(); }

@@ -60,22 +60,121 @@ public:
 	// both when the chart opens; both empty otherwise).
 	Marks marks;
 	std::vector<std::string> deviationLines;
+	std::string deviationFooter;
 	bool listing = false;
+	int detailSection = -1, detailRow = 0, detailCol = 0; // a tapped cell
 
 	// The pause menu's chart: the game being played, with its hand
 	// highlighted when there is one.
 	void draw(SDLState& state, Resources& res, bool hasHighlight, int hSection, int hRow, int hCol){
 		if(listing && !deviationLines.empty())
-			drawDeviationList(state, "INDEX PLAYS - " + titleFor(active), deviationLines);
+			drawDeviationList(state, "INDEX PLAYS - " + titleFor(active), deviationLines, deviationFooter);
 		else
 			drawChart(state, active, hasHighlight, hSection, hRow, hCol, false, nullptr, marks ? &marks : nullptr);
 		drawButton(state, backRect(), SDL_Color{80, 80, 80, 255}, "BACK");
 		if(!deviationLines.empty())
 			drawButton(state, listButton, SDL_Color{190, 120, 40, 255}, listing ? "CHART" : "DEVIATIONS", 5.0f);
+		if(detailSection >= 0 && !listing)
+			drawCellDetail(state, active, detailSection, detailRow, detailCol, marks ? &marks : nullptr);
+	}
+
+	// The cell under a point on drawChart()'s layout, if any.
+	static bool cellAt(SDL_FPoint p, int& section, int& row, int& col){
+		static const float X[3] = { 8.0f, 488.0f, 968.0f };
+		for(int s = 0; s < 3; s++){
+			int c = (int)std::floor((p.x - X[s]) / STRIDE_W) - 1;
+			if(c < 0 || c > 9 || p.x - X[s] - STRIDE_W * (c + 1) > CELL_W)
+				continue;
+			int rows = rowCount(s);
+			int k = (int)std::floor((p.y - TABLE_TOP) / STRIDE_H); // 1..rows from the top
+			if(k < 1 || k > rows || p.y - TABLE_TOP - STRIDE_H * k > CELL_H)
+				continue;
+			section = s; row = rows - k; col = c;
+			return true;
+		}
+		return false;
+	}
+
+	static std::string handTitle(int section, int row, int col){
+		static const char* PAIR[10] = { "2S", "3S", "4S", "5S", "6S", "7S", "8S", "9S", "10S", "ACES" };
+		std::string hand = section == 0 ? (row == 0 ? std::string("HARD 8 OR LESS") : "HARD " + std::to_string(row + 8))
+			: section == 1 ? "SOFT " + std::to_string(row + 13) + ", A-" + std::to_string(row + 2)
+			: std::string("PAIR OF ") + PAIR[row];
+		return hand + " VS " + (col == 9 ? std::string("ACE") : std::string(COL_LABELS[col]));
+	}
+
+	static const char* moveName(char m){
+		switch(m){
+			case 'H': return "HIT";
+			case 'S': return "STAND";
+			case 'D': return "DOUBLE";
+			case 'P': return "SPLIT";
+			case 'R': return "SURRENDER";
+			default:  return "?";
+		}
+	}
+
+	// A tapped cell, large: the hand, the play for these rules, what to do
+	// when that move isn't allowed, and its index play when there is one.
+	static void drawCellDetail(SDLState& state, const Rules& rules, int section, int row, int col, const Marks* marks){
+		SDL_FRect shade{ 0, 0, 1440, 720 };
+		SDL_SetRenderDrawBlendMode(state.renderer, SDL_BLENDMODE_BLEND);
+		SDL_SetRenderDrawColor(state.renderer, 0, 0, 0, 170);
+		SDL_RenderFillRect(state.renderer, &shade);
+		SDL_FRect panel{ 220, 150, 1000, 400 };
+		fill(state, panel, SDL_Color{15, 30, 20, 255});
+		SDL_SetRenderDrawColor(state.renderer, 255, 210, 40, 255);
+		for(int k = 0; k < 3; k++){
+			SDL_FRect ring{ panel.x - k, panel.y - k, panel.w + 2 * k, panel.h + 2 * k };
+			SDL_RenderRect(state.renderer, &ring);
+		}
+		auto line = [&](const std::string& t, float y, float pixel, SDL_Color c){
+			pixel = std::min(pixel, (panel.w - 60.0f) / std::max(1.0f, DigitFont::textWidth(t, 1.0f)));
+			DigitFont::drawText(state, t, panel.x + (panel.w - DigitFont::textWidth(t, pixel)) / 2.0f, y, pixel, c);
+		};
+		char cd = code(rules.set, section, row, col);
+		char move = resolve(cd, rules.das, rules.surrender);
+		line(handTitle(section, row, col), panel.y + 30.0f, 6.0f, SDL_Color{255, 255, 255, 255});
+		SDL_FRect chip{ panel.x + panel.w / 2.0f - 260.0f, panel.y + 95.0f, 520.0f, 80.0f };
+		fill(state, chip, colorFor(move));
+		line(moveName(move), chip.y + 16.0f, 10.0f, SDL_Color{255, 255, 255, 255});
+
+		// What the published code means past the plain move.
+		std::string detail;
+		switch(cd){
+			case 'D': detail = "DOUBLE IF ALLOWED, OTHERWISE HIT"; break;
+			case 'd': detail = "DOUBLE IF ALLOWED, OTHERWISE STAND"; break;
+			case 'R': detail = rules.surrender ? "SURRENDER ON YOUR FIRST 2 CARDS, OTHERWISE HIT" : "NO SURRENDER AT THIS TABLE, SO HIT"; break;
+			case 'r': detail = rules.surrender ? "SURRENDER ON YOUR FIRST 2 CARDS, OTHERWISE STAND" : "NO SURRENDER AT THIS TABLE, SO STAND"; break;
+			case 'p': detail = rules.das ? "SPLIT - YOU CAN DOUBLE AFTER" : "NO DOUBLE AFTER SPLIT HERE, SO HIT"; break;
+			case 'x': detail = rules.das ? "SPLIT - YOU CAN DOUBLE AFTER" : "NO DOUBLE AFTER SPLIT HERE, SO DOUBLE"; break;
+			case 'y': detail = rules.das ? "SPLIT - YOU CAN DOUBLE AFTER" : "NO DOUBLE AFTER SPLIT HERE, SO STAND"; break;
+			case 'q': detail = move == 'R' ? "SURRENDER, OTHERWISE SPLIT" : "SPLIT"; break;
+			default: break;
+		}
+		int limit = cardLimit(rules.set, section, row, col);
+		if(limit > 0)
+			detail += (detail.empty() ? "" : ".  ") + std::string("HIT INSTEAD WITH ") + std::to_string(limit) + " CARDS OR MORE";
+		if(bonusRule(rules.set, section, row, col) != ' ')
+			detail += (detail.empty() ? "" : ".  ") + std::string("HIT IF A 6-7-8 OR SUITED 7-7-7 BONUS IS STILL POSSIBLE");
+		float y = chip.y + chip.h + 30.0f;
+		if(!detail.empty()){
+			line(detail, y, 3.6f, SDL_Color{230, 210, 140, 255});
+			y += 40.0f;
+		}
+		std::string when;
+		char devMove = 0;
+		if(marks && (*marks)(section, row, col, when, devMove)){
+			bool below = !when.empty() && when[0] == '<';
+			std::string n = below ? when.substr(1) : when;
+			line(std::string("COUNTING: ") + moveName(devMove) + (below ? " BELOW TRUE COUNT " + n : " AT TRUE COUNT " + n + " OR MORE"),
+				y, 4.4f, MARK_ABOVE);
+		}
+		line("TAP ANYWHERE TO CLOSE", panel.y + panel.h - 34.0f, 3.0f, SDL_Color{160, 180, 160, 255});
 	}
 
 	// Every index play, one per line, in two columns.
-	static void drawDeviationList(SDLState& state, const std::string& title, const std::vector<std::string>& lines){
+	static void drawDeviationList(SDLState& state, const std::string& title, const std::vector<std::string>& lines, const std::string& footer = ""){
 		SDL_SetRenderDrawColor(state.renderer, 10, 30, 15, 255);
 		SDL_RenderFillRect(state.renderer, nullptr);
 		float tp = std::min(5.0f, 1400.0f / DigitFont::textWidth(title, 1.0f));
@@ -90,6 +189,10 @@ public:
 			float x = i < half ? 30.0f : 740.0f;
 			float y = 104.0f + (i < half ? i : i - half) * 50.0f;
 			DigitFont::drawText(state, lines[i], x, y, pixel, SDL_Color{235, 235, 235, 255});
+		}
+		if(!footer.empty()){
+			float fp = std::min(3.0f, 1400.0f / DigitFont::textWidth(footer, 1.0f));
+			DigitFont::drawText(state, footer, (1440.0f - DigitFont::textWidth(footer, fp)) / 2.0f, 590.0f, fp, SDL_Color{255, 225, 80, 255});
 		}
 	}
 
@@ -144,6 +247,14 @@ public:
 			return false;
 
 		SDL_FPoint p{x, y};
+		// An open cell explanation: any tap closes it.
+		if(detailSection >= 0){
+			detailSection = -1;
+			return false;
+		}
+		if(!listing && cellAt(p, detailSection, detailRow, detailCol))
+			return false;
+		detailSection = -1;
 		if(!deviationLines.empty() && SDL_PointInRectFloat(&p, &listButton)){
 			listing = !listing;
 			return false;

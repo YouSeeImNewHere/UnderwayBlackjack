@@ -41,6 +41,9 @@ struct SaveData
 	int initialBets[5] = {25, 25, 25, 25, 25};
 	// Only meaningful for a GameMode with a side bet -- 0 otherwise.
 	int sideBetSizes[5] = {0, 0, 0, 0, 0};
+	// Each seat's starting bet as SetupMenu set it: one unit of the INDEX
+	// PLAYS bet ramp. initialBets follows the bets as they change.
+	int unitBets[5] = {25, 25, 25, 25, 25};
 
 	// Live progress (saveProgress()). hasProgress is false for a save made
 	// before any round finished, or by an older version -- Resume then
@@ -72,6 +75,10 @@ struct SaveData
 	int volume = 100;
 	bool oneHandedDrill = true;
 	bool oneHandedTable = false;
+	// SETTINGS' PENETRATION: percent of the shoe dealt before the cut card,
+	// 0 = random.
+	int penetration = 0;
+	bool vibrate = true;
 
 	// HOW TO PLAY opens by itself until it's been closed once.
 	bool tutorialSeen = false;
@@ -100,12 +107,15 @@ struct SaveData
 		volume = webGet(14, 100);
 		oneHandedDrill = webGet(15, 1) != 0;
 		oneHandedTable = webGet(16, 0) != 0;
+		penetration = webGet(17, 0);
+		vibrate = webGet(18, 1) != 0;
 		for(int i = 0; i < 5; i++){
 			bankrolls[i] = webGetSeat(0, i, 500);
 			initialBets[i] = webGetSeat(1, i, 25);
 			sideBetSizes[i] = webGetSeat(2, i, 0);
 			currentBankrolls[i] = webGetSeat(3, i, bankrolls[i]);
 			totalBuyIns[i] = webGetSeat(4, i, bankrolls[i]);
+			unitBets[i] = webGetSeat(5, i, initialBets[i]);
 		}
 #else
 		// The file can exist with no game in it (just Game Options) --
@@ -118,6 +128,7 @@ struct SaveData
 		bool sawCurrent[5] = {false, false, false, false, false};
 		int legacyPreset = -1, speedPct = -1;
 		bool sawBuyIns[5] = {false, false, false, false, false};
+		bool sawUnit[5] = {false, false, false, false, false};
 
 		std::string line;
 		while(std::getline(in, line)){
@@ -155,16 +166,20 @@ struct SaveData
 			else if(key == "volume") volume = value;
 			else if(key == "oneHandedDrill") oneHandedDrill = value != 0;
 			else if(key == "oneHandedTable") oneHandedTable = value != 0;
+			else if(key == "penetration") penetration = value;
+			else if(key == "vibrate") vibrate = value != 0;
 			else if(seat >= 0 && base == "bankroll") bankrolls[seat] = value;
 			else if(seat >= 0 && base == "bet") initialBets[seat] = value;
 			else if(seat >= 0 && base == "sideBet") sideBetSizes[seat] = value;
 			else if(seat >= 0 && base == "current"){ currentBankrolls[seat] = value; sawCurrent[seat] = true; }
 			else if(seat >= 0 && base == "buyIns"){ totalBuyIns[seat] = value; sawBuyIns[seat] = true; }
+			else if(seat >= 0 && base == "unit"){ unitBets[seat] = value; sawUnit[seat] = true; }
 		}
 
 		for(int i = 0; i < 5; i++){
 			if(!sawCurrent[i]) currentBankrolls[i] = bankrolls[i];
 			if(!sawBuyIns[i]) totalBuyIns[i] = bankrolls[i];
+			if(!sawUnit[i]) unitBets[i] = initialBets[i];
 		}
 		dealerSpeed = speedPct >= 0 ? speedPct : speedFromPreset(legacyPreset);
 #endif
@@ -188,6 +203,7 @@ struct SaveData
 		for(int i = 0; i < 5; i++){
 			bankrolls[i] = bankrollValues[i];
 			initialBets[i] = betValues[i];
+			unitBets[i] = betValues[i];
 			sideBetSizes[i] = sideBetValues[i];
 			currentBankrolls[i] = bankrollValues[i];
 			totalBuyIns[i] = bankrollValues[i];
@@ -227,7 +243,9 @@ struct SaveData
 	}
 
 	// SETTINGS' own values (its table preferences go through saveOptions()).
-	void saveSettings(int volumePct, bool oneHanded, bool oneHandedAtTable){
+	void saveSettings(int volumePct, bool oneHanded, bool oneHandedAtTable, int penetrationPct, bool vibrations){
+		penetration = penetrationPct;
+		vibrate = vibrations;
 		volume = volumePct;
 		oneHandedDrill = oneHanded;
 		oneHandedTable = oneHandedAtTable;
@@ -285,7 +303,9 @@ private:
 			localStorage.setItem('underwayBlackjackVolume', $4);
 			localStorage.setItem('underwayBlackjackOneHandedDrill', $5);
 			localStorage.setItem('underwayBlackjackOneHandedTable', $6);
-		}, doubleForLess ? 1 : 0, training, dealerHitsSoft17 ? 1 : 0, indexPlays ? 1 : 0, volume, oneHandedDrill ? 1 : 0, oneHandedTable ? 1 : 0);
+			localStorage.setItem('underwayBlackjackPenetration', $7);
+			localStorage.setItem('underwayBlackjackVibrate', $8);
+		}, doubleForLess ? 1 : 0, training, dealerHitsSoft17 ? 1 : 0, indexPlays ? 1 : 0, volume, oneHandedDrill ? 1 : 0, oneHandedTable ? 1 : 0, penetration, vibrate ? 1 : 0);
 		for(int i = 0; i < 5; i++){
 			EM_ASM({
 				localStorage.setItem('underwayBlackjackBankroll' + $0, $1);
@@ -293,7 +313,8 @@ private:
 				localStorage.setItem('underwayBlackjackSideBet' + $0, $3);
 				localStorage.setItem('underwayBlackjackCurrent' + $0, $4);
 				localStorage.setItem('underwayBlackjackBuyIns' + $0, $5);
-			}, i, bankrolls[i], initialBets[i], sideBetSizes[i], currentBankrolls[i], totalBuyIns[i]);
+				localStorage.setItem('underwayBlackjackUnit' + $0, $6);
+			}, i, bankrolls[i], initialBets[i], sideBetSizes[i], currentBankrolls[i], totalBuyIns[i], unitBets[i]);
 		}
 #else
 		std::ofstream out(path());
@@ -315,9 +336,12 @@ private:
 		out << "volume=" << volume << "\n";
 		out << "oneHandedDrill=" << (oneHandedDrill ? 1 : 0) << "\n";
 		out << "oneHandedTable=" << (oneHandedTable ? 1 : 0) << "\n";
+		out << "penetration=" << penetration << "\n";
+		out << "vibrate=" << (vibrate ? 1 : 0) << "\n";
 		for(int i = 0; i < 5; i++){
 			out << "bankroll" << i << "=" << bankrolls[i] << "\n";
 			out << "bet" << i << "=" << initialBets[i] << "\n";
+			out << "unit" << i << "=" << unitBets[i] << "\n";
 			out << "sideBet" << i << "=" << sideBetSizes[i] << "\n";
 			out << "current" << i << "=" << currentBankrolls[i] << "\n";
 			out << "buyIns" << i << "=" << totalBuyIns[i] << "\n";
@@ -332,7 +356,7 @@ private:
 	// literal) would split its argument and break the build.
 	static int webGet(int which, int def){
 		return EM_ASM_INT({
-			var keys = 'underwayBlackjackMode|underwayBlackjackPlayers|underwayBlackjackHasProgress|underwayBlackjackHasOptions|underwayBlackjackDealerSpeed|underwayBlackjackFaceDownDoubles|underwayBlackjackHideHands|underwayBlackjackTutorialSeen|underwayBlackjackDealerSpeedPct|underwayBlackjackSoundEffects|underwayBlackjackDoubleForLess|underwayBlackjackTraining|underwayBlackjackHitSoft17|underwayBlackjackIndexPlays|underwayBlackjackVolume|underwayBlackjackOneHandedDrill|underwayBlackjackOneHandedTable'.split('|');
+			var keys = 'underwayBlackjackMode|underwayBlackjackPlayers|underwayBlackjackHasProgress|underwayBlackjackHasOptions|underwayBlackjackDealerSpeed|underwayBlackjackFaceDownDoubles|underwayBlackjackHideHands|underwayBlackjackTutorialSeen|underwayBlackjackDealerSpeedPct|underwayBlackjackSoundEffects|underwayBlackjackDoubleForLess|underwayBlackjackTraining|underwayBlackjackHitSoft17|underwayBlackjackIndexPlays|underwayBlackjackVolume|underwayBlackjackOneHandedDrill|underwayBlackjackOneHandedTable|underwayBlackjackPenetration|underwayBlackjackVibrate'.split('|');
 			var v = localStorage.getItem(keys[$0]);
 			return v === null ? $1 : parseInt(v);
 		}, which, def);
@@ -341,7 +365,7 @@ private:
 	// Per-seat values: 0 bankroll, 1 bet, 2 sideBet, 3 current, 4 buyIns.
 	static int webGetSeat(int which, int seat, int def){
 		return EM_ASM_INT({
-			var keys = 'underwayBlackjackBankroll|underwayBlackjackBet|underwayBlackjackSideBet|underwayBlackjackCurrent|underwayBlackjackBuyIns'.split('|');
+			var keys = 'underwayBlackjackBankroll|underwayBlackjackBet|underwayBlackjackSideBet|underwayBlackjackCurrent|underwayBlackjackBuyIns|underwayBlackjackUnit'.split('|');
 			var v = localStorage.getItem(keys[$0] + $1);
 			return v === null ? $2 : parseInt(v);
 		}, which, seat, def);
