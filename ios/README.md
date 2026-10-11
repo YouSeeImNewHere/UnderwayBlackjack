@@ -149,6 +149,10 @@ Click the failed step to see its log.
   (step 3.2) or under **Business**.
 - **An error that the build number was already used**: re-run the
   workflow; each run gets a new number.
+- **"Your account has reached the maximum number of certificates"**: only
+  the fallback signed archive makes certificates (the normal path signs
+  with Apple's cloud certificate). Revoke old **Apple Development**
+  certificates at developer.apple.com -> Certificates, then re-run.
 
 ## Versions
 

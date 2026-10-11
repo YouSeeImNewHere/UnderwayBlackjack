@@ -1,0 +1,34 @@
+# Compiles the iOS app on every pull request, unsigned and without
+# uploading anything, so an iOS-only build error shows up on the pull
+# request instead of in the next TestFlight run. Needs no secrets.
+name: iOS build check
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  ios-build:
+    runs-on: macos-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Generate Xcode project
+        run: cmake -S . -B build-ios -G Xcode -DCMAKE_SYSTEM_NAME=iOS
+
+      - name: Build (unsigned)
+        run: |
+          xcodebuild build \
+            -project build-ios/UnderwayBlackjack.xcodeproj \
+            -scheme UnderwayBlackjack \
+            -configuration Debug \
+            -destination 'generic/platform=iOS' \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            | tail -n 200; exit ${PIPESTATUS[0]}

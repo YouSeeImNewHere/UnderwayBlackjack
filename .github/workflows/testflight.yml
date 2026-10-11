@@ -78,13 +78,52 @@ jobs:
             -DAPP_VERSION="$APP_VERSION" \
             -DGAME_VERSION="$APP_VERSION"
 
-      # -allowProvisioningUpdates + the API key lets Xcode create/download
-      # the signing certificate and provisioning profile itself, so no
-      # certificates have to be exported from a Mac and stored as secrets.
+      # Signing without piling up certificates: the archive is built
+      # unsigned, and the upload step has Xcode sign it with Apple's
+      # cloud-managed distribution certificate (the API key's
+      # -allowProvisioningUpdates). A signed archive would make a new
+      # "Apple Development" certificate on every fresh runner until the
+      # account hit Apple's limit. If cloud signing ever refuses, the run
+      # falls back to the old signed archive so the build still goes up.
       # RelWithDebInfo (optimized + debug info) rather than Release, so the
       # archive has a dSYM and TestFlight crash reports get symbol names.
-      - name: Archive
+      - name: Archive (unsigned)
         run: |
+          xcodebuild archive \
+            -project build-ios/UnderwayBlackjack.xcodeproj \
+            -scheme UnderwayBlackjack \
+            -configuration RelWithDebInfo \
+            -destination 'generic/platform=iOS' \
+            -archivePath "$RUNNER_TEMP/UnderwayBlackjack.xcarchive" \
+            CODE_SIGNING_ALLOWED=NO
+
+      # The export options with the team filled in: an unsigned archive
+      # doesn't carry it.
+      - name: Export options
+        run: |
+          cp ios/ExportOptions.plist "$RUNNER_TEMP/ExportOptions.plist"
+          plutil -replace teamID -string "${{ secrets.APPLE_TEAM_ID }}" "$RUNNER_TEMP/ExportOptions.plist"
+
+      - name: Upload to App Store Connect (TestFlight)
+        id: upload
+        continue-on-error: true
+        run: |
+          xcodebuild -exportArchive \
+            -archivePath "$RUNNER_TEMP/UnderwayBlackjack.xcarchive" \
+            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" \
+            -exportPath "$RUNNER_TEMP/export" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$ASC_KEY_PATH" \
+            -authenticationKeyID "${{ secrets.APPSTORE_API_KEY_ID }}" \
+            -authenticationKeyIssuerID "${{ secrets.APPSTORE_API_ISSUER_ID }}"
+
+      # Fallback: the previous way (signed archive). This one does create a
+      # development certificate; see ios/README.md if it hits the limit.
+      - name: Archive (signed, fallback)
+        if: steps.upload.outcome == 'failure'
+        run: |
+          echo "::warning::Cloud signing of the unsigned archive failed; retrying with a signed archive"
+          rm -rf "$RUNNER_TEMP/UnderwayBlackjack.xcarchive" "$RUNNER_TEMP/export"
           xcodebuild archive \
             -project build-ios/UnderwayBlackjack.xcodeproj \
             -scheme UnderwayBlackjack \
@@ -96,11 +135,12 @@ jobs:
             -authenticationKeyID "${{ secrets.APPSTORE_API_KEY_ID }}" \
             -authenticationKeyIssuerID "${{ secrets.APPSTORE_API_ISSUER_ID }}"
 
-      - name: Upload to App Store Connect (TestFlight)
+      - name: Upload to App Store Connect (TestFlight, fallback)
+        if: steps.upload.outcome == 'failure'
         run: |
           xcodebuild -exportArchive \
             -archivePath "$RUNNER_TEMP/UnderwayBlackjack.xcarchive" \
-            -exportOptionsPlist ios/ExportOptions.plist \
+            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" \
             -exportPath "$RUNNER_TEMP/export" \
             -allowProvisioningUpdates \
             -authenticationKeyPath "$ASC_KEY_PATH" \

@@ -167,3 +167,15 @@ target_compile_definitions(UnderwayBlackjack PRIVATE GAME_VERSION_STRING="${GAME
 if(WIN32)
     target_link_libraries(UnderwayBlackjack PRIVATE winhttp)
 endif()
+
+# The rule tests (tests/rules_test.cpp): cmake -DBUILD_TESTS=ON, then build
+# and run rules_test. Desktop builds only; .github/workflows/tests.yml runs
+# them on every pull request.
+option(BUILD_TESTS "Build the rule tests" OFF)
+if(BUILD_TESTS AND NOT ANDROID AND NOT CMAKE_SYSTEM_NAME STREQUAL "iOS")
+    set(TEST_SOURCES ${GAME_SOURCES})
+    list(REMOVE_ITEM TEST_SOURCES mina.cpp)
+    add_executable(rules_test tests/rules_test.cpp ${TEST_SOURCES})
+    target_include_directories(rules_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    target_link_libraries(rules_test PRIVATE SDL3_image::SDL3_image SDL3::SDL3)
+endif()
