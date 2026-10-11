@@ -14,7 +14,7 @@ enum class Sfx{
 	Tap,        // any button
 	Win,        // a blackjack
 	Jackpot,    // a rare side-bet hit (the big callout banner)
-	Collect,    // the cards swept off the table after a round
+	Collect,    // a card swept to the discard pile after a round
 	ChipsLand,  // winnings set down beside the bet
 	Count
 };

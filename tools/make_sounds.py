@@ -103,10 +103,14 @@ def built(name):
     d, _ = sf.read(os.path.join(OUT, name + '.wav'))
     return d
 
-# Cards swept off the felt: three quick slides overlapping, a little darker.
-slide1, slide3 = built('sfx-deal-1'), built('sfx-deal-3')
-collect = layered([(slide1, 0.0, 1.0), (slide3, 0.07, 0.8), (slide1, 0.15, 0.7)], 0.45, 1.0)
-save('sfx-collect', np.convolve(collect, np.ones(6) / 6, mode='same'), peak=0.7)
+# Each card swept to the discard pile: a deal slide, shorter, softer and a
+# little darker, three variants.
+for i in (1, 2, 3):
+    d = built('sfx-deal-%d' % i)[:int(0.18 * SR)].copy()
+    d = np.convolve(d, np.ones(5) / 5, mode='same')
+    fade = int(0.04 * SR)
+    d[-fade:] *= np.linspace(1, 0, fade)
+    save('sfx-collect-%d' % i, d, peak=0.55)
 
 # Chips gathered off the felt: a few quick clinks running into a stack.
 take, pay = built('sfx-chips-take'), built('sfx-chips-pay-1')
