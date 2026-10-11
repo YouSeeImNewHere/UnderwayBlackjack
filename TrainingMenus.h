@@ -10,6 +10,7 @@
 #include <random>
 #include <algorithm>
 #include <cmath>
+#include <cmath>
 #include <cstdio>
 #include <array>
 
@@ -268,6 +269,17 @@ public:
 	}
 
 	void update(float dt){
+		if(gesture && !onButton && phase == ASKING){
+			holdTimer += dt;
+			float moved = std::hypot(gestureNow.x - gestureStart.x, gestureNow.y - gestureStart.y);
+			if(moved >= SWIPE_DISTANCE / 2.0f)
+				holdTimer = 0.0f;
+			else if(holdTimer >= HOLD_SECONDS){
+				gesture = false;
+				holdFired = true;
+				choose('P');
+			}
+		}
 		if(phase == CORRECT){
 			timer -= dt;
 			if(timer <= 0.0f)
@@ -301,19 +313,21 @@ public:
 			if(!answerWhy.empty())
 				ptext(state, answerWhy, 900.0f, 2.8f, GOLD);
 		} else if(phase == WRONG){
-			ptext(state, std::string("THE PLAY IS ") + moveName(answer), 845.0f, 6.0f, RED);
+			ptext(state, std::string("THE PLAY IS ") + moveName(answer), 838.0f, 5.5f, RED);
+			drawChartRow(state, rules, 20.0f, 875.0f, 70.0f, 60.4f, 30.0f, 46.0f);
 			std::string detail = handName(section, row) + " VS " + dealerName(col);
 			if(!answerWhy.empty())
 				detail += " - " + answerWhy;
-			ptext(state, detail, 900.0f, 2.8f, GOLD);
-			ptext(state, "TAP ANYWHERE FOR THE NEXT HAND", 935.0f, 2.6f, DIM);
+			ptext(state, detail + " - TAP FOR NEXT", 962.0f, 2.4f, GOLD);
 		} else{
 			int known = trainer ? trainer->totalAttempts(rules.set) : 0;
 			int knownRight = trainer ? trainer->totalCorrect(rules.set) : 0;
 			std::string score = "STREAK " + std::to_string(streak) + "   BEST " + std::to_string(best);
 			if(known > 0)
 				score += "   THIS CHART " + std::to_string((knownRight * 100 + known / 2) / known) + "%";
-			ptext(state, score, 900.0f, 3.0f, DIM);
+			ptext(state, score, 880.0f, 3.0f, DIM);
+			ptext(state, "TAP: HIT    SWIPE SIDEWAYS: STAND    HOLD: SPLIT", 925.0f, 2.6f, DIM);
+			ptext(state, "SWIPE UP: DOUBLE    SWIPE DOWN: SURRENDER", 955.0f, 2.6f, DIM);
 		}
 
 		for(int i = 0; i < 5; i++){
@@ -363,6 +377,45 @@ public:
 		}
 	}
 
+	// One-thumb gestures (phones): tap = HIT, swipe sideways = STAND,
+	// swipe up = DOUBLE, swipe down = SURRENDER, press and hold = SPLIT.
+	// Taps on the buttons still press them. fingerUp() returns true when
+	// the touch was a gesture, so the caller skips its normal tap.
+	void fingerDown(SDLState& state, float wx, float wy){
+		gesture = false;
+		SDL_FPoint p;
+		if(phase != ASKING || !TrainingUI::toLogical(state, wx, wy, p) || !inGestureZone(p))
+			return;
+		gesture = true;
+		gestureStart = gestureNow = p;
+		holdTimer = 0.0f;
+		onButton = false;
+		for(int i = 0; i < 5; i++)
+			onButton |= TrainingUI::hit(p, moveRect(i));
+	}
+	void fingerMove(SDLState& state, float wx, float wy){
+		SDL_FPoint p;
+		if(gesture && TrainingUI::toLogical(state, wx, wy, p))
+			gestureNow = p;
+	}
+	bool fingerUp(SDLState& state, float wx, float wy){
+		if(!gesture)
+			return holdFired ? (holdFired = false, true) : false;
+		gesture = false;
+		SDL_FPoint p;
+		if(!TrainingUI::toLogical(state, wx, wy, p))
+			return false;
+		float dx = p.x - gestureStart.x, dy = p.y - gestureStart.y;
+		if(std::hypot(dx, dy) >= SWIPE_DISTANCE){
+			choose(std::fabs(dx) > std::fabs(dy) ? 'S' : dy < 0.0f ? 'D' : 'R');
+			return true;
+		}
+		if(onButton)
+			return false; // a press of that button
+		choose('H');
+		return true;
+	}
+
 	// Letter keys answer; arrows and Enter still walk the buttons.
 	static bool takesKey(SDL_Scancode sc){
 		return sc == SDL_SCANCODE_H || sc == SDL_SCANCODE_S || sc == SDL_SCANCODE_D || sc == SDL_SCANCODE_P || sc == SDL_SCANCODE_R;
@@ -401,6 +454,53 @@ private:
 	float timer = 0.0f;
 	int streak = 0, best = 0, sessionRight = 0, sessionTotal = 0;
 
+	static constexpr float SWIPE_DISTANCE = 80.0f, HOLD_SECONDS = 0.45f;
+	bool gesture = false, onButton = false, holdFired = false;
+	SDL_FPoint gestureStart{}, gestureNow{};
+	float holdTimer = 0.0f;
+
+	// Below the rule buttons (portrait) or above them (landscape), off BACK.
+	bool inGestureZone(SDL_FPoint p){
+		if(TrainingUI::hit(p, backButton()))
+			return false;
+		return TrainingUI::portrait ? p.y > rulesY() + 190.0f : p.y < rulesY() - 10.0f;
+	}
+
+	// The whole chart row for the hand just missed, the dealer's card
+	// outlined, so the rest of the row gets learned with it.
+	void drawChartRow(SDLState& state, const StrategyChart::Rules& rules, float x0, float y, float labelW, float stride, float headH, float cellH){
+		auto cell = [&](SDL_FRect r, SDL_Color c, const std::string& label, float pixel){
+			SDL_SetRenderDrawColor(state.renderer, c.r, c.g, c.b, 255);
+			SDL_RenderFillRect(state.renderer, &r);
+			SDL_SetRenderDrawColor(state.renderer, 255, 255, 255, 255);
+			SDL_RenderRect(state.renderer, &r);
+			float w = DigitFont::textWidth(label, pixel);
+			if(w > r.w - 6.0f){
+				pixel *= (r.w - 6.0f) / w;
+				w = DigitFont::textWidth(label, pixel);
+			}
+			DigitFont::drawText(state, label, r.x + (r.w - w) / 2.0f, r.y + (r.h - 5 * pixel) / 2.0f, pixel, SDL_Color{255, 255, 255, 255});
+		};
+		SDL_Color head{40, 60, 45, 255};
+		float pixel = cellH * 0.075f;
+		cell(SDL_FRect{ x0, y, labelW - 6.0f, headH }, head, "VS", pixel * 0.8f);
+		cell(SDL_FRect{ x0, y + headH + 4.0f, labelW - 6.0f, cellH }, head, StrategyChart::rowLabel(section, row), pixel);
+		for(int c = 0; c < 10; c++){
+			float x = x0 + labelW + c * stride;
+			cell(SDL_FRect{ x, y, stride - 4.0f, headH }, head, StrategyChart::dealerColLabel(c), pixel * 0.8f);
+			char move = StrategyChart::resolve(StrategyChart::code(rules.set, section, row, c), rules.das, rules.surrender);
+			SDL_FRect r{ x, y + headH + 4.0f, stride - 4.0f, cellH };
+			cell(r, StrategyChart::colorFor(move), StrategyChart::cellLabel(rules, section, row, c), pixel);
+			if(c == col){
+				SDL_SetRenderDrawColor(state.renderer, 255, 225, 60, 255);
+				for(float k = 1.0f; k <= 4.0f; k += 1.0f){
+					SDL_FRect o{ r.x - k, r.y - k, r.w + 2.0f * k, r.h + 2.0f * k };
+					SDL_RenderRect(state.renderer, &o);
+				}
+			}
+		}
+	}
+
 	// HIT / STAND, DOUBLE / SPLIT, then SURRENDER across the bottom.
 	SDL_FRect moveRect(int i){
 		if(!TrainingUI::portrait)
@@ -437,6 +537,8 @@ private:
 			if(!answerWhy.empty())
 				detail += " - " + answerWhy;
 			text(state, detail + "  -  TAP OR ENTER FOR NEXT", 445.0f, 3.2f, GOLD);
+			DigitFont::drawText(state, "THE WHOLE ROW", 20.0f, 160.0f, 3.6f, GOLD);
+			drawChartRow(state, rules, 20.0f, 196.0f, 56.0f, 45.0f, 30.0f, 44.0f);
 		}
 
 		for(int i = 0; i < 5; i++){
@@ -476,6 +578,7 @@ private:
 		bool spanish = StrategyChart::isSpanish(rules.set);
 		counting = selector.usesIndexPlays();
 		phase = ASKING;
+		gesture = false;
 		answerWhy.clear();
 
 		// With INDEX PLAYS, most hands are the ones the count changes.
