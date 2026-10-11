@@ -79,6 +79,8 @@ struct SaveData
 	// 0 = random.
 	int penetration = 0;
 	bool vibrate = true;
+	// The count quiz's TIMING: false every round, true random.
+	bool quizRandom = false;
 
 	// HOW TO PLAY opens by itself until it's been closed once.
 	bool tutorialSeen = false;
@@ -109,6 +111,7 @@ struct SaveData
 		oneHandedTable = webGet(16, 0) != 0;
 		penetration = webGet(17, 0);
 		vibrate = webGet(18, 1) != 0;
+		quizRandom = webGet(19, 0) != 0;
 		for(int i = 0; i < 5; i++){
 			bankrolls[i] = webGetSeat(0, i, 500);
 			initialBets[i] = webGetSeat(1, i, 25);
@@ -168,6 +171,7 @@ struct SaveData
 			else if(key == "oneHandedTable") oneHandedTable = value != 0;
 			else if(key == "penetration") penetration = value;
 			else if(key == "vibrate") vibrate = value != 0;
+			else if(key == "quizRandom") quizRandom = value != 0;
 			else if(seat >= 0 && base == "bankroll") bankrolls[seat] = value;
 			else if(seat >= 0 && base == "bet") initialBets[seat] = value;
 			else if(seat >= 0 && base == "sideBet") sideBetSizes[seat] = value;
@@ -242,6 +246,11 @@ struct SaveData
 		write();
 	}
 
+	void saveQuizRandom(bool on){
+		quizRandom = on;
+		write();
+	}
+
 	// SETTINGS' own values (its table preferences go through saveOptions()).
 	void saveSettings(int volumePct, bool oneHanded, bool oneHandedAtTable, int penetrationPct, bool vibrations){
 		penetration = penetrationPct;
@@ -305,7 +314,8 @@ private:
 			localStorage.setItem('underwayBlackjackOneHandedTable', $6);
 			localStorage.setItem('underwayBlackjackPenetration', $7);
 			localStorage.setItem('underwayBlackjackVibrate', $8);
-		}, doubleForLess ? 1 : 0, training, dealerHitsSoft17 ? 1 : 0, indexPlays ? 1 : 0, volume, oneHandedDrill ? 1 : 0, oneHandedTable ? 1 : 0, penetration, vibrate ? 1 : 0);
+			localStorage.setItem('underwayBlackjackQuizRandom', $9);
+		}, doubleForLess ? 1 : 0, training, dealerHitsSoft17 ? 1 : 0, indexPlays ? 1 : 0, volume, oneHandedDrill ? 1 : 0, oneHandedTable ? 1 : 0, penetration, vibrate ? 1 : 0, quizRandom ? 1 : 0);
 		for(int i = 0; i < 5; i++){
 			EM_ASM({
 				localStorage.setItem('underwayBlackjackBankroll' + $0, $1);
@@ -338,6 +348,7 @@ private:
 		out << "oneHandedTable=" << (oneHandedTable ? 1 : 0) << "\n";
 		out << "penetration=" << penetration << "\n";
 		out << "vibrate=" << (vibrate ? 1 : 0) << "\n";
+		out << "quizRandom=" << (quizRandom ? 1 : 0) << "\n";
 		for(int i = 0; i < 5; i++){
 			out << "bankroll" << i << "=" << bankrolls[i] << "\n";
 			out << "bet" << i << "=" << initialBets[i] << "\n";
@@ -356,7 +367,7 @@ private:
 	// literal) would split its argument and break the build.
 	static int webGet(int which, int def){
 		return EM_ASM_INT({
-			var keys = 'underwayBlackjackMode|underwayBlackjackPlayers|underwayBlackjackHasProgress|underwayBlackjackHasOptions|underwayBlackjackDealerSpeed|underwayBlackjackFaceDownDoubles|underwayBlackjackHideHands|underwayBlackjackTutorialSeen|underwayBlackjackDealerSpeedPct|underwayBlackjackSoundEffects|underwayBlackjackDoubleForLess|underwayBlackjackTraining|underwayBlackjackHitSoft17|underwayBlackjackIndexPlays|underwayBlackjackVolume|underwayBlackjackOneHandedDrill|underwayBlackjackOneHandedTable|underwayBlackjackPenetration|underwayBlackjackVibrate'.split('|');
+			var keys = 'underwayBlackjackMode|underwayBlackjackPlayers|underwayBlackjackHasProgress|underwayBlackjackHasOptions|underwayBlackjackDealerSpeed|underwayBlackjackFaceDownDoubles|underwayBlackjackHideHands|underwayBlackjackTutorialSeen|underwayBlackjackDealerSpeedPct|underwayBlackjackSoundEffects|underwayBlackjackDoubleForLess|underwayBlackjackTraining|underwayBlackjackHitSoft17|underwayBlackjackIndexPlays|underwayBlackjackVolume|underwayBlackjackOneHandedDrill|underwayBlackjackOneHandedTable|underwayBlackjackPenetration|underwayBlackjackVibrate|underwayBlackjackQuizRandom'.split('|');
 			var v = localStorage.getItem(keys[$0]);
 			return v === null ? $1 : parseInt(v);
 		}, which, def);

@@ -1213,9 +1213,17 @@ public:
 				// The count quiz game plays each hand by the strategy
 				// table, at a pace you can follow and count along with.
 				if(countQuizOn && tableIdle() && acceptingPlayerInput()){
+					// RANDOM timing can stop a hand partway for the count
+					// (cards count once they're face up, so it's fair).
+					if(isCountQuizShowing())
+						return;
 					autoPlayTimer += deltaTime;
 					if(autoPlayTimer >= AUTO_PLAY_DELAY * dealerSpeedFactor){
 						autoPlayTimer = 0.0f;
+						if(quizRandom && quizState == QuizState::Off && quizRng() % 6 == 0){
+							openCountQuiz();
+							return;
+						}
 						autoPlay();
 					}
 					return;
@@ -1230,9 +1238,16 @@ public:
 				// have landed, ask for the running count before betting
 				// (or the shuffle) goes on.
 				if(awaitingNewRound && countQuizOn && quizState != QuizState::Done){
-					if(quizState == QuizState::Off)
-						openCountQuiz();
-					return;
+					// RANDOM timing: after about one round in three (and
+					// not again if this round was already stopped).
+					if(quizState == QuizState::Off){
+						if(!quizRandom || quizRng() % 3 == 0)
+							openCountQuiz();
+						else
+							quizState = QuizState::Done;
+					}
+					if(quizState != QuizState::Done)
+						return;
 				}
 				if(awaitingNewRound){
 					awaitingNewRound = false;
@@ -1559,6 +1574,13 @@ public:
 	// Count quiz panel (see openCountQuiz()).
 	bool isCountQuizShowing() const{ return quizState == QuizState::Asking || quizState == QuizState::Answered; }
 
+	// The count quiz's timing: after every round, or (RANDOM) at random
+	// moments -- after some rounds, partway through others. The panel's
+	// TIMING button switches it; mina.cpp saves it.
+	bool quizRandom = false;
+	void setQuizRandom(bool on){ quizRandom = on; }
+	SDL_FRect quizTimingButton(){ return SDL_FRect{ .x = 520, .y = 456, .w = 400, .h = 40 }; }
+
 	void nudgeCountGuess(int dir){
 		if(quizState != QuizState::Asking)
 			return;
@@ -1595,6 +1617,12 @@ public:
 			return;
 		SDL_FPoint p{x, y};
 		SDL_FRect minus = doubleMinusButton(), plus = doublePlusButton(), ok = insuranceYesButton(), skip = insuranceNoButton();
+		SDL_FRect timing = quizTimingButton();
+		if(SDL_PointInRectFloat(&p, &timing)){
+			quizRandom = !quizRandom;
+			sound(Sfx::Tap);
+			return;
+		}
 		if(quizState == QuizState::Asking){
 			if(SDL_PointInRectFloat(&p, &minus)) nudgeCountGuess(-1);
 			else if(SDL_PointInRectFloat(&p, &plus)) nudgeCountGuess(1);
@@ -1667,6 +1695,7 @@ private:
 	}
 
 	enum class QuizState{ Off, Asking, Answered, Done };
+	std::mt19937 quizRng{ std::random_device{}() };
 	bool countQuizOn = false;
 	QuizState quizState = QuizState::Off;
 	int quizGuess = 0;
@@ -1824,6 +1853,12 @@ private:
 	void drawCountQuiz(SDLState& state){
 		if(!isCountQuizShowing())
 			return;
+		{
+			SDL_FRect t = quizTimingButton();
+			drawButton(state, t, SDL_Color{60, 90, 150, 255});
+			std::string label = quizRandom ? "TIMING: RANDOM" : "TIMING: EVERY ROUND";
+			DigitFont::drawText(state, label, t.x + (t.w - DigitFont::textWidth(label, 3.2f)) / 2.0f, t.y + (t.h - 16.0f) / 2.0f, 3.2f, SDL_Color{255, 255, 255, 255});
+		}
 		SDL_FRect panel = insurancePanel();
 		SDL_SetRenderDrawColor(state.renderer, 15, 25, 18, 255);
 		SDL_RenderFillRect(state.renderer, &panel);

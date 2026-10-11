@@ -167,8 +167,8 @@ namespace TrainingUI{
 class TrainingMenu
 {
 public:
-	enum Choice{ NONE, DRILL, REVIEW, COUNT_SPEED, TRUE_COUNT, BANKROLL, ODDS, BACK };
-	static constexpr int COUNT = 6;
+	enum Choice{ NONE, DRILL, REVIEW, COUNT_SPEED, TRUE_COUNT, RAMP_DRILL, RAMP, BANKROLL, SESSIONS, ODDS, BACK };
+	static constexpr int COUNT = 9;
 
 	void draw(SDLState& state, const Trainer& trainer){
 		using namespace TrainingUI;
@@ -177,20 +177,25 @@ public:
 			ptext(state, "TRAINING", 40.0f, 8.0f, WHITE);
 		else
 			text(state, "TRAINING", 30.0f, 7.0f, WHITE);
-		static const char* LABELS[COUNT] = { "STRATEGY DRILL", "MISTAKES + ACCURACY", "COUNTING SPEED", "TRUE COUNT + DECKS", "BANKROLL PLANNER", "GAME ODDS" };
+		static const char* LABELS[COUNT] = { "STRATEGY DRILL", "MISTAKES + ACCURACY", "COUNTING SPEED", "TRUE COUNT + DECKS",
+			"BET RAMP DRILL", "BET RAMP", "BANKROLL PLANNER", "SESSION LOG", "GAME ODDS" };
 		static const char* NOTES[COUNT] = {
 			"FLASH CARDS. HANDS YOU MISS COME BACK MORE",
 			"WHICH CHART CELLS YOU KNOW, AND YOUR LAST MISTAKES",
 			"KEEP THE HI-LO RUNNING COUNT AS CARDS FLASH BY",
 			"ESTIMATE DECKS LEFT, TURN RUNNING COUNT INTO TRUE COUNT",
+			"A COUNT SHOWS - PICK THE BET",
+			"THE COUNTING BET RAMP AT YOUR UNIT, AND WHAT IT IS WORTH",
 			"WHAT A SESSION COSTS, AND HOW MUCH MONEY TO BRING",
+			"YOUR REAL CASINO SESSIONS AGAINST WHAT WAS EXPECTED",
 			"EVERY GAME AND SIDE BET RANKED - WHERE YOUR MONEY LASTS LONGEST"
 		};
-		static const SDL_Color COLORS[COUNT] = { {60, 130, 70, 255}, {150, 70, 70, 255}, {60, 90, 150, 255}, {50, 120, 130, 255}, {150, 120, 40, 255}, {120, 70, 130, 255} };
+		static const SDL_Color COLORS[COUNT] = { {60, 130, 70, 255}, {150, 70, 70, 255}, {60, 90, 150, 255}, {50, 120, 130, 255},
+			{70, 110, 60, 255}, {150, 100, 40, 255}, {150, 120, 40, 255}, {90, 80, 140, 255}, {120, 70, 130, 255} };
 		for(int i = 0; i < COUNT && !portrait; i++){
-			button(state, buttonRect(i), COLORS[i], LABELS[i], 4.5f);
+			button(state, buttonRect(i), COLORS[i], LABELS[i], 4.2f);
 			float np = std::min(3.0f, 780.0f / DigitFont::textWidth(NOTES[i], 1.0f));
-			DigitFont::drawText(state, NOTES[i], 640.0f, buttonRect(i).y + 35.0f - 2.5f * np, np, DIM);
+			DigitFont::drawText(state, NOTES[i], 640.0f, buttonRect(i).y + 25.0f - 2.5f * np, np, DIM);
 		}
 		for(int i = 0; i < COUNT && portrait; i++){
 			// The label up top in the button, its note under it.
@@ -199,8 +204,8 @@ public:
 			SDL_RenderFillRect(state.renderer, &b);
 			SDL_SetRenderDrawColor(state.renderer, 255, 255, 255, 255);
 			SDL_RenderRect(state.renderer, &b);
-			text(state, LABELS[i], b.y + 26.0f, 6.0f, WHITE, CX, 600.0f);
-			text(state, NOTES[i], b.y + 86.0f, 2.8f, SDL_Color{225, 235, 225, 255}, CX, 600.0f);
+			text(state, LABELS[i], b.y + 16.0f, 5.2f, WHITE, CX, 600.0f);
+			text(state, NOTES[i], b.y + 66.0f, 2.6f, SDL_Color{225, 235, 225, 255}, CX, 600.0f);
 		}
 		int drills = 0, right = 0;
 		for(int s = 0; s < StrategyChart::SET_COUNT; s++){
@@ -211,10 +216,10 @@ public:
 			? std::to_string(drills) + " STRATEGY DECISIONS SO FAR, " + std::to_string((right * 100 + drills / 2) / drills) + "% RIGHT"
 			: "EVERY DECISION IN DRILLS AND REAL HANDS IS TRACKED HERE";
 		if(portrait){
-			ptext(state, summary, 1120.0f, 3.0f, GOLD);
-			ptext(state, "BANKROLL AND GAME ODDS TURN THE SCREEN SIDEWAYS", 1170.0f, 2.6f, DIM);
+			ptext(state, summary, 1236.0f, 2.8f, GOLD);
+			ptext(state, "BET RAMP, BANKROLL, SESSION LOG AND GAME ODDS TURN SIDEWAYS", 1270.0f, 2.4f, DIM);
 		} else{
-			text(state, summary, 578.0f, 3.4f, GOLD);
+			text(state, summary, 605.0f, 3.0f, GOLD);
 		}
 		button(state, backButton(), SDL_Color{80, 80, 80, 255}, "BACK", portrait ? 8.0f : 6.0f);
 	}
@@ -242,12 +247,12 @@ public:
 private:
 	SDL_FRect buttonRect(int i){
 		if(TrainingUI::portrait)
-			return SDL_FRect{ .x = 30, .y = 140.0f + i * 158.0f, .w = 660, .h = 140 };
-		return SDL_FRect{ .x = 160, .y = 92.0f + i * 78.0f, .w = 450, .h = 64 };
+			return SDL_FRect{ .x = 30, .y = 120.0f + i * 123.0f, .w = 660, .h = 112 };
+		return SDL_FRect{ .x = 160, .y = 76.0f + i * 58.0f, .w = 450, .h = 50 };
 	}
 	SDL_FRect backButton(){
 		if(TrainingUI::portrait)
-			return SDL_FRect{ .x = 30, .y = 1240, .w = 660, .h = 130 };
+			return SDL_FRect{ .x = 30, .y = 1300, .w = 660, .h = 110 };
 		return SDL_FRect{ .x = 620, .y = 630, .w = 200, .h = 56 };
 	}
 };
@@ -1013,9 +1018,10 @@ public:
 		if(phase != RUNNING)
 			return;
 		timer += dt;
-		if(timer >= interval()){
+		// Several cards at once stay up as long as that many cards would.
+		if(timer >= interval() * group()){
 			timer = 0.0f;
-			shown++;
+			shown += group();
 			if(shown >= cardCount()){
 				phase = ANSWER;
 				guess = 0;
@@ -1036,6 +1042,7 @@ public:
 		if(phase == SETUP || phase == RESULT){
 			button(state, cardsButton(), SDL_Color{60, 90, 150, 255}, "CARDS: " + std::to_string(cardCount()), 6.0f);
 			button(state, speedButton(), SDL_Color{60, 90, 150, 255}, speedLabel(), 6.0f);
+			button(state, groupButton(), SDL_Color{60, 90, 150, 255}, groupLabel(), 6.0f);
 			button(state, startButton(), SDL_Color{60, 130, 70, 255}, phase == RESULT ? "AGAIN" : "START", 11.0f);
 			if(phase == RESULT){
 				ptext(state, resultLine, 560.0f, 7.0f, resultOk ? GREEN : RED);
@@ -1048,9 +1055,8 @@ public:
 			ptext(state, "CASINO PACE: ABOUT 0.5 SEC A CARD,", 840.0f, 3.0f, DIM);
 			ptext(state, "A FULL DECK IN UNDER 30 SEC", 880.0f, 3.0f, DIM);
 		} else if(phase == RUNNING){
-			const auto& c = deck[shown];
-			drawCard(state, res, c.first, c.second, CX - 125.0f, 320.0f, 2.5f);
-			ptext(state, "CARD " + std::to_string(shown + 1) + " OF " + std::to_string(cardCount()), 720.0f, 5.0f, DIM);
+			drawGroup(state, res, CX, 300.0f, true);
+			ptext(state, cardsText(), 720.0f, 5.0f, DIM);
 		} else{
 			ptext(state, "RUNNING COUNT?", 560.0f, 8.0f, WHITE);
 			stepper.draw(state, signedNum(guess));
@@ -1069,6 +1075,7 @@ public:
 		if(phase == SETUP || phase == RESULT){
 			if(TrainingUI::hit(p, cardsButton())) cardsIndex = (cardsIndex + 1) % 3;
 			if(TrainingUI::hit(p, speedButton())) speedIndex = (speedIndex + 1) % 5;
+			if(TrainingUI::hit(p, groupButton())) groupIndex = (groupIndex + 1) % 4;
 			if(TrainingUI::hit(p, startButton())) start();
 		} else if(phase == ANSWER){
 			if(stepper.hitMinus(p)) guess--;
@@ -1099,7 +1106,7 @@ public:
 	std::vector<SDL_FRect> focusRects(){
 		if(phase == ANSWER || phase == RUNNING)
 			return { backButton() };
-		return { cardsButton(), speedButton(), startButton(), backButton() };
+		return { cardsButton(), speedButton(), groupButton(), startButton(), backButton() };
 	}
 
 private:
@@ -1108,7 +1115,7 @@ private:
 	Trainer* trainer = nullptr;
 	std::mt19937 rng{ std::random_device{}() };
 	std::vector<std::pair<int, int>> deck;
-	int cardsIndex = 2, speedIndex = 1;
+	int cardsIndex = 2, speedIndex = 1, groupIndex = 0; // groupIndex + 1 cards at a time
 	int shown = 0, guess = 0, count = 0;
 	float timer = 0.0f;
 	std::string resultLine, resultDetail;
@@ -1116,13 +1123,40 @@ private:
 	TrainingUI::Stepper stepper;
 
 	SDL_FRect cardsButton() const{
-		return TrainingUI::portrait ? SDL_FRect{ .x = 20, .y = 200, .w = 680, .h = 120 } : SDL_FRect{ .x = 330, .y = 330, .w = 240, .h = 64 };
+		return TrainingUI::portrait ? SDL_FRect{ .x = 20, .y = 200, .w = 680, .h = 110 } : SDL_FRect{ .x = 190, .y = 330, .w = 230, .h = 64 };
 	}
 	SDL_FRect speedButton() const{
-		return TrainingUI::portrait ? SDL_FRect{ .x = 20, .y = 340, .w = 680, .h = 120 } : SDL_FRect{ .x = 590, .y = 330, .w = 300, .h = 64 };
+		return TrainingUI::portrait ? SDL_FRect{ .x = 20, .y = 325, .w = 680, .h = 110 } : SDL_FRect{ .x = 435, .y = 330, .w = 300, .h = 64 };
+	}
+	SDL_FRect groupButton() const{
+		return TrainingUI::portrait ? SDL_FRect{ .x = 20, .y = 450, .w = 680, .h = 110 } : SDL_FRect{ .x = 750, .y = 330, .w = 280, .h = 64 };
 	}
 	SDL_FRect startButton() const{
-		return TrainingUI::portrait ? SDL_FRect{ .x = 20, .y = 1200, .w = 680, .h = 210 } : SDL_FRect{ .x = 910, .y = 330, .w = 200, .h = 64 };
+		return TrainingUI::portrait ? SDL_FRect{ .x = 20, .y = 1200, .w = 680, .h = 210 } : SDL_FRect{ .x = 1045, .y = 330, .w = 200, .h = 64 };
+	}
+
+	int group() const{ return groupIndex + 1; }
+	std::string groupLabel() const{ return group() == 1 ? "1 CARD AT A TIME" : std::to_string(group()) + " CARDS AT A TIME"; }
+
+	// "CARD 5 OF 52", or "CARDS 5-8 OF 52" with several at once.
+	std::string cardsText() const{
+		int last = std::min(shown + group(), cardCount());
+		if(last - shown <= 1)
+			return "CARD " + std::to_string(shown + 1) + " OF " + std::to_string(cardCount());
+		return "CARDS " + std::to_string(shown + 1) + "-" + std::to_string(last) + " OF " + std::to_string(cardCount());
+	}
+
+	// The cards up now, side by side and overlapping a little like a
+	// dealt hand, centred on cx.
+	void drawGroup(SDLState& state, Resources& res, float cx, float y, bool tall){
+		int n = std::min(group(), cardCount() - shown);
+		float scale = tall ? (n == 1 ? 2.5f : n == 2 ? 2.0f : 1.6f) : (n == 1 ? 1.0f : 0.9f);
+		float w = 100.0f * scale, step = w * (n > 2 ? 0.62f : 0.8f);
+		float x0 = cx - (w + step * (n - 1)) / 2.0f;
+		for(int k = 0; k < n; k++){
+			const auto& c = deck[shown + k];
+			TrainingUI::drawCard(state, res, c.first, c.second, x0 + step * k, y, scale);
+		}
 	}
 	SDL_FRect backButton(){ return TrainingUI::backRect(); }
 
@@ -1147,6 +1181,7 @@ private:
 		if(phase == SETUP || phase == RESULT){
 			button(state, cardsButton(), SDL_Color{60, 90, 150, 255}, "CARDS: " + std::to_string(cardCount()), 4.5f);
 			button(state, speedButton(), SDL_Color{60, 90, 150, 255}, speedLabel(), 4.5f);
+			button(state, groupButton(), SDL_Color{60, 90, 150, 255}, groupLabel(), 4.0f);
 			button(state, startButton(), SDL_Color{60, 130, 70, 255}, phase == RESULT ? "AGAIN" : "START", 6.0f);
 			if(phase == RESULT){
 				text(state, resultLine, 200.0f, 6.0f, resultOk ? GREEN : RED);
@@ -1157,9 +1192,8 @@ private:
 			text(state, statsLine(), 560.0f, 3.6f, DIM);
 			text(state, "A CASINO PACE IS ABOUT 0.5 SEC PER CARD - A FULL DECK IN UNDER 30 SEC", 600.0f, 3.0f, DIM);
 		} else if(phase == RUNNING){
-			const auto& c = deck[shown];
-			drawCard(state, res, c.first, c.second, 670.0f, 200.0f);
-			text(state, "CARD " + std::to_string(shown + 1) + " OF " + std::to_string(cardCount()), 380.0f, 4.0f, DIM);
+			drawGroup(state, res, 720.0f, 200.0f, false);
+			text(state, cardsText(), 380.0f, 4.0f, DIM);
 		} else{
 			text(state, "WHAT IS THE RUNNING COUNT?", 300.0f, 5.0f, WHITE);
 			stepper.draw(state, signedNum(guess));
