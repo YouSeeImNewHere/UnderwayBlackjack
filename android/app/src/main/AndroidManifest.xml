@@ -1,8 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Trimmed from SDL's android-project template: landscape only, no
-     camera/microphone/network permissions (the game uses none). -->
+     camera/microphone/network permissions (the game uses none). VIBRATE
+     (no prompt) is for Haptics.h's short buzzes. -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     android:installLocation="auto">
+
+    <uses-permission android:name="android.permission.VIBRATE" />
 
     <uses-feature android:glEsVersion="0x00020000" />
     <uses-feature

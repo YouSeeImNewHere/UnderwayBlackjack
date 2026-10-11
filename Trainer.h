@@ -101,8 +101,11 @@ namespace IndexPlays{
 	// Insurance pays at +3 or more.
 	constexpr int INSURANCE_INDEX = 3;
 
-	// A simple 1-8 betting ramp: 1 unit at +1 or less, then (TC - 1).
-	inline int betUnits(int tc){ return std::clamp(tc - 1, 1, 8); }
+	// The 1-8 betting ramp, the usual one for a shoe: 1 unit at +1 or
+	// less, 2 at +2, 4 at +3, 6 at +4, 8 from +5. (A slower ramp that
+	// added one unit per count barely beat a 6-deck game in this engine's
+	// simulations; this one earns about seven times as much.)
+	inline int betUnits(int tc){ return std::clamp(2 * (tc - 1), 1, 8); }
 
 	// The index plays that change a chart's cells, for showing them on the
 	// chart: in each cell, the move the count calls for and the true count
@@ -161,6 +164,16 @@ namespace IndexPlays{
 			case 'R': return "SURRENDER";
 			default:  return "?";
 		}
+	}
+
+	// The bet ramp in one line, for the DEVIATIONS page: units by true count.
+	inline std::string rampLine(){
+		std::string line = "BET RAMP, 1 UNIT IS YOUR STARTING BET:  ";
+		for(int tc = 1; tc <= 5; tc++){
+			line += (tc == 1 ? "+1 OR LESS " : tc == 5 ? "+5 OR MORE " : signedNum(tc) + " ") + std::to_string(betUnits(tc));
+			line += tc < 5 ? ",   " : "  UNITS - A 1 TO 8 SPREAD";
+		}
+		return line;
 	}
 
 	// Each deviation spelled out, for the DEVIATIONS list.

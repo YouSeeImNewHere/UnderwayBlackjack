@@ -134,13 +134,14 @@ public:
 		selector.open(mode, dealerHitsSoft17);
 		selector.indexPlays = indexPlays;
 		listing = false;
+		detailSection = -1;
 	}
 
 	void draw(SDLState& state){
 		StrategyChart::Rules rules = selector.rules();
 		bool deviations = selector.usesIndexPlays();
 		if(deviations && listing){
-			StrategyChart::drawDeviationList(state, "INDEX PLAYS - " + StrategyChart::titleFor(rules), IndexPlays::deviationLines(rules));
+			StrategyChart::drawDeviationList(state, "INDEX PLAYS - " + StrategyChart::titleFor(rules), IndexPlays::deviationLines(rules), IndexPlays::rampLine());
 		} else{
 			std::vector<IndexPlays::Deviation> devs = deviations ? IndexPlays::deviations(rules) : std::vector<IndexPlays::Deviation>{};
 			StrategyChart::Marks marks = [&](int section, int row, int col, std::string& when, char& move){
@@ -154,6 +155,8 @@ public:
 			};
 			StrategyChart::drawChart(state, rules, false, 0, 0, 0, true, nullptr, deviations ? &marks : nullptr);
 			selector.draw(state, RULES_Y, true);
+			if(detailSection >= 0)
+				StrategyChart::drawCellDetail(state, rules, detailSection, detailRow, detailCol, deviations ? &marks : nullptr);
 		}
 		StrategyChart::drawButton(state, backRect(), SDL_Color{80, 80, 80, 255}, "BACK");
 		if(deviations)
@@ -165,6 +168,14 @@ public:
 		if(!SDL_RenderCoordinatesFromWindow(state.renderer, windowX, windowY, &x, &y))
 			return false;
 		SDL_FPoint p{x, y};
+		// A tapped cell's explanation: any tap closes it.
+		if(detailSection >= 0){
+			detailSection = -1;
+			return false;
+		}
+		if(!listing && StrategyChart::cellAt(p, detailSection, detailRow, detailCol))
+			return false;
+		detailSection = -1;
 		SDL_FRect back = backRect();
 		if(SDL_PointInRectFloat(&p, &back))
 			return true;
@@ -193,6 +204,7 @@ private:
 	static constexpr float RULES_Y = 580.0f;
 	RuleSelector selector;
 	bool listing = false;
+	int detailSection = -1, detailRow = 0, detailCol = 0;
 	SDL_FRect listButton{ .x = 730, .y = 640, .w = 260, .h = 56 };
 	SDL_FRect backRect(){
 		return selector.usesIndexPlays() ? SDL_FRect{ .x = 510, .y = 640, .w = 200, .h = 56 } : SDL_FRect{ .x = 620, .y = 640, .w = 200, .h = 56 };

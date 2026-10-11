@@ -172,6 +172,7 @@ public:
 			players[i] = Person(true, bettingSquares[seatIndexFor(i, numberOfPlayers)]);
 			players[i].setBankroll(bankrolls[i]);
 			players[i].setInitialBet(initialBets[i]);
+			betUnit[i] = std::max(1, initialBets[i]);
 
 			if(sideBetSizes){
 				if(hasLuckyLadies(gameMode) || hasLuckyStiff(gameMode))
@@ -449,6 +450,9 @@ public:
 			return;
 
 		awaitingBets = false;
+		gradeRampBets();
+		if(oneHandedHintRounds > 0)
+			oneHandedHintRounds--;
 
 		// Belt-and-suspenders: every raise already re-clamps itself (see
 		// handleBettingPoint()), but re-checking once more right before
@@ -789,6 +793,7 @@ public:
 		drawBuyInPrompt(state);
 		drawPracticeNote(state);
 		drawRefusedNote(state);
+		drawOneHandedHint(state);
 		drawRoundSummary(state);
 		drawCountQuiz(state);
 		drawJackpotCallout(state);
@@ -1798,6 +1803,24 @@ private:
 		DigitFont::drawText(state, refusedNote, box.x + 20.0f, box.y + (44.0f - 5 * p) / 2.0f, p, SDL_Color{255, 220, 210, 255});
 	}
 
+	// The one-handed gestures, under the dealer's cards, while it's a
+	// player's turn during the first hands after turning them on.
+	void drawOneHandedHint(SDLState& state){
+		if(!oneHandedGestures || !touchLayout || oneHandedHintRounds <= 0 || !acceptingPlayerInput())
+			return;
+		static const char* LINES[2] = { "TAP: HIT     SWIPE LEFT OR RIGHT: STAND     HOLD: SPLIT",
+			"SWIPE UP: DOUBLE     SWIPE DOWN: SURRENDER" };
+		SDL_FRect bar{ 240.0f, 436.0f, 960.0f, 52.0f };
+		SDL_SetRenderDrawColor(state.renderer, 15, 25, 18, 255);
+		SDL_RenderFillRect(state.renderer, &bar);
+		SDL_SetRenderDrawColor(state.renderer, 255, 210, 40, 255);
+		SDL_RenderRect(state.renderer, &bar);
+		float p = std::min(3.0f, (bar.w - 30.0f) / DigitFont::textWidth(LINES[0], 1.0f));
+		for(int i = 0; i < 2; i++){
+			DigitFont::drawText(state, LINES[i], bar.x + (bar.w - DigitFont::textWidth(LINES[i], p)) / 2.0f, bar.y + 7.0f + i * 23.0f, p, SDL_Color{255, 225, 80, 255});
+		}
+	}
+
 	void drawCountQuiz(SDLState& state){
 		if(!isCountQuizShowing())
 			return;
@@ -1833,8 +1856,16 @@ private:
 		// Right: just CORRECT!. Wrong: what the count actually is.
 		bool right = quizGuess == runningCount;
 		std::string q = right ? "CORRECT!" : "COUNT IS " + signedCount(runningCount);
-		DigitFont::drawText(state, q, panel.x + (panel.w - DigitFont::textWidth(q, 7.0f)) / 2.0f, panel.y + 30.0f, 7.0f,
+		DigitFont::drawText(state, q, panel.x + (panel.w - DigitFont::textWidth(q, 7.0f)) / 2.0f, panel.y + 22.0f, 7.0f,
 			right ? SDL_Color{110, 230, 110, 255} : SDL_Color{240, 110, 90, 255});
+		// How deep into the shoe this is, and where the cut card sits.
+		if(shoeCardsAtShuffle > 0){
+			int dealt = std::clamp(shoeCardsAtShuffle - (int)shoe.size(), 0, shoeCardsAtShuffle);
+			std::string depth = "SHOE " + std::to_string(dealt * 100 / shoeCardsAtShuffle) + "% DEALT, CUT CARD AT "
+				+ std::to_string(cutCardAt * 100 / shoeCardsAtShuffle) + "%";
+			float dp = std::min(3.0f, (panel.w - 30.0f) / DigitFont::textWidth(depth, 1.0f));
+			DigitFont::drawText(state, depth, panel.x + (panel.w - DigitFont::textWidth(depth, dp)) / 2.0f, panel.y + 68.0f, dp, SDL_Color{230, 210, 140, 255});
+		}
 		SDL_FRect cont{ .x = 720.0f - 130.0f, .y = ok.y, .w = 260.0f, .h = ok.h };
 		drawButton(state, cont, SDL_Color{60, 130, 70, 255});
 		DigitFont::drawText(state, "CONTINUE", cont.x + (cont.w - DigitFont::textWidth("CONTINUE", b)) / 2.0f, cont.y + (cont.h - 5 * b) / 2.0f, b, white);
@@ -2873,7 +2904,30 @@ private:
 
 public:
 	void setTouchLayout(bool touch){ touchLayout = touch; }
-	void setOneHandedGestures(bool on){ oneHandedGestures = on; }
+	// Turning ONE-HANDED on shows its gestures on the table for the next
+	// few hands (drawOneHandedHint()).
+	void setOneHandedGestures(bool on){
+		if(on && !oneHandedGestures)
+			oneHandedHintRounds = 3;
+		oneHandedGestures = on;
+	}
+	int oneHandedHintRounds = 0;
+
+	// SETTINGS' PENETRATION: how much of the shoe is dealt before the cut
+	// card, in percent; 0 = random (half to seven eighths). Next shoe on.
+	void setPenetration(int pct){ penetrationPct = pct; }
+	int penetrationPct = 0;
+	int shoeCardsAtShuffle = 0, cutCardAt = 0;
+
+	// INDEX PLAYS' bet ramp counts in units of each seat's starting bet
+	// (SetupMenu's BET), kept apart from the bet as it changes -- set by
+	// configurePlayers(), and from the save on Resume.
+	void setBetUnits(const int units[5]){
+		for(int i = 0; i < 5; i++)
+			betUnit[i] = std::max(1, units[i]);
+	}
+	int getBetUnit(int i) const{ return betUnit[i]; }
+	int rampBetFor(int i){ return IndexPlays::betUnits(trueCountFloor()) * betUnit[i]; }
 
 private:
 
@@ -3622,6 +3676,8 @@ private:
 			int tc = trueCountFloor();
 			int units = IndexPlays::betUnits(tc);
 			std::string ramp = "TRUE COUNT " + IndexPlays::signedNum(tc) + " - BET " + std::to_string(units) + (units == 1 ? " UNIT" : " UNITS");
+			if(numberOfPlayers == 1)
+				ramp += ": $" + std::to_string(units * betUnit[0]);
 			// Lucky Ladies pays at a high count (IndexPlays::luckyLadiesIndex).
 			std::string side;
 			bool sideOn = false;
@@ -3886,6 +3942,36 @@ private:
 
 	// Set by chartAdvice() when an index play changed the chart's move.
 	std::string lastIndexNote;
+
+	int betUnit[5] = {25, 25, 25, 25, 25};
+
+	// With INDEX PLAYS on, each bet as the round is dealt against the bet
+	// ramp: scored in STATS (BET RAMP), and a note when it's off -- within
+	// half a unit counts, since chips don't always make the exact amount.
+	void gradeRampBets(){
+		if(!indexPlaysActive() || isTraining())
+			return;
+		int tc = trueCountFloor();
+		int units = IndexPlays::betUnits(tc);
+		std::string note;
+		for(int i = 0; i < numberOfPlayers; i++){
+			int bet = players[i].getBet();
+			if(bet <= 0)
+				continue;
+			int target = units * betUnit[i];
+			bool ok = std::abs(bet - target) * 2 <= betUnit[i];
+			if(stats)
+				stats->recordRampBet(ok);
+			if(!ok && note.empty())
+				note = (numberOfPlayers > 1 ? "P" + std::to_string(i + 1) + ": " : std::string())
+					+ "TRUE COUNT " + IndexPlays::signedNum(tc) + " - RAMP SAYS " + std::to_string(units)
+					+ (units == 1 ? " UNIT: $" : " UNITS: $") + std::to_string(target) + ", NOT $" + std::to_string(bet);
+		}
+		if(!note.empty()){
+			refusedNote = note;
+			refusedTimer = 3.5f;
+		}
+	}
 
 	// The chart's move for the active hand, with what depends on the hand
 	// itself rather than just its total: a hard 18+ (read off the "17"
@@ -4558,10 +4644,21 @@ private:
 
 		std::random_device rdn; // Seed from hardware
 		std::mt19937 genn(rdn()); // Mersenne Twister engine
-		std::uniform_int_distribution<> dist(values.size() / 2,values.size() - values.size() / 8); // Inclusive range
+		// The cut card: SETTINGS' PENETRATION (a fixed share of the shoe
+		// dealt, give or take a couple of cards like a real dealer's cut),
+		// or anywhere from half to seven eighths of the shoe when RANDOM.
+		int lo = (int)values.size() / 2, hi = (int)values.size() - (int)values.size() / 8;
+		if(penetrationPct > 0){
+			int at = (int)std::lround(values.size() * penetrationPct / 100.0);
+			lo = std::max(1, at - 3);
+			hi = std::min((int)values.size() - 1, at + 3);
+		}
+		std::uniform_int_distribution<> dist(lo, hi); // Inclusive range
 
 		int randomValue = dist(genn);
 		values.insert(values.begin() + randomValue,c(0,14));
+		shoeCardsAtShuffle = (int)values.size();
+		cutCardAt = randomValue;
 
 		// The on-table stack's total width is capped at MAX_SHOE_STACK_WIDTH
 		// regardless of deck count, instead of a fixed 3px-per-card step --

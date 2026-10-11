@@ -260,6 +260,8 @@ public:
 	// SETTINGS' ONE-HANDED DRILL (set by mina.cpp): on a phone, answer by
 	// gestures with no move buttons; off, buttons only.
 	bool oneHanded = true;
+	// Wrong answers so far (mina.cpp buzzes on each new one).
+	int misses = 0;
 
 	void open(GameMode mode, bool dealerHitsSoft17, bool indexPlays, Trainer& t){
 		trainer = &t;
@@ -720,6 +722,7 @@ private:
 		} else{
 			streak = 0;
 			phase = WRONG;
+			misses++;
 		}
 		if(trainer){
 			trainer->record(selector.rules().set, section, row, col, ok, m, answer, 2, counting ? trueCount : Trainer::NO_COUNT, true);
@@ -1396,6 +1399,13 @@ namespace HouseEdge{
 	inline constexpr float EDGE_PE6_H17 = 0.0068f, EDGE_PE6_S17 = 0.0033f;
 	inline constexpr float EDGE_FREE_BET = 0.0109f;
 
+	// Counting (BankrollMenu): per round, in units of the 1-unit bet.
+	struct Counting{ float win, sd, avgBet; };
+	// Measured (see BankrollMenu): 6 decks, 2 decks, 8 decks; per round.
+	inline constexpr Counting COUNT_6D_H17{ 0.0045f, 2.308f, 1.464f }, COUNT_6D_S17{ 0.0076f, 2.306f, 1.465f };
+	inline constexpr Counting COUNT_2D_H17{ 0.0293f, 3.286f, 1.987f }, COUNT_2D_S17{ 0.0316f, 3.275f, 1.988f };
+	inline constexpr Counting COUNT_8D_H17{ -0.0007f, 2.057f, 1.355f }, COUNT_8D_S17{ 0.0030f, 2.046f, 1.353f };
+
 	struct SideBet{ const char* name; float edge; float sd; };
 	enum{ LL_2D, LL_6D, MATCH_UP_2D, MATCH_DOWN_2D, MATCH_UP_6D, MATCH_DOWN_6D, LUCKY_STIFF, PUSH_22, POT_OF_GOLD, SIDE_COUNT };
 	inline const SideBet& sideBet(int i){
@@ -1416,13 +1426,18 @@ namespace HouseEdge{
 class BankrollMenu
 {
 public:
-	struct Game{ const char* name; float edgeH17, edgeS17, sd; std::vector<int> sides; };
+	// Counting with INDEX PLAYS and the 1-8 bet ramp, measured with this
+	// game's engine (Hi-Lo, Illustrious 18 + Fab 4, insurance at +3, 75%
+	// penetration, 20 million rounds each), per round in units of the
+	// 1-unit bet: the average result, its spread, and the average bet.
+	using Counting = HouseEdge::Counting;
+	struct Game{ const char* name; float edgeH17, edgeS17, sd; std::vector<int> sides; Counting countH17{}, countS17{}; };
 	static const std::vector<Game>& games(){
 		using namespace HouseEdge;
 		static const std::vector<Game> G = {
-			{ "BLACKJACK 6 DECKS", EDGE_6D_H17, EDGE_6D_S17, 1.15f, { LL_6D } },
-			{ "BLACKJACK 2 DECKS", EDGE_2D_H17, EDGE_2D_S17, 1.15f, { LL_2D } },
-			{ "LUCKY STIFF 8 DECKS", EDGE_8D_H17, EDGE_8D_S17, 1.15f, { LUCKY_STIFF } },
+			{ "BLACKJACK 6 DECKS", EDGE_6D_H17, EDGE_6D_S17, 1.15f, { LL_6D }, COUNT_6D_H17, COUNT_6D_S17 },
+			{ "BLACKJACK 2 DECKS", EDGE_2D_H17, EDGE_2D_S17, 1.15f, { LL_2D }, COUNT_2D_H17, COUNT_2D_S17 },
+			{ "LUCKY STIFF 8 DECKS", EDGE_8D_H17, EDGE_8D_S17, 1.15f, { LUCKY_STIFF }, COUNT_8D_H17, COUNT_8D_S17 },
 			{ "PLAYERS EDGE 2 DECKS", EDGE_PE2_H17, EDGE_PE2_S17, 1.16f, { MATCH_UP_2D, MATCH_DOWN_2D } },
 			{ "PLAYERS EDGE 6 DECKS", EDGE_PE6_H17, EDGE_PE6_S17, 1.16f, { MATCH_UP_6D, MATCH_DOWN_6D } },
 			{ "FREE BET 6 DECKS", EDGE_FREE_BET, EDGE_FREE_BET, 1.07f, { PUSH_22, POT_OF_GOLD } },
@@ -1434,9 +1449,11 @@ public:
 		using namespace TrainingUI;
 		clear(state);
 		text(state, "BANKROLL PLANNER", 20.0f, 6.0f, WHITE);
-		text(state, "PERFECT BASIC STRATEGY ON THE MAIN BET, FLAT BETTING, SIDE BET EVERY HAND", 60.0f, 2.8f, DIM);
 		const Game& g = games()[game];
 		bool freeBet = g.edgeH17 == g.edgeS17;
+		bool counting = counts && canCount(g);
+		text(state, counting ? "HI-LO COUNT WITH INDEX PLAYS AND THE 1-8 BET RAMP, 75% PENETRATION, SIDE BET EVERY HAND"
+			: "PERFECT BASIC STRATEGY ON THE MAIN BET, FLAT BETTING, SIDE BET EVERY HAND", 60.0f, 2.8f, DIM);
 		SDL_Color on{60, 90, 150, 255}, fixed{55, 60, 58, 255};
 		button(state, gameButton, SDL_Color{150, 120, 40, 255}, std::string("GAME: ") + g.name, 4.0f);
 		button(state, soft17Button, freeBet ? fixed : on, std::string("SOFT 17: ") + (freeBet || hitsSoft17 ? "HITS" : "STANDS"), 4.0f);
@@ -1448,7 +1465,9 @@ public:
 			sideLabel = std::string("SIDE BET: ") + sb.name + " - " + edge + " EDGE";
 		}
 		button(state, sideButton, SDL_Color{120, 70, 140, 255}, sideLabel, 4.0f);
-		drawStepper(state, 0, "BET", "$" + std::to_string(BETS[betIndex]));
+		button(state, strategyButton, canCount(g) ? (counts ? SDL_Color{60, 130, 70, 255} : on) : fixed,
+			counting ? "COUNTING 1-8 RAMP" : canCount(g) ? "BASIC STRATEGY" : "BASIC - NO COUNT HERE", 4.0f);
+		drawStepper(state, 0, counting ? "1 UNIT" : "BET", "$" + std::to_string(BETS[betIndex]));
 		drawStepper(state, 1, "SIDE BET", side > 0 ? "$" + std::to_string(SIDE_BETS[sideIndex]) : "-");
 		drawStepper(state, 2, "HANDS PER HOUR", std::to_string(handsPerHour));
 		drawStepper(state, 3, "HOURS", std::to_string(hours));
@@ -1457,6 +1476,13 @@ public:
 		double bet = BETS[betIndex], sideBet = side > 0 ? SIDE_BETS[sideIndex] : 0.0;
 		double edge = freeBet || hitsSoft17 ? g.edgeH17 : g.edgeS17;
 		double mainMean = -edge * bet * hands, sideMean = 0.0, var = g.sd * g.sd * bet * bet * hands;
+		double action = bet;
+		if(counting){
+			const Counting& c = freeBet || hitsSoft17 ? g.countH17 : g.countS17;
+			mainMean = c.win * bet * hands;
+			var = c.sd * c.sd * bet * bet * hands;
+			action = c.avgBet * bet;
+		}
 		if(side > 0){
 			const HouseEdge::SideBet& sb = HouseEdge::sideBet(g.sides[side - 1]);
 			sideMean = -sb.edge * sideBet * hands;
@@ -1474,8 +1500,10 @@ public:
 			DigitFont::drawText(state, value, 1260.0f - DigitFont::textWidth(value, 4.0f), y - 2.0f, 4.0f, c);
 			y += 30.0f;
 		};
-		row("YOUR TOTAL ACTION, " + std::to_string(hands) + " HANDS", "$" + std::to_string((long)((bet + sideBet) * hands)), WHITE);
-		row("EXPECTED RESULT", plusMoney(mean), RED);
+		row("YOUR TOTAL ACTION, " + std::to_string(hands) + " HANDS", "$" + std::to_string((long)((action + sideBet) * hands)), WHITE);
+		if(counting)
+			row("AVERAGE BET  /  EXPECTED PER HOUR", money(action) + "  /  " + plusMoney(mean / hours), mean >= 0.0 ? GREEN : RED);
+		row("EXPECTED RESULT", plusMoney(mean), mean >= 0.0 ? GREEN : RED);
 		if(side > 0)
 			row("OF THAT, MAIN BET / SIDE BET", plusMoney(mainMean) + " / " + plusMoney(sideMean), RED);
 		row("2 IN 3 SESSIONS END BETWEEN", plusMoney(mean - sd) + " AND " + plusMoney(mean + sd), WHITE);
@@ -1497,6 +1525,8 @@ public:
 		}
 		if(TrainingUI::hit(p, soft17Button))
 			hitsSoft17 = !hitsSoft17;
+		if(TrainingUI::hit(p, strategyButton) && canCount(games()[game]))
+			counts = !counts;
 		if(TrainingUI::hit(p, sideButton))
 			side = (side + 1) % ((int)games()[game].sides.size() + 1);
 		for(int i = 0; i < 4; i++){
@@ -1507,7 +1537,7 @@ public:
 	}
 
 	std::vector<SDL_FRect> focusRects(){
-		std::vector<SDL_FRect> r{ gameButton, soft17Button, sideButton };
+		std::vector<SDL_FRect> r{ gameButton, soft17Button, sideButton, strategyButton };
 		for(int i = 0; i < 4; i++){
 			r.push_back(minusRect(i));
 			r.push_back(plusRect(i));
@@ -1543,10 +1573,14 @@ private:
 	static constexpr int SIDE_BETS[8] = { 1, 2, 5, 10, 15, 25, 50, 100 };
 	int game = 0, side = 0, betIndex = 3, sideIndex = 2, handsPerHour = 70, hours = 3;
 	bool hitsSoft17 = true;
+	bool counts = false; // the strategy button: basic, or counting with the ramp
+
+	static bool canCount(const Game& g){ return g.countH17.avgBet > 0.0f; }
 
 	SDL_FRect gameButton{ .x = 300, .y = 84, .w = 560, .h = 50 };
 	SDL_FRect soft17Button{ .x = 880, .y = 84, .w = 260, .h = 50 };
-	SDL_FRect sideButton{ .x = 300, .y = 144, .w = 840, .h = 50 };
+	SDL_FRect sideButton{ .x = 300, .y = 144, .w = 540, .h = 50 };
+	SDL_FRect strategyButton{ .x = 860, .y = 144, .w = 280, .h = 50 };
 	SDL_FRect backButton{ .x = 620, .y = 640, .w = 200, .h = 56 };
 
 	SDL_FRect minusRect(int i){ return SDL_FRect{ .x = 760, .y = 208.0f + i * 50.0f, .w = 60, .h = 44 }; }

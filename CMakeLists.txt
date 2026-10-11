@@ -110,7 +110,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
     # Plain Objective-C: enabling OBJCXX makes CMake build SDL_image's .m
     # files as Objective-C++, which they don't compile as.
     enable_language(OBJC)
-    list(APPEND GAME_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/ios/Orientation.m)
+    list(APPEND GAME_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/ios/Orientation.m ${CMAKE_CURRENT_SOURCE_DIR}/ios/Haptics.m)
     set(IOS_RESOURCES
         ${CMAKE_CURRENT_SOURCE_DIR}/ios/Assets.xcassets
         ${CMAKE_CURRENT_SOURCE_DIR}/ios/LaunchScreen.storyboard)
@@ -166,4 +166,16 @@ target_link_libraries(UnderwayBlackjack PRIVATE SDL3_image::SDL3_image SDL3::SDL
 target_compile_definitions(UnderwayBlackjack PRIVATE GAME_VERSION_STRING="${GAME_VERSION}")
 if(WIN32)
     target_link_libraries(UnderwayBlackjack PRIVATE winhttp)
+endif()
+
+# The rule tests (tests/rules_test.cpp): cmake -DBUILD_TESTS=ON, then build
+# and run rules_test. Desktop builds only; .github/workflows/tests.yml runs
+# them on every pull request.
+option(BUILD_TESTS "Build the rule tests" OFF)
+if(BUILD_TESTS AND NOT ANDROID AND NOT CMAKE_SYSTEM_NAME STREQUAL "iOS")
+    set(TEST_SOURCES ${GAME_SOURCES})
+    list(REMOVE_ITEM TEST_SOURCES mina.cpp)
+    add_executable(rules_test tests/rules_test.cpp ${TEST_SOURCES})
+    target_include_directories(rules_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    target_link_libraries(rules_test PRIVATE SDL3_image::SDL3_image SDL3::SDL3)
 endif()

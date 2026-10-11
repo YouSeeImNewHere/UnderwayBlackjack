@@ -1,0 +1,26 @@
+# The rule tests (tests/rules_test.cpp) on every pull request and every push
+# to master: payouts, splits, doubles, surrender, insurance, side bets, the
+# strategy charts and index plays. A failing check names the broken rule.
+name: Rule tests
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+jobs:
+  rules:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Configure
+        run: cmake -S . -B build -DBUILD_TESTS=ON -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build --target rules_test -j 4
+
+      - name: Run
+        run: ./build/rules_test

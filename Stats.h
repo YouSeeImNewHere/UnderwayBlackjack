@@ -40,6 +40,8 @@ struct Stats
 		Push22Bets, Push22Wagered, Push22Hits, Push22Won, Push22Lost,
 		PotOfGoldBets, PotOfGoldWagered, PotOfGoldHits, PotOfGoldWon, PotOfGoldLost,
 		CountQuizzes, CountQuizCorrect,
+		// INDEX PLAYS: bets placed, and those matching the bet ramp.
+		RampBets, RampBetsCorrect,
 		FieldCount
 	};
 
@@ -153,6 +155,15 @@ struct Stats
 		forEachScope([&](long long* v){ v[NetWinnings] += amount; });
 	}
 
+	// A bet placed with INDEX PLAYS on: did it match the bet ramp?
+	void recordRampBet(bool matched){
+		forEachScope([&](long long* v){
+			v[RampBets]++;
+			if(matched)
+				v[RampBetsCorrect]++;
+		});
+	}
+
 	void recordDecision(bool matchedChart){
 		forEachScope([&](long long* v){
 			v[DecisionsTotal]++;
@@ -189,7 +200,8 @@ struct Stats
 			"lsBets", "lsWagered", "lsHits", "lsWon", "lsLost",
 			"p22Bets", "p22Wagered", "p22Hits", "p22Won", "p22Lost",
 			"pogBets", "pogWagered", "pogHits", "pogWon", "pogLost",
-			"countQuizzes", "countQuizCorrect"
+			"countQuizzes", "countQuizCorrect",
+			"rampBets", "rampBetsCorrect"
 		};
 		return KEYS[f];
 	}

@@ -82,7 +82,8 @@ public:
 			{"INSURANCE TAKEN", num(stats.get(Stats::InsuranceTaken))},
 			{"CHART MOVES", decisions > 0 ? percent(stats.get(Stats::DecisionsCorrect), decisions) : "-"},
 			{" OF DECISIONS", num(decisions)},
-			{" OF QUIZZES", num(quizzes)},
+			{"BET RAMP", stats.get(Stats::RampBets) > 0
+				? percent(stats.get(Stats::RampBetsCorrect), stats.get(Stats::RampBets)) + " OF " + num(stats.get(Stats::RampBets)) : "-"},
 		};
 
 		drawColumn(state, left, 150.0f);
