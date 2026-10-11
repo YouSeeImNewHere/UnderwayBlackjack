@@ -2,6 +2,7 @@
 #include "Game.h"
 #include "DigitFont.h"
 #include "Platform.h"
+#include <algorithm>
 #include <string>
 #include <vector>
 
@@ -15,7 +16,9 @@ enum class MenuChoice{
 	Stats,
 	Tutorial,
 	Charts,
-	Training,
+	Drills,
+	Planning,
+	SessionLog,
 	Settings,
 	Update
 };
@@ -52,12 +55,12 @@ public:
 			drawButton(state, startButton, SDL_Color{60, 130, 70, 255}, "START");
 		}
 
-		drawButton(state, tutorialButton, SDL_Color{50, 120, 130, 255}, "HOW TO PLAY");
-		drawButton(state, statsButton, SDL_Color{120, 70, 130, 255}, "STATS");
-		drawButton(state, controlsButton, SDL_Color{60, 90, 150, 255}, "CONTROLS");
-		drawButton(state, chartsButton, SDL_Color{150, 120, 40, 255}, "CHARTS");
-		drawButton(state, trainingButton, SDL_Color{60, 130, 70, 255}, "TRAINING");
-		drawButton(state, settingsButton, SDL_Color{80, 90, 100, 255}, "SETTINGS");
+		// Every label the same size: as large as the longest one allows.
+		float pixel = 8.0f;
+		for(const Item& item : ITEMS)
+			pixel = std::min(pixel, (BTN_W - 28.0f) / DigitFont::textWidth(item.label, 1.0f));
+		for(int i = 0; i < ITEM_COUNT; i++)
+			drawButton(state, itemRect(i), ITEMS[i].color, ITEMS[i].label, pixel);
 
 		if(!updateVersion.empty())
 			drawButton(state, updateButton, updating ? SDL_Color{110, 90, 40, 255} : SDL_Color{190, 140, 30, 255},
@@ -90,22 +93,13 @@ public:
 			return MenuChoice::Start;
 		}
 
-		// One CONTROLS button: the gestures page on a touch device, the
-		// keyboard page on a desktop (see Platform.h).
-		if(SDL_PointInRectFloat(&p, &controlsButton))
-			return usesTouchControls() ? MenuChoice::Gestures : MenuChoice::Keyboard;
-		if(SDL_PointInRectFloat(&p, &statsButton))
-			return MenuChoice::Stats;
-		if(SDL_PointInRectFloat(&p, &chartsButton))
-			return MenuChoice::Charts;
-		if(SDL_PointInRectFloat(&p, &trainingButton))
-			return MenuChoice::Training;
-		if(SDL_PointInRectFloat(&p, &settingsButton))
-			return MenuChoice::Settings;
+		for(int i = 0; i < ITEM_COUNT; i++){
+			SDL_FRect r = itemRect(i);
+			if(SDL_PointInRectFloat(&p, &r))
+				return ITEMS[i].choice;
+		}
 		if(!updateVersion.empty() && !updating && SDL_PointInRectFloat(&p, &updateButton))
 			return MenuChoice::Update;
-		if(SDL_PointInRectFloat(&p, &tutorialButton))
-			return MenuChoice::Tutorial;
 
 		return MenuChoice::None;
 	}
@@ -114,35 +108,50 @@ public:
 	// navigation (it "clicks" the highlighted one via handlePoint()).
 	std::vector<SDL_FRect> focusRects(){
 		std::vector<SDL_FRect> rects = hasSavedGame
-			? std::vector<SDL_FRect>{ resumeButton, restartButton, tutorialButton, statsButton, controlsButton, chartsButton, trainingButton, settingsButton }
-			: std::vector<SDL_FRect>{ startButton, tutorialButton, statsButton, controlsButton, chartsButton, trainingButton, settingsButton };
+			? std::vector<SDL_FRect>{ resumeButton, restartButton }
+			: std::vector<SDL_FRect>{ startButton };
+		for(int i = 0; i < ITEM_COUNT; i++)
+			rects.push_back(itemRect(i));
 		if(!updateVersion.empty())
 			rects.push_back(updateButton);
 		return rects;
 	}
 
 private:
-	// Title, then the big play button(s), then HOW TO PLAY/STATS and
-	// CONTROLS underneath.
-	SDL_FRect startButton{ .x = 570, .y = 190, .w = 300, .h = 110 };
-	SDL_FRect resumeButton{ .x = 570, .y = 170, .w = 300, .h = 80 };
-	SDL_FRect restartButton{ .x = 570, .y = 262, .w = 300, .h = 70 };
-	SDL_FRect tutorialButton{ .x = 250, .y = 400, .w = 300, .h = 70 };
-	SDL_FRect statsButton{ .x = 570, .y = 400, .w = 300, .h = 70 };
-	SDL_FRect controlsButton{ .x = 890, .y = 400, .w = 300, .h = 70 };
-	SDL_FRect chartsButton{ .x = 250, .y = 490, .w = 300, .h = 70 };
-	SDL_FRect trainingButton{ .x = 570, .y = 490, .w = 300, .h = 70 };
-	SDL_FRect settingsButton{ .x = 890, .y = 490, .w = 300, .h = 70 };
-	SDL_FRect updateButton{ .x = 520, .y = 600, .w = 400, .h = 64 };
+	// Title, then the big play button(s), then a 3-wide grid of
+	// everything else (the last row centered).
+	SDL_FRect startButton{ .x = 570, .y = 160, .w = 300, .h = 110 };
+	SDL_FRect resumeButton{ .x = 570, .y = 150, .w = 300, .h = 74 };
+	SDL_FRect restartButton{ .x = 570, .y = 234, .w = 300, .h = 60 };
+	SDL_FRect updateButton{ .x = 520, .y = 636, .w = 400, .h = 60 };
 
-	void drawButton(SDLState& state, const SDL_FRect& rect, SDL_Color color, const std::string& label){
+	struct Item{ const char* label; SDL_Color color; MenuChoice choice; };
+	static constexpr int ITEM_COUNT = 7;
+	static constexpr Item ITEMS[ITEM_COUNT] = {
+		{ "HOW TO PLAY", {50, 120, 130, 255}, MenuChoice::Tutorial },
+		{ "CHARTS", {150, 120, 40, 255}, MenuChoice::Charts },
+		{ "STATS", {120, 70, 130, 255}, MenuChoice::Stats },
+		{ "DRILLS", {60, 130, 70, 255}, MenuChoice::Drills },
+		{ "PLANNING", {150, 100, 40, 255}, MenuChoice::Planning },
+		{ "SESSION LOG", {90, 80, 140, 255}, MenuChoice::SessionLog },
+		{ "SETTINGS", {80, 90, 100, 255}, MenuChoice::Settings },
+	};
+	static constexpr float BTN_W = 340.0f, BTN_H = 66.0f, GAP = 24.0f;
+	static SDL_FRect itemRect(int i){
+		int row = i / 3, col = i % 3;
+		int inRow = std::min(3, ITEM_COUNT - row * 3);
+		float rowW = inRow * BTN_W + (inRow - 1) * GAP;
+		return SDL_FRect{ .x = 720.0f - rowW / 2.0f + col * (BTN_W + GAP), .y = 340.0f + row * (BTN_H + 20.0f), .w = BTN_W, .h = BTN_H };
+	}
+
+	void drawButton(SDLState& state, const SDL_FRect& rect, SDL_Color color, const std::string& label, float maxPixel = 8.0f){
 		SDL_SetRenderDrawColor(state.renderer, color.r, color.g, color.b, color.a);
 		SDL_RenderFillRect(state.renderer, &rect);
 		SDL_SetRenderDrawColor(state.renderer, 255, 255, 255, 255);
 		SDL_RenderRect(state.renderer, &rect);
 
 		// Auto-shrinks to fit -- see GameModeMenu.h's drawButton() for why.
-		float pixel = 8.0f;
+		float pixel = maxPixel;
 		float maxW = rect.w - 12.0f;
 		float w = DigitFont::textWidth(label, pixel);
 		if(w > maxW && w > 0.0f)

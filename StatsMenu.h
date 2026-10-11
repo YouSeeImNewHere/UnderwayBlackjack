@@ -80,8 +80,8 @@ public:
 			{"BEST STREAK", num(stats.get(Stats::BestStreak))},
 			{"RARE SIDE BETS", num(stats.get(Stats::JackpotHits))},
 			{"INSURANCE TAKEN", num(stats.get(Stats::InsuranceTaken))},
-			{"CHART MOVES", decisions > 0 ? percent(stats.get(Stats::DecisionsCorrect), decisions) : "-"},
-			{" OF DECISIONS", num(decisions)},
+			{"CHART ACCURACY", decisions > 0 ? percent(stats.get(Stats::DecisionsCorrect), decisions) : "-"},
+			{"CHART DECISIONS", num(decisions)},
 			{"BET RAMP", stats.get(Stats::RampBets) > 0
 				? percent(stats.get(Stats::RampBetsCorrect), stats.get(Stats::RampBets)) + " OF " + num(stats.get(Stats::RampBets)) : "-"},
 		};
@@ -98,7 +98,7 @@ public:
 	void drawNetBreakdown(SDLState& state, const Stats& stats){
 		std::string line;
 		if(scope == Stats::AllGames){
-			static const char* SHORT[Stats::ScopeCount] = { "", "STANDARD", "LUCKY LADIES", "PLAYERS EDGE", "LUCKY STIFF", "FREE BET" };
+			static const char* SHORT[Stats::ScopeCount] = { "", "STANDARD", "LUCKY LADIES", "PLAYER'S EDGE", "LUCKY STIFF", "FREE BET" };
 			long long counted = 0;
 			line = "NET BY GAME:";
 			for(int g = Stats::StandardGame; g < Stats::ScopeCount; g++){

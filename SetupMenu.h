@@ -90,7 +90,7 @@ public:
 			DigitFont::drawText(state, "<", prev.x + (PAGE_BTN - 5 * symPixel) / 2.0f, prev.y + (PAGE_BTN - 5 * symPixel) / 2.0f, symPixel, WHITE);
 
 			std::string label = "PAGE " + std::to_string(playerPage + 1) + "/" + std::to_string(maxPage() + 1);
-			float labelPixel = 4.0f;
+			float labelPixel = std::min(4.0f, (PAGE_LABEL_W - 20.0f) / DigitFont::textWidth(label, 1.0f));
 			float labelW = DigitFont::textWidth(label, labelPixel);
 			DigitFont::drawText(state, label, prev.x + PAGE_BTN + (PAGE_LABEL_W - labelW) / 2.0f, prev.y + (PAGE_BTN - 5 * labelPixel) / 2.0f, labelPixel, WHITE);
 
@@ -262,7 +262,7 @@ private:
 	int clampedPage(){ return std::min(playerPage, maxPage()); }
 
 	static constexpr float PAGE_BTN = 48;
-	static constexpr float PAGE_LABEL_W = 130;
+	static constexpr float PAGE_LABEL_W = 210;
 
 	// Sits on the same y=30 row as the PLAYERS stepper, just to its right
 	// -- there's always room there since the block is at least 2 field-

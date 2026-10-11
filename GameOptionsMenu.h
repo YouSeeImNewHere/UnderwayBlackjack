@@ -144,7 +144,7 @@ public:
 			SDL_RenderRect(state.renderer, &r);
 		}
 
-		drawRowLabel(state, ROW_Y[2], "HIDE HANDS TIL YOUR TURN");
+		drawRowLabel(state, ROW_Y[2], "HIDE OTHER HANDS");
 		drawToggleButton(state, toggleButton(2), hideInactiveHands);
 
 		drawRowLabel(state, ROW_Y[3], "SOUND");
@@ -158,7 +158,7 @@ public:
 		drawToggleButton(state, toggleButton(5), soft17Choice ? dealerHitsSoft17 : true);
 
 		bool indexChoice = !isPlayersEdge(gameMode) && !isFreeBet(gameMode);
-		drawRowLabel(state, ROW_Y[6], indexChoice ? "INDEX PLAYS - COUNTING" : "INDEX PLAYS - STANDARD ONLY");
+		drawRowLabel(state, ROW_Y[6], indexChoice ? "INDEX PLAYS" : "INDEX PLAYS - STANDARD ONLY");
 		drawToggleButton(state, toggleButton(6), indexChoice && indexPlays);
 
 		drawRowLabel(state, ROW_Y[7], "AUTO SHUFFLER");
@@ -289,7 +289,7 @@ private:
 	// Same left-caption/right-controls shape as SetupMenu's stepper rows,
 	// just 8 rows instead of a per-player block -- LABEL_X is where a
 	// row's caption starts, CONTROL_X where its buttons start.
-	static constexpr float LABEL_X = 380.0f;
+	static constexpr float LABEL_X = 230.0f;
 	static constexpr float CONTROL_X = 760.0f;
 	static constexpr float ROW_H = 52.0f;
 	static constexpr float ROW_Y[8] = {110.0f, 214.0f, 274.0f, 334.0f, 394.0f, 454.0f, 514.0f, 574.0f};
@@ -318,8 +318,10 @@ private:
 	}
 
 	void drawRowLabel(SDLState& state, float y, const std::string& label){
-		float pixel = 5.0f;
+		// One size for every row (DEALER HITS SOFT 17 sets it); a rarer
+		// longer label shrinks on its own.
 		float maxW = CONTROL_X - LABEL_X - 20.0f;
+		float pixel = std::min(5.0f, maxW / DigitFont::textWidth("DEALER HITS SOFT 17", 1.0f));
 		float w = DigitFont::textWidth(label, pixel);
 		if(w > maxW && w > 0.0f)
 			pixel *= maxW / w;

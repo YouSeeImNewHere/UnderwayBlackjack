@@ -66,7 +66,7 @@ struct Stats
 	}
 
 	static const char* scopeName(int scope){
-		static const char* NAMES[ScopeCount] = { "ALL GAMES", "STANDARD", "LUCKY LADIES", "PLAYERS EDGE", "LUCKY STIFF", "FREE BET" };
+		static const char* NAMES[ScopeCount] = { "ALL GAMES", "STANDARD", "LUCKY LADIES", "PLAYER'S EDGE", "LUCKY STIFF", "FREE BET" };
 		return NAMES[scope];
 	}
 

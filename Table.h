@@ -239,6 +239,9 @@ public:
 	// immediately, this opens the betting phase (see awaitingBets) so bets
 	// get set before the very first round too, not just every one after it.
 	void startGame(){
+		// The touch controls show in the dealer's box for the first
+		// hands of every game (drawControlsHint()).
+		controlsHintRounds = CONTROLS_HINT_HANDS;
 		openBettingPhase();
 	}
 
@@ -451,8 +454,8 @@ public:
 
 		awaitingBets = false;
 		gradeRampBets();
-		if(oneHandedHintRounds > 0)
-			oneHandedHintRounds--;
+		if(controlsHintRounds > 0)
+			controlsHintRounds--;
 
 		// Belt-and-suspenders: every raise already re-clamps itself (see
 		// handleBettingPoint()), but re-checking once more right before
@@ -793,7 +796,7 @@ public:
 		drawBuyInPrompt(state);
 		drawPracticeNote(state);
 		drawRefusedNote(state);
-		drawOneHandedHint(state);
+		drawControlsHint(state);
 		drawRoundSummary(state);
 		drawCountQuiz(state);
 		drawJackpotCallout(state);
@@ -1738,7 +1741,7 @@ private:
 	// dealer's card area.
 	void drawGameTitle(SDLState& state){
 		static const char* NAMES[] = { "", "BLACKJACK 2 DECK", "BLACKJACK 6 DECK", "LUCKY LADIES 2 DECK",
-			"LUCKY LADIES 6 DECK", "PLAYERS EDGE 2 DECK", "PLAYERS EDGE 6 DECK", "LUCKY STIFF 8 DECK", "FREE BET 6 DECK" };
+			"LUCKY LADIES 6 DECK", "PLAYER'S EDGE 2 DECK", "PLAYER'S EDGE 6 DECK", "LUCKY STIFF 8 DECK", "FREE BET 6 DECK" };
 		std::string title = NAMES[(int)gameMode];
 		if(practiceMode) title = "PRACTICE - " + title;
 		else if(countQuizOn) title = "COUNT QUIZ - " + title;
@@ -1845,14 +1848,18 @@ private:
 
 	// The one-handed gestures, under the dealer's cards, while it's a
 	// player's turn during the first hands after turning them on.
-	void drawOneHandedHint(SDLState& state){
-		if(!oneHandedGestures || !touchLayout || oneHandedHintRounds <= 0 || !acceptingPlayerInput())
+	void drawControlsHint(SDLState& state){
+		if(!touchLayout || controlsHintRounds <= 0 || !acceptingPlayerInput())
 			return;
 		// A vertical list in the left of the dealer's card box -- the
 		// dealer's cards fill it from the right, and while you're acting
-		// there are only two of them.
-		static const char* GESTURE[5] = { "TAP", "SWIPE SIDEWAYS", "SWIPE UP", "SWIPE DOWN", "HOLD" };
-		static const char* MOVE[5] = { "HIT", "STAND", "DOUBLE", "SURRENDER", "SPLIT" };
+		// there are only two of them. One-handed or two-handed gestures,
+		// whichever are on (GesturesMenu lists the same).
+		static const char* ONE_HANDED[5][2] = { {"TAP", "HIT"}, {"SWIPE SIDEWAYS", "STAND"}, {"SWIPE UP", "DOUBLE"},
+			{"SWIPE DOWN", "SURRENDER"}, {"HOLD", "SPLIT"} };
+		static const char* TWO_HANDED[5][2] = { {"TAP", "HIT"}, {"SWIPE SIDEWAYS", "STAND"}, {"TWO FINGER TAP", "DOUBLE"},
+			{"SWIPE UP OR DOWN", "SURRENDER"}, {"TWO FINGERS APART", "SPLIT"} };
+		const char* (*rows)[2] = oneHandedGestures ? ONE_HANDED : TWO_HANDED;
 		SDL_FRect panel{ 380.0f, 284.0f, 456.0f, 140.0f };
 		SDL_SetRenderDrawColor(state.renderer, 15, 25, 18, 255);
 		SDL_RenderFillRect(state.renderer, &panel);
@@ -1860,14 +1867,18 @@ private:
 		SDL_RenderRect(state.renderer, &panel);
 		// Gestures in one column, moves in the next, as large as fits.
 		const float gap = 22.0f, pad = 14.0f;
-		const float unitW = DigitFont::textWidth("SWIPE SIDEWAYS", 1.0f) + DigitFont::textWidth("SURRENDER", 1.0f);
-		const float p = std::min(3.4f, (panel.w - 2 * pad - gap) / unitW);
+		float gestureW = 0.0f, moveW = 0.0f;
+		for(int i = 0; i < 5; i++){
+			gestureW = std::max(gestureW, DigitFont::textWidth(rows[i][0], 1.0f));
+			moveW = std::max(moveW, DigitFont::textWidth(rows[i][1], 1.0f));
+		}
+		const float p = std::min(3.4f, (panel.w - 2 * pad - gap) / (gestureW + moveW));
 		const float rowH = 26.0f, top = panel.y + (panel.h - 4 * rowH - 5 * p) / 2.0f;
-		const float moveX = panel.x + pad + DigitFont::textWidth("SWIPE SIDEWAYS", p) + gap;
+		const float moveX = panel.x + pad + gestureW * p + gap;
 		for(int i = 0; i < 5; i++){
 			float y = top + i * rowH;
-			DigitFont::drawText(state, GESTURE[i], panel.x + pad, y, p, SDL_Color{255, 225, 80, 255});
-			DigitFont::drawText(state, MOVE[i], moveX, y, p, SDL_Color{255, 255, 255, 255});
+			DigitFont::drawText(state, rows[i][0], panel.x + pad, y, p, SDL_Color{255, 225, 80, 255});
+			DigitFont::drawText(state, rows[i][1], moveX, y, p, SDL_Color{255, 255, 255, 255});
 		}
 	}
 
@@ -2049,23 +2060,23 @@ private:
 			SDL_RenderRect(state.renderer, &ring);
 		}
 
-		std::string q = evenMoney ? "EVEN MONEY?" : "TABLE INSURANCE?";
-		float qPixel = 5.5f;
-		float qW = DigitFont::textWidth(q, qPixel);
-		DigitFont::drawText(state, q, panel.x + (panel.w - qW) / 2.0f, panel.y + 18.0f, qPixel, SDL_Color{255, 255, 255, 255});
+		// Stacked title, cost line, then the count hint, each shrunk to
+		// fit the panel, all above YES/NO (y 374).
+		auto line = [&](const std::string& text, float y, float pixel, SDL_Color c){
+			pixel = std::min(pixel, (panel.w - 32.0f) / std::max(1.0f, DigitFont::textWidth(text, 1.0f)));
+			DigitFont::drawText(state, text, panel.x + (panel.w - DigitFont::textWidth(text, pixel)) / 2.0f, y, pixel, c);
+		};
+		line(evenMoney ? "EVEN MONEY?" : "TABLE INSURANCE?", panel.y + 14.0f, 5.5f, SDL_Color{255, 255, 255, 255});
 
 		std::string sub = evenMoney ? "BLACKJACKS PAID 1:1 NOW"
 			: "COSTS " + std::to_string(cost) + ", PAYS 2:1"
 				+ (blackjacks > 0 ? ", BLACKJACKS EVEN MONEY" : "");
-		float subPixel = 4.0f;
-		float subW = DigitFont::textWidth(sub, subPixel);
-		DigitFont::drawText(state, sub, panel.x + (panel.w - subW) / 2.0f, panel.y + 18.0f + 5 * qPixel + 18.0f, subPixel, SDL_Color{210, 210, 210, 255});
+		line(sub, panel.y + 54.0f, 3.4f, SDL_Color{210, 210, 210, 255});
 		if(indexPlaysActive()){
 			int tc = trueCountFloor();
-			std::string hint = "TRUE COUNT " + IndexPlays::signedNum(tc) + (tc >= IndexPlays::INSURANCE_INDEX ? ": TAKE IT" : ": DECLINE - TAKE IT AT +3");
-			float hp = 3.2f;
-			DigitFont::drawText(state, hint, panel.x + (panel.w - DigitFont::textWidth(hint, hp)) / 2.0f, panel.y + 82.0f, hp,
-				tc >= IndexPlays::INSURANCE_INDEX ? SDL_Color{110, 230, 110, 255} : SDL_Color{255, 200, 120, 255});
+			bool take = tc >= IndexPlays::INSURANCE_INDEX;
+			std::string hint = "TRUE COUNT " + IndexPlays::signedNum(tc) + (take ? ": TAKE IT" : ": DECLINE - TAKE IT AT +3");
+			line(hint, panel.y + 80.0f, 3.0f, take ? SDL_Color{110, 230, 110, 255} : SDL_Color{255, 200, 120, 255});
 		}
 
 		SDL_FRect yes = insuranceYesButton(), no = insuranceNoButton();
@@ -2457,12 +2468,16 @@ private:
 		// last stand/bust) until their cards finish discarding one at a
 		// time over the following frames -- reading hands[activeHand]
 		// during that window is exactly the out-of-range crash this hit.
-		if(!awaitingBets && activePlayer < numberOfPlayers){
+		// Not while insurance is asked or the dealer peeks: nobody's turn
+		// has started, and seat 1's total read as if it were the hand in
+		// question. With several players it names whose hand it is.
+		if(!awaitingBets && !awaitingInsurance && !awaitingPeek && activePlayer < numberOfPlayers){
 			Person& p = players[activePlayer];
 			int hand = p.getActiveHand();
 			if(hand < p.hands.size()){
 				auto [hard, soft] = p.hands[hand].getShownTotals();
-				drawTotalBox(state, activeHandTotalBox, "ACTIVE HAND", hard, soft);
+				std::string label = numberOfPlayers > 1 ? "P" + std::to_string(activePlayer + 1) + " HAND" : "YOUR HAND";
+				drawTotalBox(state, activeHandTotalBox, label, hard, soft);
 			}
 		}
 	}
@@ -2960,14 +2975,16 @@ private:
 
 public:
 	void setTouchLayout(bool touch){ touchLayout = touch; }
-	// Turning ONE-HANDED on shows its gestures on the table for the next
-	// few hands (drawOneHandedHint()).
+	// Switching ONE-HANDED on or off shows the new gestures on the table
+	// for the next few hands (drawControlsHint()).
 	void setOneHandedGestures(bool on){
-		if(on && !oneHandedGestures)
-			oneHandedHintRounds = 3;
+		if(on != oneHandedGestures)
+			controlsHintRounds = CONTROLS_HINT_HANDS;
 		oneHandedGestures = on;
 	}
-	int oneHandedHintRounds = 0;
+	int controlsHintRounds = 0;
+	// Counted down as each round starts, so this many hands show it.
+	static constexpr int CONTROLS_HINT_HANDS = 4;
 
 	// SETTINGS' PENETRATION: how much of the shoe is dealt before the cut
 	// card, in percent; 0 = random (half to seven eighths). Next shoe on.
@@ -3043,22 +3060,22 @@ private:
 		DigitFont::drawText(state, label, btn.x + (btn.w - w) / 2.0f, btn.y + (btn.h - 5 * pixel) / 2.0f, pixel, SDL_Color{255, 255, 255, 255});
 	}
 
+	// The bet controls' labels: a small caption along the top of a value
+	// box, with the number under it (drawBoxValue()).
+	void drawBoxCaption(SDLState& state, const SDL_FRect& box, const std::string& text){
+		float pixel = std::min(2.0f, (box.w - 8.0f) / std::max(1.0f, DigitFont::textWidth(text, 1.0f)));
+		DigitFont::drawText(state, text, box.x + (box.w - DigitFont::textWidth(text, pixel)) / 2.0f, box.y + 4.0f, pixel,
+			SDL_Color{225, 225, 200, 255});
+	}
+	void drawBoxValue(SDLState& state, const SDL_FRect& box, const std::string& text, float pixel){
+		pixel = std::min(pixel, (box.w - 8.0f) / std::max(1.0f, DigitFont::textWidth(text, 1.0f)));
+		DigitFont::drawText(state, text, box.x + (box.w - DigitFont::textWidth(text, pixel)) / 2.0f,
+			box.y + box.h - 5 * pixel - 5.0f, pixel, SDL_Color{255, 255, 255, 255});
+	}
+
 	void drawBetRow(SDLState& state, int i){
 		BetRow row = betRow(i);
 		int denom = BET_DENOMS[chipIndex[i]];
-
-		// BET labels the lower/total/raise row, running down its left side
-		// -- there's no clear strip above it to put a horizontal label in
-		// (the chip-size selector already sits directly above), so this
-		// mirrors the side-bet selectors' vertical side-label style instead.
-		// Was offset by labelPixel*4 (the old 3-wide font's full stride) --
-		// the new font's glyphs are 5 columns wide, so that offset no
-		// longer cleared the glyph's own width from the anchor point and
-		// the label ran into the button next to it instead of sitting
-		// cleanly to its left.
-		float betLabelPixel = 3.0f;
-		float betLabelH = DigitFont::verticalTextHeight("BET", betLabelPixel);
-		DigitFont::drawVerticalText(state, "BET", row.lower.x - betLabelPixel * 6.0f, row.lower.y + (BET_BTN_H - betLabelH) / 2.0f, betLabelPixel, SDL_Color{220, 220, 220, 255});
 
 		drawDenomButton(state, row.lower, denom, false);
 
@@ -3067,29 +3084,13 @@ private:
 		SDL_SetRenderDrawColor(state.renderer, 255, 255, 255, 255);
 		SDL_RenderRect(state.renderer, &row.total);
 
-		std::string betText = std::to_string(players[i].getBet());
-		float pixel = 5.0f;
-		float maxBetW = row.total.w - 8.0f;
-		float w = DigitFont::textWidth(betText, pixel);
-		if(w > maxBetW && w > 0.0f)
-			pixel *= maxBetW / w;
-		w = DigitFont::textWidth(betText, pixel);
-		DigitFont::drawText(state, betText, row.total.x + (row.total.w - w) / 2.0f, row.total.y + (row.total.h - 5 * pixel) / 2.0f, pixel, SDL_Color{255, 255, 255, 255});
+		drawBoxCaption(state, row.total, "BET");
+		drawBoxValue(state, row.total, std::to_string(players[i].getBet()), 5.0f);
 
 		drawDenomButton(state, row.raise, denom, true);
 
-		// Chip-size selector, directly above the bet total -- CHP (not the
-		// full "CHIP": 4 stacked letters would run taller than the row
-		// itself) labeled down its left side, same as BET above.
-		// Deliberately not a horizontal label above the row: when this
-		// mode also has a side bet, sideBetRow() stacks its own row(s)
-		// directly above this one with no gap to spare for a caption there.
-		// Offset by labelPixel*6 (a full stride at the new 5-wide font),
-		// not *4 -- see the BET label's comment above.
-		float chipLabelPixel = 3.0f;
-		float chipLabelH = DigitFont::verticalTextHeight("CHP", chipLabelPixel);
-		DigitFont::drawVerticalText(state, "CHP", row.selMinus.x - chipLabelPixel * 6.0f, row.selMinus.y + (SEL_BTN_H - chipLabelH) / 2.0f, chipLabelPixel, SDL_Color{220, 220, 220, 255});
-
+		// Chip-size selector, directly above the bet total. Its caption,
+		// like BET's, sits small inside the box over the number.
 		drawButton(state, row.selMinus, SDL_Color{80, 80, 80, 255});
 		float symPixel = 4.0f;
 		DigitFont::drawText(state, "-", row.selMinus.x + (SEL_BTN_W - 3 * symPixel) / 2.0f, row.selMinus.y + (SEL_BTN_H - 5 * symPixel) / 2.0f, symPixel, SDL_Color{255, 255, 255, 255});
@@ -3098,10 +3099,8 @@ private:
 		SDL_RenderFillRect(state.renderer, &row.selValue);
 		SDL_SetRenderDrawColor(state.renderer, 255, 255, 255, 255);
 		SDL_RenderRect(state.renderer, &row.selValue);
-		std::string denomText = std::to_string(denom);
-		float dPixel = 4.0f;
-		float dw = DigitFont::textWidth(denomText, dPixel);
-		DigitFont::drawText(state, denomText, row.selValue.x + (row.selValue.w - dw) / 2.0f, row.selValue.y + (row.selValue.h - 5 * dPixel) / 2.0f, dPixel, SDL_Color{255, 255, 255, 255});
+		drawBoxCaption(state, row.selValue, "CHIP");
+		drawBoxValue(state, row.selValue, std::to_string(denom), 4.0f);
 
 		drawButton(state, row.selPlus, SDL_Color{80, 80, 80, 255});
 		DigitFont::drawText(state, "+", row.selPlus.x + (SEL_BTN_W - 3 * symPixel) / 2.0f, row.selPlus.y + (SEL_BTN_H - 5 * symPixel) / 2.0f, symPixel, SDL_Color{255, 255, 255, 255});
@@ -3124,21 +3123,7 @@ private:
 			255
 		};
 
-		// Offset by labelPixel*6 (a full stride at the new 5-wide font),
-		// not *4 -- see drawBetRow()'s BET label comment for why.
-		float labelPixel = 3.0f;
-		float labelH = DigitFont::verticalTextHeight(label, labelPixel);
-		// A pale tint of the theme colour: still tells the side bets apart,
-		// but readable against the green felt (the theme colour itself was
-		// too dark to see there).
-		SDL_Color labelColor{
-			static_cast<Uint8>(themeColor.r * 0.3f + 255 * 0.7f),
-			static_cast<Uint8>(themeColor.g * 0.3f + 255 * 0.7f),
-			static_cast<Uint8>(themeColor.b * 0.3f + 255 * 0.7f),
-			255
-		};
-		DigitFont::drawVerticalText(state, label, row.selMinus.x - labelPixel * 6.0f, row.selMinus.y + (SEL_BTN_H - labelH) / 2.0f, labelPixel, labelColor);
-
+		// The side bet's short name, small inside its box over the amount.
 		drawButton(state, row.selMinus, dim);
 		float symPixel = 4.0f;
 		DigitFont::drawText(state, "-", row.selMinus.x + (SEL_BTN_W - 3 * symPixel) / 2.0f, row.selMinus.y + (SEL_BTN_H - 5 * symPixel) / 2.0f, symPixel, SDL_Color{255, 255, 255, 255});
@@ -3167,9 +3152,8 @@ private:
 		SDL_RenderFillRect(state.renderer, &row.selValue);
 		SDL_SetRenderDrawColor(state.renderer, 255, 255, 255, 255);
 		SDL_RenderRect(state.renderer, &row.selValue);
-		float dPixel = 4.0f;
-		float dw = DigitFont::textWidth(valueText, dPixel);
-		DigitFont::drawText(state, valueText, row.selValue.x + (row.selValue.w - dw) / 2.0f, row.selValue.y + (row.selValue.h - 5 * dPixel) / 2.0f, dPixel, SDL_Color{255, 255, 255, 255});
+		drawBoxCaption(state, row.selValue, label);
+		drawBoxValue(state, row.selValue, valueText, 4.0f);
 
 		drawButton(state, row.selPlus, dim);
 		DigitFont::drawText(state, "+", row.selPlus.x + (SEL_BTN_W - 3 * symPixel) / 2.0f, row.selPlus.y + (SEL_BTN_H - 5 * symPixel) / 2.0f, symPixel, SDL_Color{255, 255, 255, 255});
