@@ -20,6 +20,10 @@ public:
 	bool effectsOn = true;
 
 	void init(){
+		// iPhone/iPad: play alongside the player's own music instead of
+		// turning it down (SDL's default session ducks other audio).
+		// Ambient also follows the silent switch, like most games.
+		SDL_SetHint(SDL_HINT_AUDIO_CATEGORY, "ambient");
 		if(!SDL_InitSubSystem(SDL_INIT_AUDIO))
 			return;
 		device = SDL_OpenAudioDevice(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, nullptr);
