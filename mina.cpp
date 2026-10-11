@@ -1081,6 +1081,19 @@ static void mainLoopIteration(void *arg) {
                 }
             }
 
+            // Strategy drill: one-thumb gestures (DrillMenu::fingerDown()).
+            if(ctx.screen == AppScreen::Drill){
+                float wx = event.tfinger.x * ctx.state.width, wy = event.tfinger.y * ctx.state.height;
+                if(event.type == SDL_EVENT_FINGER_DOWN)
+                    ctx.drillMenu.fingerDown(ctx.state, wx, wy);
+                else if(event.type == SDL_EVENT_FINGER_MOTION)
+                    ctx.drillMenu.fingerMove(ctx.state, wx, wy);
+                else if(ctx.drillMenu.fingerUp(ctx.state, wx, wy)){
+                    ctx.focusIndex = -1;
+                    break;
+                }
+            }
+
             if(inMenu(ctx)){
                 // DEALER SPEED slider drags (the release goes through
                 // handleMenuClick() below like any tap).
