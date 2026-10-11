@@ -3630,17 +3630,32 @@ private:
 				sideOn = tc >= index;
 				side = sideOn ? "   SIDE BET: YES" : "   SIDE BET: NO TILL " + IndexPlays::signedNum(index);
 			}
-			float rp = 3.4f;
-			float w = DigitFont::textWidth(ramp + side, rp);
-			if(w > 680.0f){
-				rp *= 680.0f / w;
-				w = DigitFont::textWidth(ramp + side, rp);
+			SDL_Color sideColor = sideOn ? SDL_Color{110, 230, 110, 255} : SDL_Color{255, 200, 120, 255};
+			// Touch screens (DEAL in the corner): in the middle of the
+			// dealer's card box, large, the side bet on its own line.
+			if(touchLayout){
+				const float boxX = 370.0f, boxW = 698.0f, boxMid = 353.0f;
+				auto centered = [&](const std::string& text, float y, float pixel, SDL_Color c){
+					pixel = std::min(pixel, (boxW - 40.0f) / std::max(1.0f, DigitFont::textWidth(text, 1.0f)));
+					DigitFont::drawText(state, text, boxX + (boxW - DigitFont::textWidth(text, pixel)) / 2.0f, y, pixel, c);
+				};
+				std::string sideLine = side.empty() ? "" : side.substr(3);
+				float top = sideLine.empty() ? boxMid - 15.0f : boxMid - 34.0f;
+				centered(ramp, top, 6.0f, SDL_Color{255, 225, 80, 255});
+				if(!sideLine.empty())
+					centered(sideLine, top + 46.0f, 4.5f, sideColor);
+			} else{
+				float rp = 3.4f;
+				float w = DigitFont::textWidth(ramp + side, rp);
+				if(w > 680.0f){
+					rp *= 680.0f / w;
+					w = DigitFont::textWidth(ramp + side, rp);
+				}
+				float x = std::clamp(deal.x + deal.w / 2.0f - w / 2.0f, 10.0f, 1430.0f - w);
+				DigitFont::drawText(state, ramp, x, deal.y - 26.0f, rp, SDL_Color{255, 225, 80, 255});
+				if(!side.empty())
+					DigitFont::drawText(state, side, x + DigitFont::textWidth(ramp, rp), deal.y - 26.0f, rp, sideColor);
 			}
-			float x = std::clamp(deal.x + deal.w / 2.0f - w / 2.0f, 10.0f, 1430.0f - w);
-			DigitFont::drawText(state, ramp, x, deal.y - 26.0f, rp, SDL_Color{255, 225, 80, 255});
-			if(!side.empty())
-				DigitFont::drawText(state, side, x + DigitFont::textWidth(ramp, rp), deal.y - 26.0f, rp,
-					sideOn ? SDL_Color{110, 230, 110, 255} : SDL_Color{255, 200, 120, 255});
 		}
 		for(int i = 0; i < numberOfPlayers; i++){
 			if(players[i].getBankroll() <= 0){
