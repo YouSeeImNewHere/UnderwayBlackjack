@@ -239,6 +239,9 @@ public:
 	// immediately, this opens the betting phase (see awaitingBets) so bets
 	// get set before the very first round too, not just every one after it.
 	void startGame(){
+		// The touch controls show in the dealer's box for the first
+		// hands of every game (drawControlsHint()).
+		controlsHintRounds = CONTROLS_HINT_HANDS;
 		openBettingPhase();
 	}
 
@@ -451,8 +454,8 @@ public:
 
 		awaitingBets = false;
 		gradeRampBets();
-		if(oneHandedHintRounds > 0)
-			oneHandedHintRounds--;
+		if(controlsHintRounds > 0)
+			controlsHintRounds--;
 
 		// Belt-and-suspenders: every raise already re-clamps itself (see
 		// handleBettingPoint()), but re-checking once more right before
@@ -793,7 +796,7 @@ public:
 		drawBuyInPrompt(state);
 		drawPracticeNote(state);
 		drawRefusedNote(state);
-		drawOneHandedHint(state);
+		drawControlsHint(state);
 		drawRoundSummary(state);
 		drawCountQuiz(state);
 		drawJackpotCallout(state);
@@ -1845,14 +1848,18 @@ private:
 
 	// The one-handed gestures, under the dealer's cards, while it's a
 	// player's turn during the first hands after turning them on.
-	void drawOneHandedHint(SDLState& state){
-		if(!oneHandedGestures || !touchLayout || oneHandedHintRounds <= 0 || !acceptingPlayerInput())
+	void drawControlsHint(SDLState& state){
+		if(!touchLayout || controlsHintRounds <= 0 || !acceptingPlayerInput())
 			return;
 		// A vertical list in the left of the dealer's card box -- the
 		// dealer's cards fill it from the right, and while you're acting
-		// there are only two of them.
-		static const char* GESTURE[5] = { "TAP", "SWIPE SIDEWAYS", "SWIPE UP", "SWIPE DOWN", "HOLD" };
-		static const char* MOVE[5] = { "HIT", "STAND", "DOUBLE", "SURRENDER", "SPLIT" };
+		// there are only two of them. One-handed or two-handed gestures,
+		// whichever are on (GesturesMenu lists the same).
+		static const char* ONE_HANDED[5][2] = { {"TAP", "HIT"}, {"SWIPE SIDEWAYS", "STAND"}, {"SWIPE UP", "DOUBLE"},
+			{"SWIPE DOWN", "SURRENDER"}, {"HOLD", "SPLIT"} };
+		static const char* TWO_HANDED[5][2] = { {"TAP", "HIT"}, {"SWIPE SIDEWAYS", "STAND"}, {"TWO FINGER TAP", "DOUBLE"},
+			{"SWIPE UP OR DOWN", "SURRENDER"}, {"TWO FINGERS APART", "SPLIT"} };
+		const char* (*rows)[2] = oneHandedGestures ? ONE_HANDED : TWO_HANDED;
 		SDL_FRect panel{ 380.0f, 284.0f, 456.0f, 140.0f };
 		SDL_SetRenderDrawColor(state.renderer, 15, 25, 18, 255);
 		SDL_RenderFillRect(state.renderer, &panel);
@@ -1860,14 +1867,18 @@ private:
 		SDL_RenderRect(state.renderer, &panel);
 		// Gestures in one column, moves in the next, as large as fits.
 		const float gap = 22.0f, pad = 14.0f;
-		const float unitW = DigitFont::textWidth("SWIPE SIDEWAYS", 1.0f) + DigitFont::textWidth("SURRENDER", 1.0f);
-		const float p = std::min(3.4f, (panel.w - 2 * pad - gap) / unitW);
+		float gestureW = 0.0f, moveW = 0.0f;
+		for(int i = 0; i < 5; i++){
+			gestureW = std::max(gestureW, DigitFont::textWidth(rows[i][0], 1.0f));
+			moveW = std::max(moveW, DigitFont::textWidth(rows[i][1], 1.0f));
+		}
+		const float p = std::min(3.4f, (panel.w - 2 * pad - gap) / (gestureW + moveW));
 		const float rowH = 26.0f, top = panel.y + (panel.h - 4 * rowH - 5 * p) / 2.0f;
-		const float moveX = panel.x + pad + DigitFont::textWidth("SWIPE SIDEWAYS", p) + gap;
+		const float moveX = panel.x + pad + gestureW * p + gap;
 		for(int i = 0; i < 5; i++){
 			float y = top + i * rowH;
-			DigitFont::drawText(state, GESTURE[i], panel.x + pad, y, p, SDL_Color{255, 225, 80, 255});
-			DigitFont::drawText(state, MOVE[i], moveX, y, p, SDL_Color{255, 255, 255, 255});
+			DigitFont::drawText(state, rows[i][0], panel.x + pad, y, p, SDL_Color{255, 225, 80, 255});
+			DigitFont::drawText(state, rows[i][1], moveX, y, p, SDL_Color{255, 255, 255, 255});
 		}
 	}
 
@@ -2049,23 +2060,23 @@ private:
 			SDL_RenderRect(state.renderer, &ring);
 		}
 
-		std::string q = evenMoney ? "EVEN MONEY?" : "TABLE INSURANCE?";
-		float qPixel = 5.5f;
-		float qW = DigitFont::textWidth(q, qPixel);
-		DigitFont::drawText(state, q, panel.x + (panel.w - qW) / 2.0f, panel.y + 18.0f, qPixel, SDL_Color{255, 255, 255, 255});
+		// Stacked title, cost line, then the count hint, each shrunk to
+		// fit the panel, all above YES/NO (y 374).
+		auto line = [&](const std::string& text, float y, float pixel, SDL_Color c){
+			pixel = std::min(pixel, (panel.w - 32.0f) / std::max(1.0f, DigitFont::textWidth(text, 1.0f)));
+			DigitFont::drawText(state, text, panel.x + (panel.w - DigitFont::textWidth(text, pixel)) / 2.0f, y, pixel, c);
+		};
+		line(evenMoney ? "EVEN MONEY?" : "TABLE INSURANCE?", panel.y + 14.0f, 5.5f, SDL_Color{255, 255, 255, 255});
 
 		std::string sub = evenMoney ? "BLACKJACKS PAID 1:1 NOW"
 			: "COSTS " + std::to_string(cost) + ", PAYS 2:1"
 				+ (blackjacks > 0 ? ", BLACKJACKS EVEN MONEY" : "");
-		float subPixel = 4.0f;
-		float subW = DigitFont::textWidth(sub, subPixel);
-		DigitFont::drawText(state, sub, panel.x + (panel.w - subW) / 2.0f, panel.y + 18.0f + 5 * qPixel + 18.0f, subPixel, SDL_Color{210, 210, 210, 255});
+		line(sub, panel.y + 54.0f, 3.4f, SDL_Color{210, 210, 210, 255});
 		if(indexPlaysActive()){
 			int tc = trueCountFloor();
-			std::string hint = "TRUE COUNT " + IndexPlays::signedNum(tc) + (tc >= IndexPlays::INSURANCE_INDEX ? ": TAKE IT" : ": DECLINE - TAKE IT AT +3");
-			float hp = 3.2f;
-			DigitFont::drawText(state, hint, panel.x + (panel.w - DigitFont::textWidth(hint, hp)) / 2.0f, panel.y + 82.0f, hp,
-				tc >= IndexPlays::INSURANCE_INDEX ? SDL_Color{110, 230, 110, 255} : SDL_Color{255, 200, 120, 255});
+			bool take = tc >= IndexPlays::INSURANCE_INDEX;
+			std::string hint = "TRUE COUNT " + IndexPlays::signedNum(tc) + (take ? ": TAKE IT" : ": DECLINE - TAKE IT AT +3");
+			line(hint, panel.y + 80.0f, 3.0f, take ? SDL_Color{110, 230, 110, 255} : SDL_Color{255, 200, 120, 255});
 		}
 
 		SDL_FRect yes = insuranceYesButton(), no = insuranceNoButton();
@@ -2960,14 +2971,16 @@ private:
 
 public:
 	void setTouchLayout(bool touch){ touchLayout = touch; }
-	// Turning ONE-HANDED on shows its gestures on the table for the next
-	// few hands (drawOneHandedHint()).
+	// Switching ONE-HANDED on or off shows the new gestures on the table
+	// for the next few hands (drawControlsHint()).
 	void setOneHandedGestures(bool on){
-		if(on && !oneHandedGestures)
-			oneHandedHintRounds = 3;
+		if(on != oneHandedGestures)
+			controlsHintRounds = CONTROLS_HINT_HANDS;
 		oneHandedGestures = on;
 	}
-	int oneHandedHintRounds = 0;
+	int controlsHintRounds = 0;
+	// Counted down as each round starts, so this many hands show it.
+	static constexpr int CONTROLS_HINT_HANDS = 4;
 
 	// SETTINGS' PENETRATION: how much of the shoe is dealt before the cut
 	// card, in percent; 0 = random (half to seven eighths). Next shoe on.
