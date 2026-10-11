@@ -31,8 +31,11 @@ public:
 	// Focus indices of the two sliders (arrow keys move them, see mina.cpp).
 	static constexpr int VOLUME_FOCUS_INDEX = 0, SPEED_FOCUS_INDEX = 1;
 
-	void open(GameOptionsMenu& gameOptions){
+	// inGame: opened from the pause menu, so DEALER HITS SOFT 17 and
+	// INDEX PLAYS follow what the running game allows.
+	void open(GameOptionsMenu& gameOptions, bool inGame = false){
 		options = &gameOptions;
+		playing = inGame;
 		armed = NONE;
 		dragging = -1;
 	}
@@ -52,11 +55,11 @@ public:
 		label(state, LEFT_LABEL, rowY(2), "ONE-HANDED DRILL");
 		drawToggle(state, toggleRect(LEFT_CONTROL, 2), oneHandedDrill);
 		DigitFont::drawText(state, oneHandedDrill ? "PHONES: GESTURES, NO BUTTONS" : "PHONES: TAP THE MOVE BUTTONS",
-			LEFT_LABEL, rowY(2) + ROW_H + 8.0f, 2.6f, DIM);
+			LEFT_LABEL, rowY(2) + ROW_H + 4.0f, 2.6f, DIM);
 		label(state, LEFT_LABEL, rowY(3), "ONE-HANDED TABLE");
 		drawToggle(state, toggleRect(LEFT_CONTROL, 3), oneHandedTable);
 		DigitFont::drawText(state, oneHandedTable ? "SWIPE UP DOUBLE, DOWN SURRENDER, HOLD SPLIT" : "TWO FINGERS DOUBLE AND SPLIT",
-			LEFT_LABEL, rowY(3) + ROW_H + 8.0f, 2.6f, DIM);
+			LEFT_LABEL, rowY(3) + ROW_H + 4.0f, 2.6f, DIM);
 
 		label(state, RIGHT_LABEL, rowY(0), "DEALER SPEED");
 		drawSlider(state, sliderRect(1), options->dealerSpeed, options->speedLabel(), "SLOW", "FAST");
@@ -66,8 +69,12 @@ public:
 		drawToggle(state, toggleRect(RIGHT_CONTROL, 2), options->hideInactiveHands);
 		label(state, RIGHT_LABEL, rowY(3), "DOUBLE FOR LESS");
 		drawToggle(state, toggleRect(RIGHT_CONTROL, 3), options->doubleForLess);
+		label(state, RIGHT_LABEL, rowY(4), soft17Choice() ? "DEALER HITS SOFT 17" : "SOFT 17 - ALWAYS HITS");
+		drawToggle(state, toggleRect(RIGHT_CONTROL, 4), soft17Choice() ? options->dealerHitsSoft17 : true, soft17Choice());
+		label(state, RIGHT_LABEL, rowY(5), indexChoice() ? "INDEX PLAYS" : "INDEX PLAYS - STANDARD ONLY");
+		drawToggle(state, toggleRect(RIGHT_CONTROL, 5), indexChoice() && options->indexPlays, indexChoice());
+		DigitFont::drawText(state, "COUNT DEVIATIONS IN TIP AND CHARTS", RIGHT_LABEL, rowY(5) + ROW_H + 4.0f, 2.6f, DIM);
 
-		centered(state, "PROGRESS", 490.0f, 3.6f, GOLD);
 		button(state, resetTrainingButton, armed == RESET_TRAINING ? SDL_Color{170, 50, 50, 255} : SDL_Color{90, 60, 60, 255},
 			armed == RESET_TRAINING ? "TAP AGAIN TO RESET" : "RESET TRAINING", 4.0f);
 		button(state, resetStatsButton, armed == RESET_STATS ? SDL_Color{170, 50, 50, 255} : SDL_Color{90, 60, 60, 255},
@@ -124,6 +131,8 @@ public:
 		if(hit(p, toggleRect(RIGHT_CONTROL, 1))) options->faceDownDoubles = !options->faceDownDoubles;
 		if(hit(p, toggleRect(RIGHT_CONTROL, 2))) options->hideInactiveHands = !options->hideInactiveHands;
 		if(hit(p, toggleRect(RIGHT_CONTROL, 3))) options->doubleForLess = !options->doubleForLess;
+		if(soft17Choice() && hit(p, toggleRect(RIGHT_CONTROL, 4))) options->dealerHitsSoft17 = !options->dealerHitsSoft17;
+		if(indexChoice() && hit(p, toggleRect(RIGHT_CONTROL, 5))) options->indexPlays = !options->indexPlays;
 		if(hit(p, resetTrainingButton)){
 			if(wasArmed == RESET_TRAINING){
 				note = "TRAINING PROGRESS RESET";
@@ -153,6 +162,7 @@ public:
 		return { sliderRect(0), sliderRect(1), // VOLUME_FOCUS_INDEX, SPEED_FOCUS_INDEX
 			toggleRect(LEFT_CONTROL, 1), toggleRect(LEFT_CONTROL, 2), toggleRect(LEFT_CONTROL, 3),
 			toggleRect(RIGHT_CONTROL, 1), toggleRect(RIGHT_CONTROL, 2), toggleRect(RIGHT_CONTROL, 3),
+			toggleRect(RIGHT_CONTROL, 4), toggleRect(RIGHT_CONTROL, 5),
 			resetTrainingButton, resetStatsButton, backButton };
 	}
 
@@ -170,11 +180,16 @@ private:
 	std::string note;
 	int dragging = -1; // 0 volume, 1 dealer speed
 
-	SDL_FRect resetTrainingButton{ .x = 380, .y = 526, .w = 330, .h = 60 };
-	SDL_FRect resetStatsButton{ .x = 730, .y = 526, .w = 330, .h = 60 };
+	bool playing = false;
+	// Under the left column.
+	SDL_FRect resetTrainingButton{ .x = LEFT_LABEL, .y = 440, .w = 330, .h = ROW_H };
+	SDL_FRect resetStatsButton{ .x = LEFT_LABEL, .y = 516, .w = 330, .h = ROW_H };
+
+	bool soft17Choice() const{ return !playing || options->soft17Choosable(); }
+	bool indexChoice() const{ return !playing || options->indexChoosable(); }
 	SDL_FRect backButton{ .x = 620, .y = 640, .w = 200, .h = 56 };
 
-	static float rowY(int row){ return 140.0f + row * 84.0f; }
+	static float rowY(int row){ return 136.0f + row * 76.0f; }
 
 	SDL_FRect sliderRect(int i) const{
 		return SDL_FRect{ .x = i == 0 ? LEFT_CONTROL : RIGHT_CONTROL, .y = rowY(0), .w = SLIDER_W, .h = ROW_H };
@@ -227,8 +242,8 @@ private:
 		DigitFont::drawText(state, s, r.x + (r.w - w) / 2.0f, r.y + (r.h - 5 * pixel) / 2.0f, pixel, WHITE);
 	}
 
-	static void drawToggle(SDLState& state, const SDL_FRect& r, bool on){
-		button(state, r, on ? SDL_Color{60, 130, 70, 255} : SDL_Color{80, 80, 80, 255}, on ? "ON" : "OFF", 5.5f);
+	static void drawToggle(SDLState& state, const SDL_FRect& r, bool on, bool enabled = true){
+		button(state, r, !enabled ? SDL_Color{50, 55, 52, 255} : on ? SDL_Color{60, 130, 70, 255} : SDL_Color{80, 80, 80, 255}, on ? "ON" : "OFF", 5.5f);
 	}
 
 	void drawSlider(SDLState& state, const SDL_FRect& r, int value, const std::string& valueText, const std::string& low, const std::string& high){
@@ -248,7 +263,7 @@ private:
 		SDL_SetRenderDrawColor(state.renderer, 40, 40, 40, 255);
 		SDL_RenderRect(state.renderer, &knob);
 
-		float y = r.y + r.h + 8.0f;
+		float y = r.y + r.h + 4.0f;
 		if(!low.empty())
 			DigitFont::drawText(state, low, r.x, y, 2.8f, DIM);
 		if(!high.empty())

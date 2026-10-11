@@ -8,12 +8,14 @@ enum class Sfx{
 	Deal,       // a card leaves the shoe
 	Flip,       // the dealer's hole card (or a face-down double) turns over
 	ChipsPay,   // a payout chip leaves the tray
-	ChipsTake,  // a lost bet is collected
+	ChipsTake,  // a lost bet is collected, or a pile leaves the felt
 	ChipBet,    // a bet or side bet goes up during betting
 	Shuffle,    // a fresh shoe
 	Tap,        // any button
 	Win,        // a blackjack
 	Jackpot,    // a rare side-bet hit (the big callout banner)
+	Collect,    // the cards swept off the table after a round
+	ChipsLand,  // winnings set down beside the bet
 	Count
 };
 

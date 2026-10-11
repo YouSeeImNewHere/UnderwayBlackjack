@@ -2,6 +2,7 @@
 #include "Game.h"
 #include "DigitFont.h"
 #include "StrategyChart.h"
+#include "Trainer.h"
 #include <string>
 #include <vector>
 
@@ -122,19 +123,41 @@ struct RuleSelector
 
 // The home page's CHARTS screen: any basic-strategy chart, for whatever
 // rules the table you're about to sit at has (RuleSelector under it).
-// handlePoint() returns true for BACK.
+// With INDEX PLAYS on (standard games), the count's deviations show on the
+// cells and a DEVIATIONS button lists them. handlePoint() returns true for
+// BACK.
 class ChartsMenu
 {
 public:
 	// Starts on the chart for the game last set up.
-	void open(GameMode mode, bool dealerHitsSoft17){
+	void open(GameMode mode, bool dealerHitsSoft17, bool indexPlays = false){
 		selector.open(mode, dealerHitsSoft17);
+		selector.indexPlays = indexPlays;
+		listing = false;
 	}
 
 	void draw(SDLState& state){
-		StrategyChart::drawChart(state, selector.rules(), false, 0, 0, 0, true);
-		selector.draw(state, RULES_Y, false);
-		StrategyChart::drawButton(state, backButton, SDL_Color{80, 80, 80, 255}, "BACK");
+		StrategyChart::Rules rules = selector.rules();
+		bool deviations = selector.usesIndexPlays();
+		if(deviations && listing){
+			StrategyChart::drawDeviationList(state, "INDEX PLAYS - " + StrategyChart::titleFor(rules), IndexPlays::deviationLines(rules));
+		} else{
+			std::vector<IndexPlays::Deviation> devs = deviations ? IndexPlays::deviations(rules) : std::vector<IndexPlays::Deviation>{};
+			StrategyChart::Marks marks = [&](int section, int row, int col, std::string& when, char& move){
+				for(const IndexPlays::Deviation& d : devs)
+					if(d.section == section && d.row == row && d.col == col){
+						when = IndexPlays::markWhen(d);
+						move = d.move;
+						return true;
+					}
+				return false;
+			};
+			StrategyChart::drawChart(state, rules, false, 0, 0, 0, true, nullptr, deviations ? &marks : nullptr);
+			selector.draw(state, RULES_Y, true);
+		}
+		StrategyChart::drawButton(state, backRect(), SDL_Color{80, 80, 80, 255}, "BACK");
+		if(deviations)
+			StrategyChart::drawButton(state, listButton, SDL_Color{190, 120, 40, 255}, listing ? "CHART" : "DEVIATIONS", 5.0f);
 	}
 
 	bool handlePoint(SDLState& state, float windowX, float windowY){
@@ -142,21 +165,36 @@ public:
 		if(!SDL_RenderCoordinatesFromWindow(state.renderer, windowX, windowY, &x, &y))
 			return false;
 		SDL_FPoint p{x, y};
-		if(SDL_PointInRectFloat(&p, &backButton))
+		SDL_FRect back = backRect();
+		if(SDL_PointInRectFloat(&p, &back))
 			return true;
-		selector.handle(p, RULES_Y, false);
+		if(selector.usesIndexPlays() && SDL_PointInRectFloat(&p, &listButton)){
+			listing = !listing;
+			return false;
+		}
+		if(!listing)
+			selector.handle(p, RULES_Y, true);
+		if(!selector.usesIndexPlays())
+			listing = false;
 		return false;
 	}
 
 	std::vector<SDL_FRect> focusRects(){
 		std::vector<SDL_FRect> rects;
-		selector.addRects(rects, RULES_Y, false);
-		rects.push_back(backButton);
+		if(!listing)
+			selector.addRects(rects, RULES_Y, true);
+		rects.push_back(backRect());
+		if(selector.usesIndexPlays())
+			rects.push_back(listButton);
 		return rects;
 	}
 
 private:
 	static constexpr float RULES_Y = 580.0f;
 	RuleSelector selector;
-	SDL_FRect backButton{ .x = 620, .y = 640, .w = 200, .h = 56 };
+	bool listing = false;
+	SDL_FRect listButton{ .x = 730, .y = 640, .w = 260, .h = 56 };
+	SDL_FRect backRect(){
+		return selector.usesIndexPlays() ? SDL_FRect{ .x = 510, .y = 640, .w = 200, .h = 56 } : SDL_FRect{ .x = 620, .y = 640, .w = 200, .h = 56 };
+	}
 };

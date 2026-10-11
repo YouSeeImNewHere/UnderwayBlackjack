@@ -50,11 +50,47 @@ public:
 	enum Set{ SHOE_H17, SHOE_S17, DOUBLE_DECK_H17, DOUBLE_DECK_S17, SINGLE_DECK_H17, SINGLE_DECK_S17,
 		SPANISH_H17, SPANISH_S17, FREE_BET, SET_COUNT };
 
+	// A cell's index play, set by the caller when the count's deviations
+	// should show (see IndexPlays::deviations()): the count's move and when
+	// ("+4" = at +4 or more, "<0" = below 0).
+	using Marks = std::function<bool(int section, int row, int col, std::string& when, char& move)>;
+
+	// The pause menu's chart, with INDEX PLAYS on: its deviations on the
+	// cells, and a DEVIATIONS button for them written out (mina.cpp sets
+	// both when the chart opens; both empty otherwise).
+	Marks marks;
+	std::vector<std::string> deviationLines;
+	bool listing = false;
+
 	// The pause menu's chart: the game being played, with its hand
 	// highlighted when there is one.
 	void draw(SDLState& state, Resources& res, bool hasHighlight, int hSection, int hRow, int hCol){
-		drawChart(state, active, hasHighlight, hSection, hRow, hCol, false);
-		drawButton(state, backButton, SDL_Color{80, 80, 80, 255}, "BACK");
+		if(listing && !deviationLines.empty())
+			drawDeviationList(state, "INDEX PLAYS - " + titleFor(active), deviationLines);
+		else
+			drawChart(state, active, hasHighlight, hSection, hRow, hCol, false, nullptr, marks ? &marks : nullptr);
+		drawButton(state, backRect(), SDL_Color{80, 80, 80, 255}, "BACK");
+		if(!deviationLines.empty())
+			drawButton(state, listButton, SDL_Color{190, 120, 40, 255}, listing ? "CHART" : "DEVIATIONS", 5.0f);
+	}
+
+	// Every index play, one per line, in two columns.
+	static void drawDeviationList(SDLState& state, const std::string& title, const std::vector<std::string>& lines){
+		SDL_SetRenderDrawColor(state.renderer, 10, 30, 15, 255);
+		SDL_RenderFillRect(state.renderer, nullptr);
+		float tp = std::min(5.0f, 1400.0f / DigitFont::textWidth(title, 1.0f));
+		DigitFont::drawText(state, title, (1440.0f - DigitFont::textWidth(title, tp)) / 2.0f, 20.0f, tp, SDL_Color{255, 255, 255, 255});
+		const char* intro = "HI-LO TRUE COUNT, ROUNDED DOWN.  OFF THE COUNT, PLAY THE CHART";
+		DigitFont::drawText(state, intro, (1440.0f - DigitFont::textWidth(intro, 2.8f)) / 2.0f, 62.0f, 2.8f, SDL_Color{230, 210, 140, 255});
+		size_t half = (lines.size() + 1) / 2;
+		float pixel = 3.4f;
+		for(const std::string& line : lines)
+			pixel = std::min(pixel, 680.0f / std::max(1.0f, DigitFont::textWidth(line, 1.0f)));
+		for(size_t i = 0; i < lines.size(); i++){
+			float x = i < half ? 30.0f : 740.0f;
+			float y = 104.0f + (i < half ? i : i - half) * 50.0f;
+			DigitFont::drawText(state, lines[i], x, y, pixel, SDL_Color{235, 235, 235, 255});
+		}
 	}
 
 	// The whole chart for `rules`. browserLayout leaves room under it for
@@ -65,7 +101,7 @@ public:
 
 	// tint, when given, recolours cells and leaves out the legend.
 	static void drawChart(SDLState& state, const Rules& rules, bool hasHighlight, int hSection, int hRow, int hCol, bool browserLayout,
-			const Tint* tint = nullptr){
+			const Tint* tint = nullptr, const Marks* marks = nullptr){
 		SDL_SetRenderDrawColor(state.renderer, 10, 30, 15, 255);
 		SDL_RenderFillRect(state.renderer, nullptr);
 
@@ -81,15 +117,22 @@ public:
 		static const float X[3] = { 8.0f, 488.0f, 968.0f };
 		for(int section = 0; section < 3; section++)
 			drawTable(state, rules, section, X[section],
-				hasHighlight && hSection == section ? hRow : -1, hasHighlight && hSection == section ? hCol : -1, tint);
+				hasHighlight && hSection == section ? hRow : -1, hasHighlight && hSection == section ? hCol : -1, tint, marks);
 
 		if(tint)
 			return;
 		float legendY = browserLayout ? 510.0f : 545.0f;
 		drawLegend(state, legendY);
+		float noteY = legendY + 40.0f;
+		if(marks){
+			std::string key = "ORANGE BOX = INDEX PLAY: TOP IS THE CHART, BOTTOM THE MOVE BY THE COUNT.  +4 = TRUE COUNT +4 OR MORE,  <0 = BELOW 0";
+			float kp = std::min(2.6f, 1400.0f / DigitFont::textWidth(key, 1.0f));
+			DigitFont::drawText(state, key, (1440.0f - DigitFont::textWidth(key, kp)) / 2.0f, legendY + 36.0f, kp, MARK_ABOVE);
+			noteY = legendY + 54.0f;
+		}
 		std::string note = noteFor(rules);
-		float np = std::min(3.0f, 1400.0f / DigitFont::textWidth(note, 1.0f));
-		DigitFont::drawText(state, note, (1440.0f - DigitFont::textWidth(note, np)) / 2.0f, legendY + 40.0f, np, SDL_Color{230, 210, 140, 255});
+		float np = std::min(marks ? 2.6f : 3.0f, 1400.0f / DigitFont::textWidth(note, 1.0f));
+		DigitFont::drawText(state, note, (1440.0f - DigitFont::textWidth(note, np)) / 2.0f, noteY, np, SDL_Color{230, 210, 140, 255});
 	}
 
 	// windowX/windowY: raw event coordinates in window space, same
@@ -101,12 +144,21 @@ public:
 			return false;
 
 		SDL_FPoint p{x, y};
-		return SDL_PointInRectFloat(&p, &backButton);
+		if(!deviationLines.empty() && SDL_PointInRectFloat(&p, &listButton)){
+			listing = !listing;
+			return false;
+		}
+		SDL_FRect back = backRect();
+		return SDL_PointInRectFloat(&p, &back);
 	}
 
 	std::vector<SDL_FRect> focusRects(){
-		return { backButton };
+		if(deviationLines.empty())
+			return { backRect() };
+		return { backRect(), listButton };
 	}
+
+	static constexpr SDL_Color MARK_ABOVE{255, 170, 60, 255};
 
 	static SDL_Color colorFor(char action){
 		switch(action){
@@ -434,6 +486,11 @@ private:
 	};
 
 	SDL_FRect backButton{ .x = 620, .y = 630, .w = 200, .h = 56 };
+	// With DEVIATIONS beside it, BACK moves left to keep the pair centred.
+	SDL_FRect listButton{ .x = 730, .y = 630, .w = 260, .h = 56 };
+	SDL_FRect backRect() const{
+		return deviationLines.empty() ? backButton : SDL_FRect{ .x = 510, .y = 630, .w = 200, .h = 56 };
+	}
 
 	// What a chart's notes line under the legend says.
 	static std::string noteFor(const Rules& rules){
@@ -455,6 +512,17 @@ private:
 		if(limit > 0 && (move == 'S' || move == 'D' || move == 'R'))
 			text += std::to_string(limit);
 		return text;
+	}
+
+	static void fill(SDLState& state, const SDL_FRect& r, SDL_Color c){
+		SDL_SetRenderDrawColor(state.renderer, c.r, c.g, c.b, 255);
+		SDL_RenderFillRect(state.renderer, &r);
+	}
+
+	// Centred in r, shrunk to fit its width.
+	static void smallText(SDLState& state, const std::string& text, const SDL_FRect& r, float pixel, SDL_Color c){
+		pixel = std::min(pixel, (r.w - 4.0f) / std::max(1.0f, DigitFont::textWidth(text, 1.0f)));
+		DigitFont::drawText(state, text, r.x + (r.w - DigitFont::textWidth(text, pixel)) / 2.0f, r.y + (r.h - 5.0f * pixel) / 2.0f, pixel, c);
 	}
 
 	static void drawCell(SDLState& state, const SDL_FRect& rect, SDL_Color color, const std::string& text, float pixel, bool highlight){
@@ -487,7 +555,7 @@ private:
 		}
 	}
 
-	static void drawTable(SDLState& state, const Rules& rules, int section, float x, int highlightRow, int highlightCol, const Tint* tint){
+	static void drawTable(SDLState& state, const Rules& rules, int section, float x, int highlightRow, int highlightCol, const Tint* tint, const Marks* marks = nullptr){
 		const char* const* rowLabels = section == 0 ? HARD_LABELS : section == 1 ? SOFT_LABELS : PAIR_LABELS;
 		int rowCount = section == 1 ? 8 : 10;
 
@@ -521,6 +589,22 @@ private:
 				if(tint)
 					(*tint)(section, r, c, color);
 				drawCell(state, rect, color, cellText(rules, section, r, c, cd), cellPixel, hl);
+				// INDEX PLAYS: the cell splits -- the chart's move on top, the
+				// count's move (in its colour) and when, underneath.
+				std::string when;
+				char devMove = 0;
+				if(marks && (*marks)(section, r, c, when, devMove)){
+					SDL_FRect top{ rect.x, rect.y, rect.w, rect.h / 2.0f };
+					SDL_FRect bottom{ rect.x, rect.y + rect.h / 2.0f, rect.w, rect.h / 2.0f };
+					fill(state, top, color);
+					fill(state, bottom, colorFor(devMove));
+					smallText(state, cellText(rules, section, r, c, cd), top, 2.0f, SDL_Color{255, 255, 255, 255});
+					smallText(state, std::string(1, devMove) + when, bottom, 2.0f, SDL_Color{255, 235, 150, 255});
+					SDL_SetRenderDrawColor(state.renderer, MARK_ABOVE.r, MARK_ABOVE.g, MARK_ABOVE.b, 255);
+					SDL_RenderRect(state.renderer, &rect);
+					SDL_FRect inner{ rect.x + 1.0f, rect.y + 1.0f, rect.w - 2.0f, rect.h - 2.0f };
+					SDL_RenderRect(state.renderer, &inner);
+				}
 				// 6-7-8 / 7-7-7 bonus plays: a yellow corner on the cell.
 				if(bonusRule(rules.set, section, r, c) != ' '){
 					SDL_FRect corner{ .x = rect.x + rect.w - 9.0f, .y = rect.y + 1.0f, .w = 8.0f, .h = 8.0f };

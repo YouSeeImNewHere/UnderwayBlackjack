@@ -116,7 +116,7 @@ public:
 			line = "NET WINNINGS " + signedNum(net) + " =  HANDS AND INSURANCE " + signedNum(net - sides) + "  +  SIDE BETS " + signedNum(sides);
 		}
 		float pixel = std::min(3.2f, 1400.0f / DigitFont::textWidth(line, 1.0f));
-		DigitFont::drawText(state, line, (1440.0f - DigitFont::textWidth(line, pixel)) / 2.0f, 596.0f, pixel, SDL_Color{150, 200, 150, 255});
+		DigitFont::drawText(state, line, (1440.0f - DigitFont::textWidth(line, pixel)) / 2.0f, 600.0f, pixel, SDL_Color{150, 200, 150, 255});
 	}
 
 	// One row per side bet: how often and how much was bet, against how
@@ -316,7 +316,7 @@ private:
 			DigitFont::drawText(state, label, x, y, 4.0f, SDL_Color{200, 180, 100, 255});
 			float vW = DigitFont::textWidth(value, 5.0f);
 			DigitFont::drawText(state, value, x + 500.0f - vW, y - 2.0f, 5.0f, SDL_Color{235, 235, 235, 255});
-			y += 52.0f;
+			y += 47.0f; // 10 rows end by 583, above drawNetBreakdown()'s line
 		}
 	}
 

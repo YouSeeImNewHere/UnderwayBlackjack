@@ -87,3 +87,27 @@ save('sfx-jackpot', notes([(0.00, 523.25, 0.6, 6, 0.7), (0.10, 659.25, 0.6, 6, 0
                            (0.30, 1568.0, 1.0, 4, 0.35)], 1.5), peak=0.6)
 
 print('wrote', sorted(os.listdir(OUT)))
+
+# Built from the clips above (so they match them):
+def layered(parts, length, peak):
+    out = np.zeros(int(length * SR))
+    for clip, offset, gain in parts:
+        s = int(offset * SR)
+        n = min(len(clip), len(out) - s)
+        out[s:s + n] += clip[:n] * gain
+    fade = int(0.05 * SR)
+    out[-fade:] *= np.linspace(1, 0, fade)
+    return out / max(1e-9, np.abs(out).max()) * peak
+
+def built(name):
+    d, _ = sf.read(os.path.join(OUT, name + '.wav'))
+    return d
+
+# Cards swept off the felt: three quick slides overlapping, a little darker.
+slide1, slide3 = built('sfx-deal-1'), built('sfx-deal-3')
+collect = layered([(slide1, 0.0, 1.0), (slide3, 0.07, 0.8), (slide1, 0.15, 0.7)], 0.45, 1.0)
+save('sfx-collect', np.convolve(collect, np.ones(6) / 6, mode='same'), peak=0.7)
+
+# Chips gathered off the felt: a few quick clinks running into a stack.
+take, pay = built('sfx-chips-take'), built('sfx-chips-pay-1')
+save('sfx-chips-collect', layered([(take, 0.0, 1.0), (take, 0.06, 0.8), (take, 0.11, 0.9), (pay, 0.16, 0.7)], 0.42, 1.0), peak=0.8)

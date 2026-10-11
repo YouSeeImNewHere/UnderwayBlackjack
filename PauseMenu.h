@@ -35,7 +35,7 @@ public:
 		drawButton(state, aboutButton, SDL_Color{110, 90, 60, 255}, "ABOUT");
 		drawButton(state, controlsButton, SDL_Color{90, 70, 130, 255}, "CONTROLS");
 		drawButton(state, statsButton, SDL_Color{120, 70, 130, 255}, "STATS");
-		drawButton(state, optionsButton, SDL_Color{70, 110, 110, 255}, "GAME OPTIONS");
+		drawButton(state, optionsButton, SDL_Color{70, 110, 110, 255}, "SETTINGS");
 	}
 
 	// windowX/windowY: raw event coordinates in window space, same
