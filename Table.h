@@ -1848,16 +1848,26 @@ private:
 	void drawOneHandedHint(SDLState& state){
 		if(!oneHandedGestures || !touchLayout || oneHandedHintRounds <= 0 || !acceptingPlayerInput())
 			return;
-		static const char* LINES[2] = { "TAP: HIT     SWIPE LEFT OR RIGHT: STAND     HOLD: SPLIT",
-			"SWIPE UP: DOUBLE     SWIPE DOWN: SURRENDER" };
-		SDL_FRect bar{ 240.0f, 436.0f, 960.0f, 52.0f };
+		// A vertical list in the left of the dealer's card box -- the
+		// dealer's cards fill it from the right, and while you're acting
+		// there are only two of them.
+		static const char* GESTURE[5] = { "TAP", "SWIPE SIDEWAYS", "SWIPE UP", "SWIPE DOWN", "HOLD" };
+		static const char* MOVE[5] = { "HIT", "STAND", "DOUBLE", "SURRENDER", "SPLIT" };
+		SDL_FRect panel{ 380.0f, 284.0f, 456.0f, 140.0f };
 		SDL_SetRenderDrawColor(state.renderer, 15, 25, 18, 255);
-		SDL_RenderFillRect(state.renderer, &bar);
+		SDL_RenderFillRect(state.renderer, &panel);
 		SDL_SetRenderDrawColor(state.renderer, 255, 210, 40, 255);
-		SDL_RenderRect(state.renderer, &bar);
-		float p = std::min(3.0f, (bar.w - 30.0f) / DigitFont::textWidth(LINES[0], 1.0f));
-		for(int i = 0; i < 2; i++){
-			DigitFont::drawText(state, LINES[i], bar.x + (bar.w - DigitFont::textWidth(LINES[i], p)) / 2.0f, bar.y + 7.0f + i * 23.0f, p, SDL_Color{255, 225, 80, 255});
+		SDL_RenderRect(state.renderer, &panel);
+		// Gestures in one column, moves in the next, as large as fits.
+		const float gap = 22.0f, pad = 14.0f;
+		const float unitW = DigitFont::textWidth("SWIPE SIDEWAYS", 1.0f) + DigitFont::textWidth("SURRENDER", 1.0f);
+		const float p = std::min(3.4f, (panel.w - 2 * pad - gap) / unitW);
+		const float rowH = 26.0f, top = panel.y + (panel.h - 4 * rowH - 5 * p) / 2.0f;
+		const float moveX = panel.x + pad + DigitFont::textWidth("SWIPE SIDEWAYS", p) + gap;
+		for(int i = 0; i < 5; i++){
+			float y = top + i * rowH;
+			DigitFont::drawText(state, GESTURE[i], panel.x + pad, y, p, SDL_Color{255, 225, 80, 255});
+			DigitFont::drawText(state, MOVE[i], moveX, y, p, SDL_Color{255, 255, 255, 255});
 		}
 	}
 
