@@ -1028,6 +1028,7 @@ public:
 					event.tfinger.x, event.tfinger.y,
 					event.tfinger.x, event.tfinger.y
 				};
+				holdTime = 0.0f;
 				break;
 			}
 
@@ -1053,7 +1054,10 @@ public:
 				// Only once every finger from this gesture has lifted do we
 				// know the final finger count and can classify the gesture.
 				if(activeTouches.empty() && !endedTouches.empty()){
-					if(acceptingPlayerInput())
+					// A press-and-hold split already played on the hold.
+					if(holdFired)
+						holdFired = false;
+					else if(acceptingPlayerInput())
 						processGesture(endedTouches);
 
 					endedTouches.clear();
@@ -1067,6 +1071,7 @@ public:
 	}
 
 	void update(float deltaTime) {
+		updateHold(deltaTime);
 		// Payout chips fly independently of everything else below -- they
 		// start firing exactly when the dealer-finish pause does (see
 		// dealDealer()) and need to keep progressing *during* that pause,
@@ -2865,6 +2870,7 @@ private:
 
 public:
 	void setTouchLayout(bool touch){ touchLayout = touch; }
+	void setOneHandedGestures(bool on){ oneHandedGestures = on; }
 
 private:
 
@@ -3644,6 +3650,35 @@ private:
 		}
 	}
 
+	// ONE-HANDED (SETTINGS): every move with one thumb -- swipe up is
+	// double, swipe down surrender, and press and hold is split. Off, the
+	// classic set: swipe up or down surrenders, two fingers double/split
+	// (those still work with it on).
+	bool oneHandedGestures = false;
+	static constexpr float HOLD_SECONDS = 0.45f;
+	float holdTime = 0.0f;
+	bool holdFired = false;
+
+	// Press and hold one finger still: split, played as soon as the hold
+	// is long enough (its release then does nothing).
+	void updateHold(float dt){
+		if(!oneHandedGestures || holdFired || activeTouches.size() != 1 || !endedTouches.empty() || !acceptingPlayerInput()){
+			holdTime = 0.0f;
+			return;
+		}
+		const TouchPoint& t = activeTouches.begin()->second;
+		if(std::hypot(t.x - t.startX, t.y - t.startY) >= TAP_MOVE_THRESHOLD){
+			holdTime = 0.0f;
+			return;
+		}
+		holdTime += dt;
+		if(holdTime >= HOLD_SECONDS){
+			holdFired = true;
+			holdTime = 0.0f;
+			playerAction('P');
+		}
+	}
+
 	void processGesture(const std::vector<TouchPoint>& touches){
 		if(touches.size() == 1){
 			const TouchPoint& t = touches[0];
@@ -3653,6 +3688,9 @@ private:
 
 			if(dist < TAP_MOVE_THRESHOLD){
 				playerAction('H');
+			} else if(oneHandedGestures && std::fabs(dy) > std::fabs(dx)){
+				// One-handed: up doubles, down surrenders.
+				playerAction(dy < 0.0f ? 'D' : 'R');
 			} else if(std::fabs(dy) > std::fabs(dx)){
 				// Steep swipe (up or down) -> surrender.
 				playerAction('R');

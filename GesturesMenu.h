@@ -12,17 +12,20 @@
 class GesturesMenu
 {
 public:
+	// SETTINGS' ONE-HANDED TABLE (set by mina.cpp): which set to list.
+	bool oneHanded = false;
+
 	void draw(SDLState& state, Resources& res){
 		SDL_SetRenderDrawColor(state.renderer, 10, 30, 15, 255);
 		SDL_RenderFillRect(state.renderer, nullptr);
 
 		float titlePixel = 7.0f;
-		std::string title = "GESTURES";
+		std::string title = oneHanded ? "GESTURES - ONE-HANDED" : "GESTURES";
 		float titleW = DigitFont::textWidth(title, titlePixel);
 		DigitFont::drawText(state, title, (1440.0f - titleW) / 2.0f, 50.0f, titlePixel, SDL_Color{255, 255, 255, 255});
 
 		float y = 160.0f;
-		for(const auto& [action, gesture] : GESTURES){
+		for(const auto& [action, gesture] : oneHanded ? ONE_HANDED : GESTURES){
 			float actionPixel = 5.0f;
 			DigitFont::drawText(state, action, 280.0f, y, actionPixel, SDL_Color{200, 180, 100, 255});
 
@@ -61,6 +64,14 @@ private:
 		{"SURRENDER", "SWIPE UP OR DOWN"},
 		{"DOUBLE",    "TWO FINGER TAP"},
 		{"SPLIT",     "TWO FINGERS APART"}
+	};
+	// With SETTINGS' ONE-HANDED TABLE on (two-finger gestures still work).
+	inline static const std::vector<std::pair<std::string, std::string>> ONE_HANDED{
+		{"HIT",       "TAP"},
+		{"STAND",     "SWIPE LEFT OR RIGHT"},
+		{"DOUBLE",    "SWIPE UP"},
+		{"SURRENDER", "SWIPE DOWN"},
+		{"SPLIT",     "PRESS AND HOLD"}
 	};
 
 	SDL_FRect backButton{ .x = 620, .y = 620, .w = 200, .h = 56 };

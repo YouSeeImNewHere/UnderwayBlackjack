@@ -8,7 +8,8 @@
 #include <vector>
 
 // SETTINGS, from the home page: the app's preferences in one place.
-// Left: sound and controls (volume, sound on/off, one-handed drill).
+// Left: sound and controls (volume, sound on/off, one-handed drill and
+// one-handed table gestures).
 // Right: the table preferences Game Options also has (dealer speed,
 // face-down doubles, hiding hands, double for less) -- the same values,
 // so changing one place changes both. Bottom: resetting training progress
@@ -24,6 +25,8 @@ public:
 	int volume = 100;
 	// Strategy drill on a phone: answer by gestures, no move buttons.
 	bool oneHandedDrill = true;
+	// The table games: every move with one thumb (Table::oneHandedGestures).
+	bool oneHandedTable = false;
 
 	// Focus indices of the two sliders (arrow keys move them, see mina.cpp).
 	static constexpr int VOLUME_FOCUS_INDEX = 0, SPEED_FOCUS_INDEX = 1;
@@ -50,6 +53,10 @@ public:
 		drawToggle(state, toggleRect(LEFT_CONTROL, 2), oneHandedDrill);
 		DigitFont::drawText(state, oneHandedDrill ? "PHONES: GESTURES, NO BUTTONS" : "PHONES: TAP THE MOVE BUTTONS",
 			LEFT_LABEL, rowY(2) + ROW_H + 8.0f, 2.6f, DIM);
+		label(state, LEFT_LABEL, rowY(3), "ONE-HANDED TABLE");
+		drawToggle(state, toggleRect(LEFT_CONTROL, 3), oneHandedTable);
+		DigitFont::drawText(state, oneHandedTable ? "SWIPE UP DOUBLE, DOWN SURRENDER, HOLD SPLIT" : "TWO FINGERS DOUBLE AND SPLIT",
+			LEFT_LABEL, rowY(3) + ROW_H + 8.0f, 2.6f, DIM);
 
 		label(state, RIGHT_LABEL, rowY(0), "DEALER SPEED");
 		drawSlider(state, sliderRect(1), options->dealerSpeed, options->speedLabel(), "SLOW", "FAST");
@@ -113,6 +120,7 @@ public:
 		note.clear();
 		if(hit(p, toggleRect(LEFT_CONTROL, 1))) options->soundEffects = !options->soundEffects;
 		if(hit(p, toggleRect(LEFT_CONTROL, 2))) oneHandedDrill = !oneHandedDrill;
+		if(hit(p, toggleRect(LEFT_CONTROL, 3))) oneHandedTable = !oneHandedTable;
 		if(hit(p, toggleRect(RIGHT_CONTROL, 1))) options->faceDownDoubles = !options->faceDownDoubles;
 		if(hit(p, toggleRect(RIGHT_CONTROL, 2))) options->hideInactiveHands = !options->hideInactiveHands;
 		if(hit(p, toggleRect(RIGHT_CONTROL, 3))) options->doubleForLess = !options->doubleForLess;
@@ -143,7 +151,7 @@ public:
 
 	std::vector<SDL_FRect> focusRects(){
 		return { sliderRect(0), sliderRect(1), // VOLUME_FOCUS_INDEX, SPEED_FOCUS_INDEX
-			toggleRect(LEFT_CONTROL, 1), toggleRect(LEFT_CONTROL, 2),
+			toggleRect(LEFT_CONTROL, 1), toggleRect(LEFT_CONTROL, 2), toggleRect(LEFT_CONTROL, 3),
 			toggleRect(RIGHT_CONTROL, 1), toggleRect(RIGHT_CONTROL, 2), toggleRect(RIGHT_CONTROL, 3),
 			resetTrainingButton, resetStatsButton, backButton };
 	}

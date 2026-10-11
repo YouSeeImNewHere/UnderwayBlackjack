@@ -532,7 +532,7 @@ static void goBack(AppContext& ctx){
         [[fallthrough]];
     case AppScreen::Settings:
         saveOptions(ctx);
-        ctx.save.saveSettings(ctx.settingsMenu.volume, ctx.settingsMenu.oneHandedDrill);
+        ctx.save.saveSettings(ctx.settingsMenu.volume, ctx.settingsMenu.oneHandedDrill, ctx.settingsMenu.oneHandedTable);
         [[fallthrough]];
     case AppScreen::Charts:
     case AppScreen::Training:
@@ -1340,6 +1340,9 @@ static void mainLoopIteration(void *arg) {
     // SETTINGS: VOLUME and the drill's one-handed gestures, also live.
     ctx.audio.setVolume(ctx.settingsMenu.volume / 100.0f);
     ctx.drillMenu.oneHanded = ctx.settingsMenu.oneHandedDrill;
+    ctx.table.setOneHandedGestures(ctx.settingsMenu.oneHandedTable);
+    ctx.gesturesMenu.oneHanded = ctx.settingsMenu.oneHandedTable;
+    ctx.tutorialMenu.oneHanded = ctx.settingsMenu.oneHandedTable;
 
     switch(ctx.update.installState()){
         case UpdateCheck::Install::Done:
@@ -1478,6 +1481,7 @@ int main(int argc,char *argv[]) {
     }
     ctx->settingsMenu.volume = ctx->save.volume;
     ctx->settingsMenu.oneHandedDrill = ctx->save.oneHandedDrill;
+    ctx->settingsMenu.oneHandedTable = ctx->save.oneHandedTable;
     // Last-used Game Options, for Resume and for the next new game alike.
     if(ctx->save.hasOptions){
         ctx->gameOptionsMenu.dealerSpeed = ctx->save.dealerSpeed;

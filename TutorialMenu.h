@@ -15,6 +15,10 @@
 class TutorialMenu
 {
 public:
+	// SETTINGS' ONE-HANDED TABLE (set by mina.cpp): the touch pages list
+	// its gestures instead of the two-finger ones.
+	bool oneHanded = false;
+
 	void open(){ page = 0; }
 
 	void draw(SDLState& state, Resources& res){
@@ -28,7 +32,8 @@ public:
 		DigitFont::drawText(state, pg.title, (1440.0f - titleW) / 2.0f, 50.0f, titlePixel, SDL_Color{255, 225, 80, 255});
 
 		float y = 150.0f;
-		for(const std::string& line : pg.lines){
+		for(const std::string& original : pg.lines){
+			std::string line = oneHanded ? oneHandedLine(original) : original;
 			float pixel = 4.5f;
 			float w = DigitFont::textWidth(line, pixel);
 			if(w > 1320.0f){
@@ -155,6 +160,13 @@ private:
 			"PROGRESS SAVES AFTER EVERY ROUND. GOOD LUCK!"
 		}},
 	};
+
+	static std::string oneHandedLine(const std::string& line){
+		if(line == "DOUBLE     TWO FINGER TAP") return "DOUBLE     SWIPE UP";
+		if(line == "SPLIT      TWO FINGERS APART") return "SPLIT      PRESS AND HOLD";
+		if(line == "SURRENDER  SWIPE UP OR DOWN") return "SURRENDER  SWIPE DOWN";
+		return line;
+	}
 
 	static const Page* pages(){
 		return usesTouchControls() ? TOUCH_PAGES : KEYBOARD_PAGES;
