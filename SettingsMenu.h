@@ -73,7 +73,7 @@ public:
 		drawSlider(state, sliderRect(1), options->dealerSpeed, options->speedLabel(), "SLOW", "FAST");
 		label(state, RIGHT_LABEL, rightRowY(1), "FACE-DOWN DOUBLES");
 		drawToggle(state, toggleRect(RIGHT_CONTROL, 1), options->faceDownDoubles);
-		label(state, RIGHT_LABEL, rightRowY(2), "HIDE HANDS TIL YOUR TURN");
+		label(state, RIGHT_LABEL, rightRowY(2), "HIDE OTHER HANDS");
 		drawToggle(state, toggleRect(RIGHT_CONTROL, 2), options->hideInactiveHands);
 		label(state, RIGHT_LABEL, rightRowY(3), "DOUBLE FOR LESS");
 		drawToggle(state, toggleRect(RIGHT_CONTROL, 3), options->doubleForLess);
@@ -81,7 +81,7 @@ public:
 		drawToggle(state, toggleRect(RIGHT_CONTROL, 4), soft17Choice() ? options->dealerHitsSoft17 : true, soft17Choice());
 		label(state, RIGHT_LABEL, rightRowY(5), indexChoice() ? "INDEX PLAYS" : "INDEX PLAYS - STANDARD ONLY");
 		drawToggle(state, toggleRect(RIGHT_CONTROL, 5), indexChoice() && options->indexPlays, indexChoice());
-		DigitFont::drawText(state, "COUNT DEVIATIONS IN TIP AND CHARTS", RIGHT_LABEL, rightRowY(5) + ROW_H + 3.0f, 2.6f, DIM);
+		DigitFont::drawText(state, "TIP AND CHARTS USE THE COUNT", RIGHT_LABEL, rightRowY(5) + ROW_H + 3.0f, 2.6f, DIM);
 		label(state, RIGHT_LABEL, rightRowY(6), "AUTO SHUFFLER");
 		drawToggle(state, toggleRect(RIGHT_CONTROL, 6), options->autoShuffler);
 		DigitFont::drawText(state, options->autoShuffler ? "SHUFFLED EVERY ROUND - NO COUNTING" : "A SHOE WITH A CUT CARD",
@@ -253,7 +253,10 @@ private:
 	}
 
 	static void label(SDLState& state, float x, float y, const std::string& s){
-		float pixel = 4.4f, maxW = 340.0f;
+		// One size for every label (the longest everyday one, DEALER HITS
+		// SOFT 17, sets it); a rarer longer one shrinks on its own.
+		const float maxW = 340.0f;
+		float pixel = std::min(4.4f, maxW / DigitFont::textWidth("DEALER HITS SOFT 17", 1.0f));
 		float w = DigitFont::textWidth(s, pixel);
 		if(w > maxW)
 			pixel *= maxW / w;

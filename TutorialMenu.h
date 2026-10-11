@@ -2,6 +2,7 @@
 #include "Game.h"
 #include "DigitFont.h"
 #include "Platform.h"
+#include <algorithm>
 #include <string>
 #include <vector>
 
@@ -31,17 +32,52 @@ public:
 		float titleW = DigitFont::textWidth(pg.title, titlePixel);
 		DigitFont::drawText(state, pg.title, (1440.0f - titleW) / 2.0f, 50.0f, titlePixel, SDL_Color{255, 225, 80, 255});
 
-		float y = 150.0f;
-		for(const std::string& original : pg.lines){
-			std::string line = oneHanded ? oneHandedLine(original) : original;
+		// Three kinds of line: "LEFT|RIGHT" rows make a two-column table
+		// (gold names, white details), aligned and centered as a block;
+		// a line ending in ':' is a gold heading; anything else is
+		// centered text.
+		std::vector<std::string> lines;
+		for(const std::string& original : pg.lines)
+			lines.push_back(oneHanded ? oneHandedLine(original) : original);
+		const float gap = 60.0f;
+		float leftW = 0.0f, rightW = 0.0f;
+		for(const std::string& line : lines){
+			size_t bar = line.find('|');
+			if(bar == std::string::npos)
+				continue;
+			leftW = std::max(leftW, DigitFont::textWidth(line.substr(0, bar), 1.0f));
+			rightW = std::max(rightW, DigitFont::textWidth(line.substr(bar + 1), 1.0f));
+		}
+		// The whole table shrinks together if it's too wide.
+		const float tablePixel = leftW > 0.0f ? std::min(4.5f, (1320.0f - gap) / (leftW + rightW)) : 4.5f;
+		leftW *= tablePixel;
+		rightW *= tablePixel;
+		float tableX = (1440.0f - (leftW + gap + rightW)) / 2.0f;
+
+		float y = 140.0f;
+		bool inTable = false;
+		for(const std::string& line : lines){
+			size_t bar = line.find('|');
+			// A little room between a table and the text after it.
+			if(inTable && bar == std::string::npos)
+				y += 14.0f;
+			inTable = bar != std::string::npos;
+			if(bar != std::string::npos){
+				DigitFont::drawText(state, line.substr(0, bar), tableX, y, tablePixel, SDL_Color{255, 225, 80, 255});
+				DigitFont::drawText(state, line.substr(bar + 1), tableX + leftW + gap, y, tablePixel, SDL_Color{230, 230, 230, 255});
+				y += 42.0f;
+				continue;
+			}
+			bool heading = !line.empty() && line.back() == ':';
 			float pixel = 4.5f;
 			float w = DigitFont::textWidth(line, pixel);
 			if(w > 1320.0f){
 				pixel *= 1320.0f / w;
 				w = DigitFont::textWidth(line, pixel);
 			}
-			DigitFont::drawText(state, line, (1440.0f - w) / 2.0f, y, pixel, SDL_Color{230, 230, 230, 255});
-			y += 50.0f;
+			DigitFont::drawText(state, line, (1440.0f - w) / 2.0f, y, pixel,
+				heading ? SDL_Color{255, 225, 80, 255} : SDL_Color{230, 230, 230, 255});
+			y += heading ? 46.0f : 50.0f;
 		}
 
 		std::string pageLabel = std::to_string(page + 1) + " / " + std::to_string(PAGE_COUNT);
@@ -86,12 +122,14 @@ private:
 	inline static const Page TOUCH_PAGES[PAGE_COUNT] = {
 		{"WELCOME", {
 			"BEAT THE DEALER TO 21 WITHOUT GOING OVER.",
-			"PICK FROM FIVE GAMES: STANDARD, LUCKY LADIES,",
-			"PLAYERS EDGE, LUCKY STIFF AND FREE BET.",
-			"TAP ABOUT NEXT TO A GAME TO READ ITS RULES.",
-			"UP TO 5 PLAYERS SHARE ONE TABLE,",
-			"EACH WITH THEIR OWN BANKROLL.",
-			"PROGRESS SAVES AFTER EVERY ROUND."
+			"FIVE GAMES TO PICK FROM:",
+			"STANDARD|2 OR 6 DECKS",
+			"LUCKY LADIES|2 OR 6 DECKS, WITH A SIDE BET",
+			"PLAYERS EDGE|2 OR 6 SPANISH DECKS",
+			"LUCKY STIFF|8 DECKS, WITH A SIDE BET",
+			"FREE BET|6 DECKS, FREE DOUBLES AND SPLITS",
+			"TAP ABOUT NEXT TO A GAME FOR ITS FULL RULES.",
+			"UP TO 5 PLAYERS. PROGRESS SAVES EVERY ROUND."
 		}},
 		{"BETTING", {
 			"BEFORE EACH ROUND, SET EACH PLAYERS BET",
@@ -103,19 +141,19 @@ private:
 			"OUT OF CHIPS? TAP BUY IN FOR MORE."
 		}},
 		{"PLAYING YOUR HAND", {
-			"HIT        TAP",
-			"STAND      SWIPE LEFT OR RIGHT",
-			"DOUBLE     TWO FINGER TAP",
-			"SPLIT      TWO FINGERS APART",
-			"SURRENDER  SWIPE UP OR DOWN",
+			"HIT|TAP",
+			"STAND|SWIPE LEFT OR RIGHT",
+			"DOUBLE|TWO FINGER TAP",
+			"SPLIT|TWO FINGERS APART",
+			"SURRENDER|SWIPE UP OR DOWN",
 			"THE ARROW SHOWS WHOSE TURN IT IS.",
 			"WITH AN ACE SHOWING YOU MAY BE OFFERED INSURANCE."
 		}},
 		{"HELP AT THE TABLE", {
 			"TIP SHOWS THE BEST MOVE FOR YOUR HAND.",
 			"CNT SHOWS THE CARD COUNT.",
-			"PAUSE HAS THE STRATEGY TABLE, GAME RULES,",
-			"SETTINGS, CONTROLS AND YOUR STATS.",
+			"PAUSE HAS CHARTS, GAME RULES, SETTINGS,",
+			"CONTROLS, STATS AND THE MAIN MENU.",
 			"TAP ANY CHART SQUARE FOR WHAT IT MEANS.",
 			"A YELLOW CARD ON THE DISCARD PILE MEANS",
 			"A FRESH SHOE AFTER THIS ROUND."
@@ -127,15 +165,14 @@ private:
 			"DRILLS THEN USE THE COUNT, AND YOUR BETS ARE",
 			"CHECKED AGAINST THE BET RAMP.",
 			"CHARTS, DEVIATIONS LISTS EVERY COUNT PLAY.",
-			"TRAINING HAS THE BET RAMP AND ITS DRILL."
+			"PLANNING SHOWS THE BET RAMP, DRILLS HAS ITS DRILL."
 		}},
-		{"SETTINGS AND TRAINING", {
-			"SETTINGS: VOLUME, VIBRATE, DEALER SPEED, SOFT 17,",
-			"ONE-HANDED CONTROLS AND SHOE PENETRATION.",
-			"TRAINING: STRATEGY, COUNTING AND TRUE COUNT DRILLS,",
-			"YOUR MISTAKES, THE BET RAMP, A BANKROLL PLANNER,",
-			"GAME ODDS, AND A LOG OF YOUR REAL CASINO SESSIONS.",
-			"STATS TRACKS EVERY HAND, BY GAME.",
+		{"THE MAIN MENU", {
+			"DRILLS|STRATEGY, COUNTING, BET RAMP",
+			"PLANNING|BET RAMP, BANKROLL, GAME ODDS",
+			"SESSION LOG|YOUR REAL CASINO SESSIONS",
+			"STATS|EVERY HAND YOU PLAY, BY GAME",
+			"SETTINGS|SOUND, ONE-HANDED, SOFT 17 AND MORE",
 			"GOOD LUCK!"
 		}},
 	};
@@ -143,12 +180,14 @@ private:
 	inline static const Page KEYBOARD_PAGES[PAGE_COUNT] = {
 		{"WELCOME", {
 			"BEAT THE DEALER TO 21 WITHOUT GOING OVER.",
-			"PICK FROM FIVE GAMES: STANDARD, LUCKY LADIES,",
-			"PLAYERS EDGE, LUCKY STIFF AND FREE BET.",
-			"CLICK ABOUT NEXT TO A GAME TO READ ITS RULES.",
-			"UP TO 5 PLAYERS SHARE ONE TABLE,",
-			"EACH WITH THEIR OWN BANKROLL.",
-			"ARROW KEYS AND ENTER WORK IN EVERY MENU."
+			"FIVE GAMES TO PICK FROM:",
+			"STANDARD|2 OR 6 DECKS",
+			"LUCKY LADIES|2 OR 6 DECKS, WITH A SIDE BET",
+			"PLAYERS EDGE|2 OR 6 SPANISH DECKS",
+			"LUCKY STIFF|8 DECKS, WITH A SIDE BET",
+			"FREE BET|6 DECKS, FREE DOUBLES AND SPLITS",
+			"CLICK ABOUT NEXT TO A GAME FOR ITS FULL RULES.",
+			"UP TO 5 PLAYERS. PROGRESS SAVES EVERY ROUND."
 		}},
 		{"BETTING", {
 			"BEFORE EACH ROUND, SET EACH PLAYERS BET",
@@ -160,19 +199,19 @@ private:
 			"OUT OF CHIPS? CLICK BUY IN FOR MORE."
 		}},
 		{"PLAYING YOUR HAND", {
-			"HIT        H",
-			"STAND      S",
-			"DOUBLE     D",
-			"SPLIT      P",
-			"SURRENDER  R",
-			"INSURANCE  Y OR N, WHEN THE DEALER SHOWS AN ACE",
+			"HIT|H",
+			"STAND|S",
+			"DOUBLE|D",
+			"SPLIT|P",
+			"SURRENDER|R",
+			"INSURANCE|Y OR N",
 			"ESC PAUSES THE GAME AND GOES BACK IN MENUS."
 		}},
 		{"HELP AT THE TABLE", {
 			"TIP SHOWS THE BEST MOVE FOR YOUR HAND.",
 			"CNT SHOWS THE CARD COUNT.",
-			"PAUSE HAS THE STRATEGY TABLE, GAME RULES,",
-			"SETTINGS, CONTROLS AND YOUR STATS.",
+			"PAUSE HAS CHARTS, GAME RULES, SETTINGS,",
+			"CONTROLS, STATS AND THE MAIN MENU.",
 			"CLICK ANY CHART SQUARE FOR WHAT IT MEANS.",
 			"A YELLOW CARD ON THE DISCARD PILE MEANS",
 			"A FRESH SHOE AFTER THIS ROUND."
@@ -184,23 +223,22 @@ private:
 			"DRILLS THEN USE THE COUNT, AND YOUR BETS ARE",
 			"CHECKED AGAINST THE BET RAMP.",
 			"CHARTS, DEVIATIONS LISTS EVERY COUNT PLAY.",
-			"TRAINING HAS THE BET RAMP AND ITS DRILL."
+			"PLANNING SHOWS THE BET RAMP, DRILLS HAS ITS DRILL."
 		}},
-		{"SETTINGS AND TRAINING", {
-			"SETTINGS: VOLUME, DEALER SPEED, SOFT 17, INDEX",
-			"PLAYS AND SHOE PENETRATION.",
-			"TRAINING: STRATEGY, COUNTING AND TRUE COUNT DRILLS,",
-			"YOUR MISTAKES, THE BET RAMP, A BANKROLL PLANNER,",
-			"GAME ODDS, AND A LOG OF YOUR REAL CASINO SESSIONS.",
-			"PROGRESS SAVES AFTER EVERY ROUND.",
+		{"THE MAIN MENU", {
+			"DRILLS|STRATEGY, COUNTING, BET RAMP",
+			"PLANNING|BET RAMP, BANKROLL, GAME ODDS",
+			"SESSION LOG|YOUR REAL CASINO SESSIONS",
+			"STATS|EVERY HAND YOU PLAY, BY GAME",
+			"SETTINGS|SOUND, DEALER SPEED, SOFT 17 AND MORE",
 			"GOOD LUCK!"
 		}},
 	};
 
 	static std::string oneHandedLine(const std::string& line){
-		if(line == "DOUBLE     TWO FINGER TAP") return "DOUBLE     SWIPE UP";
-		if(line == "SPLIT      TWO FINGERS APART") return "SPLIT      PRESS AND HOLD";
-		if(line == "SURRENDER  SWIPE UP OR DOWN") return "SURRENDER  SWIPE DOWN";
+		if(line == "DOUBLE|TWO FINGER TAP") return "DOUBLE|SWIPE UP";
+		if(line == "SPLIT|TWO FINGERS APART") return "SPLIT|PRESS AND HOLD";
+		if(line == "SURRENDER|SWIPE UP OR DOWN") return "SURRENDER|SWIPE DOWN";
 		return line;
 	}
 

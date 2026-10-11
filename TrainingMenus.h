@@ -167,45 +167,51 @@ namespace TrainingUI{
 class TrainingMenu
 {
 public:
-	enum Choice{ NONE, DRILL, REVIEW, COUNT_SPEED, TRUE_COUNT, RAMP_DRILL, RAMP, BANKROLL, SESSIONS, ODDS, BACK };
-	static constexpr int COUNT = 9;
+	enum Choice{ NONE, DRILL, REVIEW, COUNT_SPEED, TRUE_COUNT, RAMP_DRILL, RAMP, BANKROLL, ODDS, BACK };
+	// Two pages off the main menu: DRILLS (a vertical list, held upright
+	// on a phone like the drills themselves) and PLANNING (bet ramp,
+	// bankroll planner and game odds as cards side by side, sideways).
+	// mina.cpp sets this before showing the screen.
+	bool planning = false;
 
 	void draw(SDLState& state, const Trainer& trainer){
 		using namespace TrainingUI;
 		clear(state);
-		if(portrait)
-			ptext(state, "TRAINING", 40.0f, 8.0f, WHITE);
-		else
-			text(state, "TRAINING", 30.0f, 7.0f, WHITE);
-		static const char* LABELS[COUNT] = { "STRATEGY DRILL", "MISTAKES + ACCURACY", "COUNTING SPEED", "TRUE COUNT + DECKS",
-			"BET RAMP DRILL", "BET RAMP", "BANKROLL PLANNER", "SESSION LOG", "GAME ODDS" };
-		static const char* NOTES[COUNT] = {
-			"FLASH CARDS. HANDS YOU MISS COME BACK MORE",
-			"WHICH CHART CELLS YOU KNOW, AND YOUR LAST MISTAKES",
-			"KEEP THE HI-LO RUNNING COUNT AS CARDS FLASH BY",
-			"ESTIMATE DECKS LEFT, TURN RUNNING COUNT INTO TRUE COUNT",
-			"A COUNT SHOWS - PICK THE BET",
-			"THE COUNTING BET RAMP AT YOUR UNIT, AND WHAT IT IS WORTH",
-			"WHAT A SESSION COSTS, AND HOW MUCH MONEY TO BRING",
-			"YOUR REAL CASINO SESSIONS AGAINST WHAT WAS EXPECTED",
-			"EVERY GAME AND SIDE BET RANKED - WHERE YOUR MONEY LASTS LONGEST"
-		};
-		static const SDL_Color COLORS[COUNT] = { {60, 130, 70, 255}, {150, 70, 70, 255}, {60, 90, 150, 255}, {50, 120, 130, 255},
-			{70, 110, 60, 255}, {150, 100, 40, 255}, {150, 120, 40, 255}, {90, 80, 140, 255}, {120, 70, 130, 255} };
-		for(int i = 0; i < COUNT && !portrait; i++){
-			button(state, buttonRect(i), COLORS[i], LABELS[i], 4.2f);
-			float np = std::min(3.0f, 780.0f / DigitFont::textWidth(NOTES[i], 1.0f));
-			DigitFont::drawText(state, NOTES[i], 640.0f, buttonRect(i).y + 25.0f - 2.5f * np, np, DIM);
+		if(planning){
+			drawPlanning(state);
+			return;
 		}
-		for(int i = 0; i < COUNT && portrait; i++){
-			// The label up top in the button, its note under it.
+		if(portrait)
+			ptext(state, "DRILLS", 40.0f, 8.0f, WHITE);
+		else
+			text(state, "DRILLS", 30.0f, 7.0f, WHITE);
+		for(int i = 0; i < DRILL_COUNT; i++){
 			SDL_FRect b = buttonRect(i);
-			SDL_SetRenderDrawColor(state.renderer, COLORS[i].r, COLORS[i].g, COLORS[i].b, 255);
-			SDL_RenderFillRect(state.renderer, &b);
-			SDL_SetRenderDrawColor(state.renderer, 255, 255, 255, 255);
-			SDL_RenderRect(state.renderer, &b);
-			text(state, LABELS[i], b.y + 16.0f, 5.2f, WHITE, CX, 600.0f);
-			text(state, NOTES[i], b.y + 66.0f, 2.6f, SDL_Color{225, 235, 225, 255}, CX, 600.0f);
+			if(portrait){
+				// The label up top in the button, its note under it.
+				SDL_SetRenderDrawColor(state.renderer, DRILL_COLORS[i].r, DRILL_COLORS[i].g, DRILL_COLORS[i].b, 255);
+				SDL_RenderFillRect(state.renderer, &b);
+				SDL_SetRenderDrawColor(state.renderer, 255, 255, 255, 255);
+				SDL_RenderRect(state.renderer, &b);
+				text(state, DRILL_LABELS[i], b.y + 26.0f, labelPixel(600.0f), WHITE, CX);
+				float np = notePixel(600.0f);
+				for(int l = 0; l < 2; l++)
+					text(state, DRILL_NOTES[i][l], b.y + 92.0f + l * 9.0f * np, np, SDL_Color{225, 235, 225, 255}, CX);
+			} else{
+				// A wide bar: the label on the left half, its note in two
+				// lines on the right, every label and note the same size.
+				SDL_SetRenderDrawColor(state.renderer, DRILL_COLORS[i].r, DRILL_COLORS[i].g, DRILL_COLORS[i].b, 255);
+				SDL_RenderFillRect(state.renderer, &b);
+				SDL_SetRenderDrawColor(state.renderer, 255, 255, 255, 255);
+				SDL_RenderRect(state.renderer, &b);
+				float half = b.w / 2.0f;
+				float lp = labelPixel(half - 50.0f);
+				DigitFont::drawText(state, DRILL_LABELS[i], b.x + 28.0f, b.y + (b.h - 5 * lp) / 2.0f, lp, WHITE);
+				float np = notePixel(half - 40.0f);
+				for(int l = 0; l < 2; l++)
+					DigitFont::drawText(state, DRILL_NOTES[i][l], b.x + half + 10.0f, b.y + b.h / 2.0f - 7.5f * np + l * 9.0f * np, np,
+						SDL_Color{225, 235, 225, 255});
+			}
 		}
 		int drills = 0, right = 0;
 		for(int s = 0; s < StrategyChart::SET_COUNT; s++){
@@ -215,12 +221,10 @@ public:
 		std::string summary = drills > 0
 			? std::to_string(drills) + " STRATEGY DECISIONS SO FAR, " + std::to_string((right * 100 + drills / 2) / drills) + "% RIGHT"
 			: "EVERY DECISION IN DRILLS AND REAL HANDS IS TRACKED HERE";
-		if(portrait){
-			ptext(state, summary, 1236.0f, 2.8f, GOLD);
-			ptext(state, "BET RAMP, BANKROLL, SESSION LOG AND GAME ODDS TURN SIDEWAYS", 1270.0f, 2.4f, DIM);
-		} else{
-			text(state, summary, 605.0f, 3.0f, GOLD);
-		}
+		if(portrait)
+			ptext(state, summary, 1200.0f, 2.8f, GOLD);
+		else
+			text(state, summary, 560.0f, 3.2f, GOLD);
 		button(state, backButton(), SDL_Color{80, 80, 80, 255}, "BACK", portrait ? 8.0f : 6.0f);
 	}
 
@@ -228,9 +232,9 @@ public:
 		SDL_FPoint p;
 		if(!TrainingUI::toLogical(state, wx, wy, p))
 			return NONE;
-		for(int i = 0; i < COUNT; i++)
+		for(int i = 0; i < count(); i++)
 			if(TrainingUI::hit(p, buttonRect(i)))
-				return (Choice)(DRILL + i);
+				return (Choice)((planning ? RAMP : DRILL) + i);
 		if(TrainingUI::hit(p, backButton()))
 			return BACK;
 		return NONE;
@@ -238,21 +242,86 @@ public:
 
 	std::vector<SDL_FRect> focusRects(){
 		std::vector<SDL_FRect> r;
-		for(int i = 0; i < COUNT; i++)
+		for(int i = 0; i < count(); i++)
 			r.push_back(buttonRect(i));
 		r.push_back(backButton());
 		return r;
 	}
 
 private:
+	static constexpr int DRILL_COUNT = 5, PLAN_COUNT = 3;
+	static constexpr const char* DRILL_LABELS[DRILL_COUNT] = { "STRATEGY DRILL", "MISTAKES + ACCURACY", "COUNTING SPEED",
+		"TRUE COUNT + DECKS", "BET RAMP DRILL" };
+	// Two lines each, under or beside the label.
+	static constexpr const char* DRILL_NOTES[DRILL_COUNT][2] = {
+		{ "FLASH CARDS. HANDS YOU", "MISS COME BACK MORE" },
+		{ "WHICH CHART CELLS YOU KNOW,", "AND YOUR LAST MISTAKES" },
+		{ "KEEP THE HI-LO RUNNING", "COUNT AS CARDS FLASH BY" },
+		{ "ESTIMATE DECKS LEFT, TURN", "RUNNING INTO TRUE COUNT" },
+		{ "A COUNT SHOWS -", "PICK THE BET" }
+	};
+	// The largest size every label (or note) fits at.
+	static float labelPixel(float maxW){
+		float p = 6.0f;
+		for(const char* l : DRILL_LABELS)
+			p = std::min(p, maxW / DigitFont::textWidth(l, 1.0f));
+		return p;
+	}
+	static float notePixel(float maxW){
+		float p = 4.0f;
+		for(int i = 0; i < DRILL_COUNT; i++)
+			for(int l = 0; l < 2; l++)
+				p = std::min(p, maxW / DigitFont::textWidth(DRILL_NOTES[i][l], 1.0f));
+		return p;
+	}
+	static constexpr SDL_Color DRILL_COLORS[DRILL_COUNT] = { {60, 130, 70, 255}, {150, 70, 70, 255}, {60, 90, 150, 255},
+		{50, 120, 130, 255}, {70, 110, 60, 255} };
+	static constexpr const char* PLAN_LABELS[PLAN_COUNT] = { "BET RAMP", "BANKROLL", "GAME ODDS" };
+	// Each card's note, a line per entry.
+	static constexpr const char* PLAN_NOTES[PLAN_COUNT][4] = {
+		{ "HOW MUCH TO BET", "AT EACH COUNT,", "AND WHAT IT", "IS WORTH" },
+		{ "WHAT A SESSION", "COSTS, AND HOW", "MUCH MONEY", "TO BRING" },
+		{ "EVERY GAME AND", "SIDE BET, RANKED", "BY WHAT IT", "COSTS YOU" }
+	};
+	static constexpr SDL_Color PLAN_COLORS[PLAN_COUNT] = { {150, 100, 40, 255}, {150, 120, 40, 255}, {120, 70, 130, 255} };
+
+	int count() const{ return planning ? PLAN_COUNT : DRILL_COUNT; }
+
+	void drawPlanning(SDLState& state){
+		using namespace TrainingUI;
+		text(state, "PLANNING AND ODDS", 40.0f, 7.0f, WHITE);
+		// One size for every title, one for every note: the largest that fits.
+		float titlePixel = 6.0f, notePixel = 4.6f;
+		for(int i = 0; i < PLAN_COUNT; i++){
+			titlePixel = std::min(titlePixel, (buttonRect(i).w - 36.0f) / DigitFont::textWidth(PLAN_LABELS[i], 1.0f));
+			for(const char* n : PLAN_NOTES[i])
+				notePixel = std::min(notePixel, (buttonRect(i).w - 36.0f) / DigitFont::textWidth(n, 1.0f));
+		}
+		for(int i = 0; i < PLAN_COUNT; i++){
+			SDL_FRect b = buttonRect(i);
+			SDL_SetRenderDrawColor(state.renderer, PLAN_COLORS[i].r, PLAN_COLORS[i].g, PLAN_COLORS[i].b, 255);
+			SDL_RenderFillRect(state.renderer, &b);
+			SDL_SetRenderDrawColor(state.renderer, 255, 255, 255, 255);
+			SDL_RenderRect(state.renderer, &b);
+			float cx = b.x + b.w / 2.0f;
+			text(state, PLAN_LABELS[i], b.y + 50.0f, titlePixel, WHITE, cx);
+			for(int l = 0; l < 4; l++)
+				text(state, PLAN_NOTES[i][l], b.y + 150.0f + l * 9.0f * notePixel, notePixel, SDL_Color{235, 240, 235, 255}, cx);
+		}
+		text(state, "YOUR REAL SESSIONS ARE IN SESSION LOG ON THE MAIN MENU", 560.0f, 3.0f, DIM);
+		button(state, backButton(), SDL_Color{80, 80, 80, 255}, "BACK", 6.0f);
+	}
+
 	SDL_FRect buttonRect(int i){
+		if(planning)
+			return SDL_FRect{ .x = 75.0f + i * 440.0f, .y = 130, .w = 410, .h = 390 };
 		if(TrainingUI::portrait)
-			return SDL_FRect{ .x = 30, .y = 120.0f + i * 123.0f, .w = 660, .h = 112 };
-		return SDL_FRect{ .x = 160, .y = 76.0f + i * 58.0f, .w = 450, .h = 50 };
+			return SDL_FRect{ .x = 30, .y = 150.0f + i * 200.0f, .w = 660, .h = 170 };
+		return SDL_FRect{ .x = 140, .y = 100.0f + i * 88.0f, .w = 1160, .h = 76 };
 	}
 	SDL_FRect backButton(){
-		if(TrainingUI::portrait)
-			return SDL_FRect{ .x = 30, .y = 1300, .w = 660, .h = 110 };
+		if(TrainingUI::portrait && !planning)
+			return SDL_FRect{ .x = 30, .y = 1280, .w = 660, .h = 120 };
 		return SDL_FRect{ .x = 620, .y = 630, .w = 200, .h = 56 };
 	}
 };

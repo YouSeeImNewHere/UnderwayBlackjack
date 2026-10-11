@@ -3,12 +3,13 @@
 #include "DigitFont.h"
 #include "Platform.h"
 #include <string>
+#include <algorithm>
 #include <vector>
 
 enum class PauseChoice{
 	None,
 	Resume,
-	Restart,
+	MainMenu,
 	StrategyTable,
 	About,
 	Gestures,
@@ -29,9 +30,11 @@ public:
 		SDL_RenderFillRect(state.renderer, nullptr);
 		SDL_SetRenderDrawBlendMode(state.renderer, SDL_BLENDMODE_NONE);
 
+		// One label size for the grid: the largest that fits MAIN MENU.
+		gridPixel = std::min(6.0f, (mainMenuButton.w - 30.0f) / DigitFont::textWidth("MAIN MENU", 1.0f));
 		drawButton(state, resumeButton, SDL_Color{60, 130, 70, 255}, "RESUME");
-		drawButton(state, restartButton, SDL_Color{150, 60, 60, 255}, "RESTART");
-		drawButton(state, strategyButton, SDL_Color{60, 90, 150, 255}, "STRATEGY TABLE");
+		drawButton(state, mainMenuButton, SDL_Color{150, 60, 60, 255}, "MAIN MENU");
+		drawButton(state, strategyButton, SDL_Color{60, 90, 150, 255}, "CHARTS");
 		drawButton(state, aboutButton, SDL_Color{110, 90, 60, 255}, "ABOUT");
 		drawButton(state, controlsButton, SDL_Color{90, 70, 130, 255}, "CONTROLS");
 		drawButton(state, statsButton, SDL_Color{120, 70, 130, 255}, "STATS");
@@ -49,8 +52,8 @@ public:
 
 		if(SDL_PointInRectFloat(&p, &resumeButton))
 			return PauseChoice::Resume;
-		if(SDL_PointInRectFloat(&p, &restartButton))
-			return PauseChoice::Restart;
+		if(SDL_PointInRectFloat(&p, &mainMenuButton))
+			return PauseChoice::MainMenu;
 		if(SDL_PointInRectFloat(&p, &strategyButton))
 			return PauseChoice::StrategyTable;
 		if(SDL_PointInRectFloat(&p, &aboutButton))
@@ -68,14 +71,15 @@ public:
 
 	// For mina.cpp's arrow-key navigation, top to bottom.
 	std::vector<SDL_FRect> focusRects(){
-		return { resumeButton, restartButton, strategyButton, aboutButton, controlsButton, statsButton, optionsButton };
+		return { resumeButton, mainMenuButton, strategyButton, aboutButton, controlsButton, statsButton, optionsButton };
 	}
 
 private:
 	// RESUME full width on top, then a 2-column grid so each stays
 	// thumb-sized (56+ tall) within the 720-tall canvas.
+	float gridPixel = 6.0f;
 	SDL_FRect resumeButton{ .x = 440, .y = 150, .w = 560, .h = 70 };
-	SDL_FRect restartButton{ .x = 440, .y = 240, .w = 270, .h = 64 };
+	SDL_FRect mainMenuButton{ .x = 440, .y = 240, .w = 270, .h = 64 };
 	SDL_FRect optionsButton{ .x = 730, .y = 240, .w = 270, .h = 64 };
 	SDL_FRect strategyButton{ .x = 440, .y = 322, .w = 270, .h = 64 };
 	SDL_FRect aboutButton{ .x = 730, .y = 322, .w = 270, .h = 64 };
@@ -89,7 +93,7 @@ private:
 		SDL_RenderRect(state.renderer, &rect);
 
 		// Auto-shrinks to fit -- see GameModeMenu.h's drawButton() for why.
-		float pixel = 6.0f;
+		float pixel = rect.w < resumeButton.w ? gridPixel : 6.0f;
 		float maxW = rect.w - 12.0f;
 		float w = DigitFont::textWidth(label, pixel);
 		if(w > maxW && w > 0.0f)

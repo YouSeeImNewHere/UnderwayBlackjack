@@ -1,6 +1,7 @@
 #pragma once
 #include "Game.h"
 #include "DigitFont.h"
+#include <algorithm>
 #include <string>
 #include <vector>
 
@@ -52,17 +53,27 @@ public:
 		float titleW = DigitFont::textWidth(title, titlePixel);
 		DigitFont::drawText(state, title, (1440.0f - titleW) / 2.0f, 60.0f, titlePixel, SDL_Color{255, 255, 255, 255});
 
-		drawButton(state, twoDeckButton(), SDL_Color{60, 130, 70, 255}, "2 DECK", 6.0f);
-		drawButton(state, sixDeckButton(), SDL_Color{60, 130, 70, 255}, "6 DECK", 6.0f);
-		drawButton(state, twoDeckLuckyLadiesButton(), SDL_Color{140, 80, 140, 255}, "LUCKY LADIES 2D", 4.0f);
-		drawButton(state, sixDeckLuckyLadiesButton(), SDL_Color{140, 80, 140, 255}, "LUCKY LADIES 6D", 4.0f);
-		drawButton(state, twoDeckPlayersEdgeButton(), SDL_Color{60, 100, 150, 255}, "PLAYERS EDGE 2D", 4.0f);
-		drawButton(state, sixDeckPlayersEdgeButton(), SDL_Color{60, 100, 150, 255}, "PLAYERS EDGE 6D", 4.0f);
-		drawButton(state, luckyStiffButton(), SDL_Color{150, 90, 50, 255}, "LUCKY STIFF 8 DECK", 5.0f);
-		drawButton(state, freeBetButton(), SDL_Color{50, 140, 130, 255}, "FREE BET BLACKJACK 6 DECK", 4.0f);
+		// A list: each game's name, then a button per deck count, then
+		// ABOUT. Every name, and every button label, the same size.
+		static const char* NAMES[5] = { "STANDARD", "LUCKY LADIES", "PLAYERS EDGE", "LUCKY STIFF", "FREE BET" };
+		static const float ROWS[5] = { ROW1_Y, ROW2_Y, ROW3_Y, ROW4_Y, ROW5_Y };
+		float namePixel = std::min(5.0f, (DECK2_X - NAME_X - 30.0f) / DigitFont::textWidth("PLAYERS EDGE", 1.0f));
+		for(int i = 0; i < 5; i++)
+			DigitFont::drawText(state, NAMES[i], NAME_X, ROWS[i] + (BTN_H - 5 * namePixel) / 2.0f, namePixel, SDL_Color{255, 225, 80, 255});
+		const float deckPixel = 5.0f;
+		drawButton(state, twoDeckButton(), SDL_Color{60, 130, 70, 255}, "2 DECK", deckPixel);
+		drawButton(state, sixDeckButton(), SDL_Color{60, 130, 70, 255}, "6 DECK", deckPixel);
+		drawButton(state, twoDeckLuckyLadiesButton(), SDL_Color{140, 80, 140, 255}, "2 DECK", deckPixel);
+		drawButton(state, sixDeckLuckyLadiesButton(), SDL_Color{140, 80, 140, 255}, "6 DECK", deckPixel);
+		drawButton(state, twoDeckPlayersEdgeButton(), SDL_Color{60, 100, 150, 255}, "2 DECK", deckPixel);
+		drawButton(state, sixDeckPlayersEdgeButton(), SDL_Color{60, 100, 150, 255}, "6 DECK", deckPixel);
+		drawButton(state, luckyStiffButton(), SDL_Color{150, 90, 50, 255}, "8 DECK", deckPixel);
+		drawButton(state, freeBetButton(), SDL_Color{50, 140, 130, 255}, "6 DECK", deckPixel);
 		if(training == Training::None){
-			drawButton(state, practiceButton_, SDL_Color{150, 120, 40, 255}, "PRACTICE", 5.0f);
-			drawButton(state, countQuizButton_, SDL_Color{150, 120, 40, 255}, "COUNT QUIZ", 5.0f);
+			DigitFont::drawText(state, "TRAINING", NAME_X, ROW6_Y + (BTN_H - 5 * namePixel) / 2.0f, namePixel, SDL_Color{230, 210, 140, 255});
+			float trainPixel = std::min(deckPixel, (BTN_W - 24.0f) / DigitFont::textWidth("COUNT QUIZ", 1.0f));
+			drawButton(state, practiceButton_, SDL_Color{150, 120, 40, 255}, "PRACTICE", trainPixel);
+			drawButton(state, countQuizButton_, SDL_Color{150, 120, 40, 255}, "COUNT QUIZ", trainPixel);
 		} else{
 			std::string hint = training == Training::Practice
 				? "OFF-CHART MOVES ARE CAUGHT BEFORE THEY PLAY"
@@ -179,17 +190,16 @@ public:
 	}
 
 private:
-	// 2 columns x 3 rows, plus 2 more rows of one button each spanning
-	// both columns (Lucky Stiff, Free Bet Blackjack -- neither is offered
-	// at more than one deck count, so neither needs a left/right pair like
-	// the others). Centered as a block: BLOCK_W wide, starting at BLOCK_X
-	// so the whole block sits in the middle of the 1440-wide canvas.
-	static constexpr float BTN_W = 300.0f;
+	// A row per game: its name, a 2 DECK and a 6 DECK button (Lucky
+	// Stiff and Free Bet come in one size, so theirs spans both), ABOUT.
+	static constexpr float BTN_W = 220.0f;
 	static constexpr float BTN_H = 62.0f;
-	static constexpr float COL_GAP = 40.0f;
+	static constexpr float COL_GAP = 20.0f;
 	static constexpr float ROW_GAP = 12.0f;
+	static constexpr float NAME_X = 200.0f;
+	static constexpr float DECK2_X = 600.0f;
 	static constexpr float BLOCK_W = BTN_W * 2 + COL_GAP;
-	static constexpr float BLOCK_X = (1440.0f - BLOCK_W) / 2.0f;
+	static constexpr float BLOCK_X = DECK2_X;
 	static constexpr float ROW1_Y = 122.0f;
 	static constexpr float ROW2_Y = ROW1_Y + BTN_H + ROW_GAP;
 	static constexpr float ROW3_Y = ROW2_Y + BTN_H + ROW_GAP;
@@ -212,7 +222,7 @@ private:
 	// BLOCK_W) -- there's a wide, otherwise-empty margin out there (the
 	// block itself is centered with ~400px clear on each side), plenty of
 	// room without touching the mode buttons' own layout at all.
-	static constexpr float ABOUT_BTN_W = 100.0f;
+	static constexpr float ABOUT_BTN_W = 160.0f;
 	static constexpr float ABOUT_BTN_X = BLOCK_X + BLOCK_W + 20.0f;
 	SDL_FRect standardAboutButton_{ .x = ABOUT_BTN_X, .y = ROW1_Y, .w = ABOUT_BTN_W, .h = BTN_H };
 	SDL_FRect luckyLadiesAboutButton_{ .x = ABOUT_BTN_X, .y = ROW2_Y, .w = ABOUT_BTN_W, .h = BTN_H };
@@ -258,7 +268,7 @@ private:
 	}
 
 	void drawAboutButton(SDLState& state, const SDL_FRect& rect){
-		drawButton(state, rect, SDL_Color{70, 70, 70, 255}, "ABOUT", 3.5f);
+		drawButton(state, rect, SDL_Color{70, 70, 70, 255}, "ABOUT", 5.0f);
 	}
 };
 

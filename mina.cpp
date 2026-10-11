@@ -281,8 +281,19 @@ static void applyMenuChoice(AppContext& ctx, MenuChoice choice){
             ctx.screen = AppScreen::Keyboard;
         break;
 
-        case MenuChoice::Training:
+        case MenuChoice::Drills:
+            ctx.trainingMenu.planning = false;
             ctx.screen = AppScreen::Training;
+        break;
+
+        case MenuChoice::Planning:
+            ctx.trainingMenu.planning = true;
+            ctx.screen = AppScreen::Training;
+        break;
+
+        case MenuChoice::SessionLog:
+            ctx.sessionLogMenu.open(ctx.trainer, ctx.save.unitBets[0]);
+            ctx.screen = AppScreen::SessionLog;
         break;
 
         case MenuChoice::Settings:
@@ -381,18 +392,15 @@ static void applyPauseChoice(AppContext& ctx, PauseChoice choice){
             ctx.pauseState = PauseState::None;
         break;
 
-        case PauseChoice::Restart:
-            // Same as the main menu's Restart: back out to game-mode
-            // selection entirely, not just a fresh round in the same mode
-            // -- lets the player actually pick a different game, not only
-            // reconfigure players/bankroll for the one they're already in.
-            // See applyMenuChoice()'s own Restart case for why both
-            // resetForNewGame() and a fresh SetupMenu are needed here too.
-            ctx.save.clear();
+        case PauseChoice::MainMenu:
+            // Leave the table for the main menu, where RESUME picks the
+            // game back up from the last save (made as each betting round
+            // opens -- a hand in progress is dropped, bets back). RESTART
+            // there starts a new one.
             ctx.table.resetForNewGame();
-            ctx.setupMenu = SetupMenu();
             ctx.pauseState = PauseState::None;
-            ctx.screen = AppScreen::GameMode;
+            ctx.menu.hasSavedGame = ctx.save.gameStarted;
+            ctx.screen = AppScreen::Menu;
         break;
 
         case PauseChoice::StrategyTable:
@@ -580,7 +588,9 @@ static void goBack(AppContext& ctx){
             ctx.drillMenu.dirty = ctx.countDrillMenu.dirty = ctx.trueCountMenu.dirty = false;
             ctx.rampDrillMenu.dirty = ctx.sessionLogMenu.dirty = false;
         }
-        ctx.screen = AppScreen::Training;
+        // SESSION LOG opens from the main menu; the rest from DRILLS or
+        // PLANNING.
+        ctx.screen = ctx.screen == AppScreen::SessionLog ? AppScreen::Menu : AppScreen::Training;
         return;
     case AppScreen::Setup:
         ctx.screen = AppScreen::GameOptions;
@@ -731,10 +741,6 @@ static void handleMenuClick(AppContext& ctx, float wx, float wy){
             case TrainingMenu::RAMP_DRILL:
                 ctx.rampDrillMenu.open(ctx.trainer);
                 ctx.screen = AppScreen::RampDrill;
-            break;
-            case TrainingMenu::SESSIONS:
-                ctx.sessionLogMenu.open(ctx.trainer, ctx.save.unitBets[0]);
-                ctx.screen = AppScreen::SessionLog;
             break;
             case TrainingMenu::BACK:
                 goBack(ctx);
@@ -1047,6 +1053,7 @@ static bool wantsPortrait(const AppContext& ctx){
         return false;
     switch(ctx.screen){
     case AppScreen::Training:
+        return !ctx.trainingMenu.planning;
     case AppScreen::Drill:
     case AppScreen::Review:
     case AppScreen::CountDrill:
@@ -1410,6 +1417,11 @@ static void mainLoopIteration(void *arg) {
     ctx.drillMenu.oneHanded = ctx.settingsMenu.oneHandedDrill;
     ctx.table.setOneHandedGestures(ctx.settingsMenu.oneHandedTable);
     ctx.table.setPenetration(ctx.settingsMenu.penetration);
+    // Switching VIBRATE on gives a buzz, so it's easy to check it works.
+    if(ctx.settingsMenu.vibrate && !ctx.haptics.on){
+        ctx.haptics.on = true;
+        ctx.haptics.buzz(Haptics::Firm);
+    }
     ctx.haptics.on = ctx.settingsMenu.vibrate;
     // The count quiz panel's TIMING button: keep it saved.
     if(ctx.table.quizRandom != ctx.save.quizRandom)
@@ -1611,10 +1623,13 @@ int main(int argc,char *argv[]) {
     // Sound (Audio.h): silent if there's no audio device or files.
     ctx->audio.init();
     ctx->haptics.init();
-    // Every table sound, plus a buzz for a blackjack and a rare side-bet hit.
+    // Every table sound, plus a light tap on each table button and a buzz
+    // for a blackjack and a rare side-bet hit.
     ctx->table.setSoundPlayer([ctx](Sfx sfx){
         ctx->audio.play(sfx);
-        if(sfx == Sfx::Win)
+        if(sfx == Sfx::Tap)
+            ctx->haptics.buzz(Haptics::Light);
+        else if(sfx == Sfx::Win)
             ctx->haptics.buzz(Haptics::Firm);
         else if(sfx == Sfx::Jackpot)
             ctx->haptics.buzz(Haptics::Firm);
