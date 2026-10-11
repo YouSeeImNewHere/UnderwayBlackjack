@@ -145,11 +145,6 @@ struct AppContext {
     int focusIndex = -1;
     int focusScreenKey = -1;
 
-    // GameOptionsMenu as it was when opened from the pause menu, so its
-    // BACK can undo changes that were never applied (GO is what applies
-    // them to Table) instead of leaving the menu showing settings the
-    // running game isn't actually using.
-    GameOptionsMenu optionsBeforeEdit;
 
     // saveProgress() runs once per betting phase (see mainLoopIteration);
     // reset whenever bets close.
@@ -284,7 +279,7 @@ static void applyMenuChoice(AppContext& ctx, MenuChoice choice){
 
         case MenuChoice::Charts:
             ctx.chartsMenu.open(ctx.save.gameStarted ? static_cast<GameMode>(ctx.save.gameModeIndex) : GameMode::SixDeck,
-                ctx.gameOptionsMenu.dealerHitsSoft17);
+                ctx.gameOptionsMenu.dealerHitsSoft17, ctx.gameOptionsMenu.indexPlays);
             ctx.screen = AppScreen::Charts;
         break;
 
@@ -388,6 +383,24 @@ static void applyPauseChoice(AppContext& ctx, PauseChoice choice){
         break;
 
         case PauseChoice::StrategyTable:
+            // INDEX PLAYS on: the count's deviations on the chart, and the
+            // DEVIATIONS list beside BACK.
+            ctx.strategyChart.listing = false;
+            ctx.strategyChart.marks = nullptr;
+            ctx.strategyChart.deviationLines.clear();
+            if(ctx.table.indexPlaysActive()){
+                std::vector<IndexPlays::Deviation> devs = IndexPlays::deviations(StrategyChart::active);
+                ctx.strategyChart.marks = [devs](int section, int row, int col, std::string& when, char& move){
+                    for(const IndexPlays::Deviation& d : devs)
+                        if(d.section == section && d.row == row && d.col == col){
+                            when = IndexPlays::markWhen(d);
+                            move = d.move;
+                            return true;
+                        }
+                    return false;
+                };
+                ctx.strategyChart.deviationLines = IndexPlays::deviationLines(StrategyChart::active);
+            }
             ctx.pauseState = PauseState::Strategy;
         break;
 
@@ -414,24 +427,13 @@ static void applyPauseChoice(AppContext& ctx, PauseChoice choice){
             // needs its own call since GameOptionsMenu can't just read
             // ctx.chosenMode/ctx.setupMenu itself.
             ctx.gameOptionsMenu.setGameMode(ctx.table.getGameMode());
-            ctx.optionsBeforeEdit = ctx.gameOptionsMenu;
+            ctx.settingsMenu.open(ctx.gameOptionsMenu, true);
             ctx.pauseState = PauseState::Options;
         break;
 
         case PauseChoice::None:
         break;
     }
-}
-
-// GameOptionsMenu's GO was tapped/clicked while reached from the pause
-// menu mid-game, not the pre-game GameMode->GameOptions->Setup flow --
-// applies the (possibly just-changed) settings to the already-running
-// Table directly and drops back to the pause menu itself, instead of
-// applyGameOptionsComplete()'s own move on to Setup.
-static void applyGameOptionsFromPause(AppContext& ctx){
-    applyOptionsToTable(ctx);
-    saveOptions(ctx);
-    ctx.pauseState = PauseState::Menu;
 }
 
 #ifdef __EMSCRIPTEN__
@@ -576,7 +578,10 @@ static void goBack(AppContext& ctx){
         ctx.pauseState = PauseState::None;
         return;
     case PauseState::Options:
-        ctx.gameOptionsMenu = ctx.optionsBeforeEdit;
+        // SETTINGS from the pause menu: changes apply as they're made.
+        applyOptionsToTable(ctx);
+        saveOptions(ctx);
+        ctx.save.saveSettings(ctx.settingsMenu.volume, ctx.settingsMenu.oneHandedDrill, ctx.settingsMenu.oneHandedTable);
         ctx.pauseState = PauseState::Menu;
         return;
     case PauseState::Strategy:
@@ -595,6 +600,25 @@ static void goBack(AppContext& ctx){
 // arrow-key "Enter" all route through, so each screen's buttons behave
 // identically however they were pressed.
 static std::vector<SDL_FRect> currentFocusRects(AppContext& ctx);
+
+// SETTINGS, from the home page or the pause menu.
+static void handleSettingsPoint(AppContext& ctx, float wx, float wy){
+    switch(ctx.settingsMenu.handlePoint(ctx.state, wx, wy)){
+        case SettingsMenu::BACK:
+            goBack(ctx);
+            break;
+        case SettingsMenu::RESET_TRAINING:
+            ctx.trainer.reset();
+            ctx.trainer.save();
+            break;
+        case SettingsMenu::RESET_STATS:
+            ctx.stats.reset();
+            ctx.stats.save();
+            break;
+        default:
+            break;
+    }
+}
 
 static void handleMenuClick(AppContext& ctx, float wx, float wy){
     // A soft tap for anything that's a button on this screen.
@@ -714,21 +738,7 @@ static void handleMenuClick(AppContext& ctx, float wx, float wy){
             goBack(ctx);
         return;
     case AppScreen::Settings:
-        switch(ctx.settingsMenu.handlePoint(ctx.state, wx, wy)){
-            case SettingsMenu::BACK:
-                goBack(ctx);
-                break;
-            case SettingsMenu::RESET_TRAINING:
-                ctx.trainer.reset();
-                ctx.trainer.save();
-                break;
-            case SettingsMenu::RESET_STATS:
-                ctx.stats.reset();
-                ctx.stats.save();
-                break;
-            default:
-                break;
-        }
+        handleSettingsPoint(ctx, wx, wy);
         return;
     case AppScreen::Stats: {
         bool changed = false;
@@ -777,10 +787,7 @@ static void handleMenuClick(AppContext& ctx, float wx, float wy){
         return;
     }
     case PauseState::Options:
-        if(ctx.gameOptionsMenu.handleBackPoint(ctx.state, wx, wy))
-            goBack(ctx);
-        else if(ctx.gameOptionsMenu.handlePoint(ctx.state, wx, wy))
-            applyGameOptionsFromPause(ctx);
+        handleSettingsPoint(ctx, wx, wy);
         return;
     }
 }
@@ -820,21 +827,26 @@ static std::vector<SDL_FRect> currentFocusRects(AppContext& ctx){
     case PauseState::Gestures: return ctx.gesturesMenu.focusRects();
     case PauseState::Keyboard: return ctx.keyboardMenu.focusRects();
     case PauseState::Stats:    return ctx.statsMenu.focusRects();
-    case PauseState::Options:  return ctx.gameOptionsMenu.focusRects();
+    case PauseState::Options:  return ctx.settingsMenu.focusRects();
     case PauseState::None:     break;
     }
     return {};
 }
 
 static bool optionsShowing(const AppContext& ctx){
-    return ctx.screen == AppScreen::GameOptions
+    return ctx.screen == AppScreen::GameOptions;
+}
+
+// SETTINGS, from the home page or the pause menu.
+static bool settingsShowing(const AppContext& ctx){
+    return ctx.screen == AppScreen::Settings
         || (ctx.screen == AppScreen::Playing && ctx.pauseState == PauseState::Options);
 }
 
 // The DEALER SPEED slider has the highlight: Left/Right move it, and
 // Enter does nothing (there's nothing to click).
 static bool sliderFocused(const AppContext& ctx){
-    if(ctx.screen == AppScreen::Settings)
+    if(settingsShowing(ctx))
         return ctx.focusIndex == SettingsMenu::VOLUME_FOCUS_INDEX || ctx.focusIndex == SettingsMenu::SPEED_FOCUS_INDEX;
     return optionsShowing(ctx) && ctx.focusIndex == GameOptionsMenu::SLIDER_FOCUS_INDEX;
 }
@@ -1134,9 +1146,9 @@ static void mainLoopIteration(void *arg) {
                     ctx.gameOptionsMenu.pointerDown(ctx.state, event.tfinger.x * ctx.state.width, event.tfinger.y * ctx.state.height);
                 else if(optionsShowing(ctx) && event.type == SDL_EVENT_FINGER_MOTION)
                     ctx.gameOptionsMenu.pointerMove(ctx.state, event.tfinger.x * ctx.state.width, event.tfinger.y * ctx.state.height);
-                else if(ctx.screen == AppScreen::Settings && event.type == SDL_EVENT_FINGER_DOWN)
+                else if(settingsShowing(ctx) && event.type == SDL_EVENT_FINGER_DOWN)
                     ctx.settingsMenu.pointerDown(ctx.state, event.tfinger.x * ctx.state.width, event.tfinger.y * ctx.state.height);
-                else if(ctx.screen == AppScreen::Settings && event.type == SDL_EVENT_FINGER_MOTION)
+                else if(settingsShowing(ctx) && event.type == SDL_EVENT_FINGER_MOTION)
                     ctx.settingsMenu.pointerMove(ctx.state, event.tfinger.x * ctx.state.width, event.tfinger.y * ctx.state.height);
                 if(event.type == SDL_EVENT_FINGER_UP){
                     ctx.focusIndex = -1;
@@ -1180,14 +1192,14 @@ static void mainLoopIteration(void *arg) {
         case SDL_EVENT_MOUSE_BUTTON_DOWN:
             if(event.button.button == SDL_BUTTON_LEFT && event.button.which != SDL_TOUCH_MOUSEID && optionsShowing(ctx))
                 ctx.gameOptionsMenu.pointerDown(ctx.state, event.button.x, event.button.y);
-            else if(event.button.button == SDL_BUTTON_LEFT && event.button.which != SDL_TOUCH_MOUSEID && ctx.screen == AppScreen::Settings)
+            else if(event.button.button == SDL_BUTTON_LEFT && event.button.which != SDL_TOUCH_MOUSEID && settingsShowing(ctx))
                 ctx.settingsMenu.pointerDown(ctx.state, event.button.x, event.button.y);
         break;
 
         case SDL_EVENT_MOUSE_MOTION:
             if(event.motion.which != SDL_TOUCH_MOUSEID && optionsShowing(ctx))
                 ctx.gameOptionsMenu.pointerMove(ctx.state, event.motion.x, event.motion.y);
-            else if(event.motion.which != SDL_TOUCH_MOUSEID && ctx.screen == AppScreen::Settings)
+            else if(event.motion.which != SDL_TOUCH_MOUSEID && settingsShowing(ctx))
                 ctx.settingsMenu.pointerMove(ctx.state, event.motion.x, event.motion.y);
         break;
 
@@ -1271,7 +1283,7 @@ static void mainLoopIteration(void *arg) {
                     break;
                 }
                 if(sliderFocused(ctx) && (key == SDL_SCANCODE_LEFT || key == SDL_SCANCODE_RIGHT)){
-                    if(ctx.screen == AppScreen::Settings)
+                    if(settingsShowing(ctx))
                         ctx.settingsMenu.nudge(ctx.focusIndex, key == SDL_SCANCODE_LEFT ? -5 : 5);
                     else
                         ctx.gameOptionsMenu.nudgeSpeed(key == SDL_SCANCODE_LEFT ? -5 : 5);
@@ -1437,7 +1449,7 @@ static void mainLoopIteration(void *arg) {
         else if(ctx.pauseState == PauseState::Stats)
             ctx.statsMenu.draw(ctx.state, ctx.res, ctx.stats);
         else if(ctx.pauseState == PauseState::Options)
-            ctx.gameOptionsMenu.draw(ctx.state, ctx.res);
+            ctx.settingsMenu.draw(ctx.state);
     }
 
     if(inMenu(ctx))

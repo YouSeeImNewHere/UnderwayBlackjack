@@ -31,12 +31,14 @@ public:
 			{ "sfx-deal-1", "sfx-deal-2", "sfx-deal-3" },
 			{ "sfx-flip", nullptr, nullptr },
 			{ "sfx-chips-pay-1", "sfx-chips-pay-2", nullptr },
-			{ "sfx-chips-take", nullptr, nullptr },
+			{ "sfx-chips-collect", nullptr, nullptr },
 			{ "sfx-chip-bet", nullptr, nullptr },
 			{ "sfx-shuffle", nullptr, nullptr },
 			{ "sfx-tap", nullptr, nullptr },
 			{ "sfx-win", nullptr, nullptr },
 			{ "sfx-jackpot", nullptr, nullptr },
+			{ "sfx-collect", nullptr, nullptr },
+			{ "sfx-chip-bet", nullptr, nullptr },
 		};
 		for(int s = 0; s < (int)Sfx::Count; s++)
 			for(const char* name : NAMES[s])

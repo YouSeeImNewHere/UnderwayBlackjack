@@ -49,6 +49,11 @@ public:
 			faceDownDoubles = false;
 	}
 
+	// The rule switches the current game offers (Free Bet's dealer always
+	// hits soft 17; index plays are for the standard games).
+	bool soft17Choosable() const { return !isFreeBet(gameMode); }
+	bool indexChoosable() const { return !isPlayersEdge(gameMode) && !isFreeBet(gameMode); }
+
 	bool faceDownDoublesAllowed() const {
 		return !isPlayersEdge(gameMode);
 	}

@@ -1079,7 +1079,10 @@ public:
 		for(auto it = chipAnimations.begin(); it != chipAnimations.end();){
 			float before = it->elapsed;
 			it->elapsed += deltaTime;
-			// The pile leaving the felt for the bankroll gets its own sound.
+			// Winnings set down beside the bet, then the pile leaving the
+			// felt for the bankroll, each get a sound.
+			if(it->kind == ChipAnimation::Win && before < CHIPS_TO_SPOT && it->elapsed >= CHIPS_TO_SPOT)
+				sound(Sfx::ChipsLand);
 			if(it->kind != ChipAnimation::Loss){
 				float leave = chipAnimationLength(*it) - CHIPS_TO_BANKROLL;
 				if(before < leave && it->elapsed >= leave)
@@ -4349,6 +4352,14 @@ private:
 
 	// restart the table
 	void clearTable(){
+		// One sweep sound for the whole table's cards.
+		bool anyCards = !dealer.hands[0].cards.empty();
+		for(int i = 0; i < numberOfPlayers && !anyCards; i++)
+			for(const Hand& hand : players[i].hands)
+				anyCards |= !hand.cards.empty();
+		if(anyCards)
+			sound(Sfx::Collect);
+
 		for(int i = 0; i < numberOfPlayers; i++){
 			for(int h = 0; h < players[i].hands.size(); h++){
 				std::vector<Card>& cards = players[i].hands[h].cards;

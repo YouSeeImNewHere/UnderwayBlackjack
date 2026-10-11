@@ -104,6 +104,78 @@ namespace IndexPlays{
 	// A simple 1-8 betting ramp: 1 unit at +1 or less, then (TC - 1).
 	inline int betUnits(int tc){ return std::clamp(tc - 1, 1, 8); }
 
+	// The index plays that change a chart's cells, for showing them on the
+	// chart: in each cell, the move the count calls for and the true count
+	// where it starts -- at that count or more (atOrAbove), or below `bound`.
+	struct Deviation{ int section, row, col; char chartMove, move; int bound; bool atOrAbove; };
+
+	inline bool dealerHitsSoft17(int set){
+		return set == StrategyChart::SHOE_H17 || set == StrategyChart::DOUBLE_DECK_H17 || set == StrategyChart::SINGLE_DECK_H17;
+	}
+
+	// Found by asking move() at every true count from -15 to +15, so the
+	// chart can never disagree with what the TIP and drills use.
+	inline std::vector<Deviation> deviations(const StrategyChart::Rules& rules){
+		std::vector<Deviation> out;
+		if(!StrategyChart::isStandard(rules.set))
+			return out;
+		bool h17 = dealerHitsSoft17(rules.set);
+		for(int section = 0; section < 3; section += 2)
+			for(int row = 0; row < StrategyChart::rowCount(section); row++){
+				if(section == 0 && row == 0) continue;            // 8 or less
+				if(section == 2 && row != 8) continue;             // only 10-10
+				for(int col = 0; col < 10; col++){
+					char chart = StrategyChart::resolve(StrategyChart::code(rules.set, section, row, col), rules.das, rules.surrender);
+					int total = section == 0 ? row + 8 : 20;
+					int lo = 99, hi = -99;
+					char devMove = 0;
+					for(int tc = -15; tc <= 15; tc++){
+						char m = move(section == 2, false, total, col, tc, h17, rules.surrender, true, chart);
+						if(!isDeviation(m, chart))
+							continue;
+						lo = std::min(lo, tc);
+						hi = std::max(hi, tc);
+						devMove = m;
+					}
+					if(!devMove)
+						continue;
+					bool above = hi == 15;
+					out.push_back({ section, row, col, chart, devMove, above ? lo : hi + 1, above });
+				}
+			}
+		return out;
+	}
+
+	// When, for the chart cell: "+4" (at +4 or more), "<0" (below 0).
+	inline std::string markWhen(const Deviation& d){
+		std::string n = d.bound > 0 ? "+" + std::to_string(d.bound) : std::to_string(d.bound);
+		return d.atOrAbove ? n : "<" + n;
+	}
+
+	inline const char* moveWord(char m){
+		switch(m){
+			case 'H': return "HIT";
+			case 'S': return "STAND";
+			case 'D': return "DOUBLE";
+			case 'P': return "SPLIT";
+			case 'R': return "SURRENDER";
+			default:  return "?";
+		}
+	}
+
+	// Each deviation spelled out, for the DEVIATIONS list.
+	inline std::vector<std::string> deviationLines(const StrategyChart::Rules& rules){
+		std::vector<std::string> lines;
+		static const char* UP[10] = { "2", "3", "4", "5", "6", "7", "8", "9", "10", "A" };
+		for(const Deviation& d : deviations(rules)){
+			std::string hand = d.section == 2 ? "10-10" : std::to_string(d.row + 8);
+			std::string when = d.atOrAbove ? "AT " + signedNum(d.bound) + " OR MORE" : "BELOW " + signedNum(d.bound);
+			lines.push_back(hand + " VS " + UP[d.col] + ":  " + moveWord(d.move) + " " + when);
+		}
+		lines.push_back(std::string("INSURANCE:  TAKE IT AT ") + signedNum(INSURANCE_INDEX) + " OR MORE");
+		return lines;
+	}
+
 	// Lucky Ladies turns in the player's favour at a high true count --
 	// measured with this game's engine over 20 million rounds per shoe:
 	// 2 decks +3% at +7, +7% at +8, 6 decks +11% at +8. Below that it
