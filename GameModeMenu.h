@@ -55,9 +55,9 @@ public:
 
 		// A list: each game's name, then a button per deck count, then
 		// ABOUT. Every name, and every button label, the same size.
-		static const char* NAMES[5] = { "STANDARD", "LUCKY LADIES", "PLAYERS EDGE", "LUCKY STIFF", "FREE BET" };
+		static const char* NAMES[5] = { "STANDARD", "LUCKY LADIES", "PLAYER'S EDGE", "LUCKY STIFF", "FREE BET" };
 		static const float ROWS[5] = { ROW1_Y, ROW2_Y, ROW3_Y, ROW4_Y, ROW5_Y };
-		float namePixel = std::min(5.0f, (DECK2_X - NAME_X - 30.0f) / DigitFont::textWidth("PLAYERS EDGE", 1.0f));
+		float namePixel = std::min(5.0f, (DECK2_X - NAME_X - 30.0f) / DigitFont::textWidth("PLAYER'S EDGE", 1.0f));
 		for(int i = 0; i < 5; i++)
 			DigitFont::drawText(state, NAMES[i], NAME_X, ROWS[i] + (BTN_H - 5 * namePixel) / 2.0f, namePixel, SDL_Color{255, 225, 80, 255});
 		const float deckPixel = 5.0f;

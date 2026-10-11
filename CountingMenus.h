@@ -370,7 +370,7 @@ public:
 			{ "8D H17 COUNTING", true, COUNT_8D_H17, 0, 0 },
 			{ "6D H17 BASIC", false, {}, EDGE_6D_H17, 1.15f },
 			{ "2D H17 BASIC", false, {}, EDGE_2D_H17, 1.15f },
-			{ "PLAYERS EDGE", false, {}, EDGE_PE6_H17, 1.16f },
+			{ "PLAYER'S EDGE", false, {}, EDGE_PE6_H17, 1.16f },
 			{ "FREE BET", false, {}, EDGE_FREE_BET, 1.07f },
 		};
 		return G;

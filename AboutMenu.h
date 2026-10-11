@@ -73,7 +73,7 @@ private:
 
 	std::string titleFor(GameMode mode){
 		if(hasLuckyLadies(mode)) return "LUCKY LADIES RULES";
-		if(isPlayersEdge(mode)) return "PLAYERS EDGE RULES";
+		if(isPlayersEdge(mode)) return "PLAYER'S EDGE RULES";
 		if(hasLuckyStiff(mode)) return "LUCKY STIFF RULES";
 		if(isFreeBet(mode)) return "FREE BET BLACKJACK RULES";
 		return "GAME RULES";
@@ -109,7 +109,7 @@ private:
 	// blackjack (a player 21 never pushes, redoubling is allowed at all).
 	const std::vector<std::string>& playersEdgeRules(){
 		static const std::vector<std::string> lines{
-			"PLAYERS EDGE, A SPANISH 21 VARIANT",
+			"PLAYER'S EDGE, A SPANISH 21 VARIANT",
 			"48 CARD SPANISH DECK, NO 10S IN PLAY",
 			"A PLAYER 21 ALWAYS WINS AT ONCE",
 			" EVEN AGAINST A DEALER 21, NO PUSH",
@@ -238,10 +238,10 @@ private:
 		if(isPlayersEdge(mode)){
 			static const std::vector<std::string> lines{
 				"MATCH UP PAYS ON YOUR CARDS",
-				" MATCHING THE DEALERS UP CARD",
+				" MATCHING THE DEALER'S UP CARD",
 				"",
 				"MATCH DOWN PAYS ON YOUR CARDS",
-				" MATCHING THE DEALERS HOLE CARD",
+				" MATCHING THE DEALER'S HOLE CARD",
 				" SETTLED AS SOON AS IT FLIPS",
 				"EACH MATCH BET IS AT MOST YOUR BET,",
 				" AND MATCH DOWN NEEDS A MATCH UP",

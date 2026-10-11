@@ -98,7 +98,7 @@ public:
 	void drawNetBreakdown(SDLState& state, const Stats& stats){
 		std::string line;
 		if(scope == Stats::AllGames){
-			static const char* SHORT[Stats::ScopeCount] = { "", "STANDARD", "LUCKY LADIES", "PLAYERS EDGE", "LUCKY STIFF", "FREE BET" };
+			static const char* SHORT[Stats::ScopeCount] = { "", "STANDARD", "LUCKY LADIES", "PLAYER'S EDGE", "LUCKY STIFF", "FREE BET" };
 			long long counted = 0;
 			line = "NET BY GAME:";
 			for(int g = Stats::StandardGame; g < Stats::ScopeCount; g++){
