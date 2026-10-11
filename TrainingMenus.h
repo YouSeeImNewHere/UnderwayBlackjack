@@ -257,6 +257,9 @@ class DrillMenu
 {
 public:
 	bool dirty = false; // the trainer has new results to save
+	// SETTINGS' ONE-HANDED DRILL (set by mina.cpp): on a phone, answer by
+	// gestures with no move buttons; off, buttons only.
+	bool oneHanded = true;
 
 	void open(GameMode mode, bool dealerHitsSoft17, bool indexPlays, Trainer& t){
 		trainer = &t;
@@ -325,12 +328,12 @@ public:
 			std::string score = "STREAK " + std::to_string(streak) + "   BEST " + std::to_string(best);
 			if(known > 0)
 				score += "   THIS CHART " + std::to_string((knownRight * 100 + known / 2) / known) + "%";
-			ptext(state, score, 880.0f, 3.0f, DIM);
-			ptext(state, "TAP: HIT    SWIPE SIDEWAYS: STAND    HOLD: SPLIT", 925.0f, 2.6f, DIM);
-			ptext(state, "SWIPE UP: DOUBLE    SWIPE DOWN: SURRENDER", 955.0f, 2.6f, DIM);
+			ptext(state, score, 900.0f, 3.0f, DIM);
 		}
 
-		for(int i = 0; i < 5; i++){
+		if(gestures())
+			drawGestureList(state);
+		else for(int i = 0; i < 5; i++){
 			bool enabled = moveEnabled(MOVES[i]);
 			SDL_Color c = !enabled ? SDL_Color{45, 50, 48, 255}
 				: (phase != ASKING && MOVES[i] == answer) ? SDL_Color{60, 150, 70, 255}
@@ -352,7 +355,7 @@ public:
 			return false;
 		}
 		if(phase == ASKING){
-			for(int i = 0; i < 5; i++)
+			for(int i = 0; i < 5 && !gestures(); i++)
 				if(TrainingUI::hit(p, moveRect(i)))
 					choose(MOVES[i]);
 		} else if(TrainingUI::portrait ? p.y > rulesY() + 190.0f : p.y < rulesY()){
@@ -384,14 +387,12 @@ public:
 	void fingerDown(SDLState& state, float wx, float wy){
 		gesture = false;
 		SDL_FPoint p;
-		if(phase != ASKING || !TrainingUI::toLogical(state, wx, wy, p) || !inGestureZone(p))
+		if(!gestures() || phase != ASKING || !TrainingUI::toLogical(state, wx, wy, p) || !inGestureZone(p))
 			return;
 		gesture = true;
 		gestureStart = gestureNow = p;
 		holdTimer = 0.0f;
 		onButton = false;
-		for(int i = 0; i < 5; i++)
-			onButton |= TrainingUI::hit(p, moveRect(i));
 	}
 	void fingerMove(SDLState& state, float wx, float wy){
 		SDL_FPoint p;
@@ -424,7 +425,7 @@ public:
 
 	std::vector<SDL_FRect> focusRects(){
 		std::vector<SDL_FRect> r;
-		for(int i = 0; i < 5; i++)
+		for(int i = 0; i < 5 && !gestures(); i++)
 			r.push_back(moveRect(i));
 		selector.addRects(r, rulesY(), true);
 		r.push_back(backButton());
@@ -458,6 +459,45 @@ private:
 	bool gesture = false, onButton = false, holdFired = false;
 	SDL_FPoint gestureStart{}, gestureNow{};
 	float holdTimer = 0.0f;
+
+	// Gestures only on the portrait (phone) screen, with ONE-HANDED on.
+	bool gestures() const{ return oneHanded && TrainingUI::portrait; }
+
+	// One-handed mode's controls, down the left side where the buttons
+	// were. After an answer, the right move's row turns green and a wrong
+	// pick's red.
+	void drawGestureList(SDLState& state){
+		using namespace TrainingUI;
+		struct Row{ const char* gesture; char move; };
+		static const Row ROWS[5] = {
+			{ "TAP", 'H' }, { "SWIPE LEFT OR RIGHT", 'S' }, { "SWIPE UP", 'D' },
+			{ "SWIPE DOWN", 'R' }, { "PRESS AND HOLD", 'P' }
+		};
+		DigitFont::drawText(state, "CONTROLS", 30.0f, 1000.0f, 3.4f, GOLD);
+		for(int i = 0; i < 5; i++){
+			const Row& r = ROWS[i];
+			float y = 1045.0f + i * 74.0f;
+			bool enabled = moveEnabled(r.move);
+			SDL_Color mark = (phase != ASKING && r.move == answer) ? SDL_Color{60, 150, 70, 255}
+				: (phase == WRONG && r.move == chosen) ? SDL_Color{160, 60, 60, 255}
+				: SDL_Color{0, 0, 0, 0};
+			if(mark.a){
+				SDL_FRect band{ .x = 16, .y = y - 12.0f, .w = 688, .h = 64 };
+				SDL_SetRenderDrawColor(state.renderer, mark.r, mark.g, mark.b, 255);
+				SDL_RenderFillRect(state.renderer, &band);
+			}
+			SDL_Color chip = enabled ? StrategyChart::colorFor(r.move) : SDL_Color{45, 50, 48, 255};
+			SDL_FRect swatch{ .x = 30, .y = y - 4.0f, .w = 16, .h = 52 };
+			SDL_SetRenderDrawColor(state.renderer, chip.r, chip.g, chip.b, 255);
+			SDL_RenderFillRect(state.renderer, &swatch);
+			SDL_Color c = enabled ? WHITE : SDL_Color{110, 120, 112, 255};
+			std::string move = moveName(r.move);
+			if(!enabled)
+				move += r.move == 'P' ? " - PAIRS ONLY" : " - OFF";
+			DigitFont::drawText(state, move, 64.0f, y, 5.0f, enabled ? GOLD : c);
+			DigitFont::drawText(state, r.gesture, 64.0f, y + 31.0f, 3.2f, c);
+		}
+	}
 
 	// Below the rule buttons (portrait) or above them (landscape), off BACK.
 	bool inGestureZone(SDL_FPoint p){

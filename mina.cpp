@@ -17,6 +17,7 @@
 #include "StrategyChart.h"
 #include "ChartsMenu.h"
 #include "TrainingMenus.h"
+#include "SettingsMenu.h"
 #include "AboutMenu.h"
 #include "GesturesMenu.h"
 #include "KeyboardMenu.h"
@@ -50,6 +51,7 @@ enum class AppScreen {
     TrueCount,
     Bankroll,
     Odds,
+    Settings,
     Playing
 };
 
@@ -104,6 +106,7 @@ struct AppContext {
     CountDrillMenu countDrillMenu;
     TrueCountMenu trueCountMenu;
     BankrollMenu bankrollMenu;
+    SettingsMenu settingsMenu;
     OddsMenu oddsMenu;
     StatsMenu statsMenu;
     TutorialMenu tutorialMenu;
@@ -272,6 +275,11 @@ static void applyMenuChoice(AppContext& ctx, MenuChoice choice){
 
         case MenuChoice::Training:
             ctx.screen = AppScreen::Training;
+        break;
+
+        case MenuChoice::Settings:
+            ctx.settingsMenu.open(ctx.gameOptionsMenu);
+            ctx.screen = AppScreen::Settings;
         break;
 
         case MenuChoice::Charts:
@@ -522,6 +530,10 @@ static void goBack(AppContext& ctx){
         if(ctx.gameModeMenu.leaveTraining())
             return;
         [[fallthrough]];
+    case AppScreen::Settings:
+        saveOptions(ctx);
+        ctx.save.saveSettings(ctx.settingsMenu.volume, ctx.settingsMenu.oneHandedDrill);
+        [[fallthrough]];
     case AppScreen::Charts:
     case AppScreen::Training:
     case AppScreen::Gestures:
@@ -701,6 +713,23 @@ static void handleMenuClick(AppContext& ctx, float wx, float wy){
         if(ctx.oddsMenu.handlePoint(ctx.state, wx, wy))
             goBack(ctx);
         return;
+    case AppScreen::Settings:
+        switch(ctx.settingsMenu.handlePoint(ctx.state, wx, wy)){
+            case SettingsMenu::BACK:
+                goBack(ctx);
+                break;
+            case SettingsMenu::RESET_TRAINING:
+                ctx.trainer.reset();
+                ctx.trainer.save();
+                break;
+            case SettingsMenu::RESET_STATS:
+                ctx.stats.reset();
+                ctx.stats.save();
+                break;
+            default:
+                break;
+        }
+        return;
     case AppScreen::Stats: {
         bool changed = false;
         if(ctx.statsMenu.handlePoint(ctx.state, wx, wy, ctx.stats, changed))
@@ -778,6 +807,7 @@ static std::vector<SDL_FRect> currentFocusRects(AppContext& ctx){
     case AppScreen::CountDrill:    return ctx.countDrillMenu.focusRects();
     case AppScreen::TrueCount:     return ctx.trueCountMenu.focusRects();
     case AppScreen::Bankroll:      return ctx.bankrollMenu.focusRects();
+    case AppScreen::Settings:      return ctx.settingsMenu.focusRects();
     case AppScreen::Odds:          return ctx.oddsMenu.focusRects();
     case AppScreen::Stats:         return ctx.statsMenu.focusRects();
     case AppScreen::Tutorial:      return ctx.tutorialMenu.focusRects();
@@ -804,6 +834,8 @@ static bool optionsShowing(const AppContext& ctx){
 // The DEALER SPEED slider has the highlight: Left/Right move it, and
 // Enter does nothing (there's nothing to click).
 static bool sliderFocused(const AppContext& ctx){
+    if(ctx.screen == AppScreen::Settings)
+        return ctx.focusIndex == SettingsMenu::VOLUME_FOCUS_INDEX || ctx.focusIndex == SettingsMenu::SPEED_FOCUS_INDEX;
     return optionsShowing(ctx) && ctx.focusIndex == GameOptionsMenu::SLIDER_FOCUS_INDEX;
 }
 
@@ -904,6 +936,7 @@ static SDL_Color letterboxColor(const AppContext &ctx) {
     case AppScreen::Menu:
     case AppScreen::GameMode:
     case AppScreen::GameOptions:
+    case AppScreen::Settings:
         return menuGreen;
     case AppScreen::Setup:
         return setupGreen;
@@ -1101,6 +1134,10 @@ static void mainLoopIteration(void *arg) {
                     ctx.gameOptionsMenu.pointerDown(ctx.state, event.tfinger.x * ctx.state.width, event.tfinger.y * ctx.state.height);
                 else if(optionsShowing(ctx) && event.type == SDL_EVENT_FINGER_MOTION)
                     ctx.gameOptionsMenu.pointerMove(ctx.state, event.tfinger.x * ctx.state.width, event.tfinger.y * ctx.state.height);
+                else if(ctx.screen == AppScreen::Settings && event.type == SDL_EVENT_FINGER_DOWN)
+                    ctx.settingsMenu.pointerDown(ctx.state, event.tfinger.x * ctx.state.width, event.tfinger.y * ctx.state.height);
+                else if(ctx.screen == AppScreen::Settings && event.type == SDL_EVENT_FINGER_MOTION)
+                    ctx.settingsMenu.pointerMove(ctx.state, event.tfinger.x * ctx.state.width, event.tfinger.y * ctx.state.height);
                 if(event.type == SDL_EVENT_FINGER_UP){
                     ctx.focusIndex = -1;
                     handleMenuClick(ctx, event.tfinger.x * ctx.state.width, event.tfinger.y * ctx.state.height);
@@ -1143,11 +1180,15 @@ static void mainLoopIteration(void *arg) {
         case SDL_EVENT_MOUSE_BUTTON_DOWN:
             if(event.button.button == SDL_BUTTON_LEFT && event.button.which != SDL_TOUCH_MOUSEID && optionsShowing(ctx))
                 ctx.gameOptionsMenu.pointerDown(ctx.state, event.button.x, event.button.y);
+            else if(event.button.button == SDL_BUTTON_LEFT && event.button.which != SDL_TOUCH_MOUSEID && ctx.screen == AppScreen::Settings)
+                ctx.settingsMenu.pointerDown(ctx.state, event.button.x, event.button.y);
         break;
 
         case SDL_EVENT_MOUSE_MOTION:
             if(event.motion.which != SDL_TOUCH_MOUSEID && optionsShowing(ctx))
                 ctx.gameOptionsMenu.pointerMove(ctx.state, event.motion.x, event.motion.y);
+            else if(event.motion.which != SDL_TOUCH_MOUSEID && ctx.screen == AppScreen::Settings)
+                ctx.settingsMenu.pointerMove(ctx.state, event.motion.x, event.motion.y);
         break;
 
         case SDL_EVENT_MOUSE_BUTTON_UP:
@@ -1230,7 +1271,10 @@ static void mainLoopIteration(void *arg) {
                     break;
                 }
                 if(sliderFocused(ctx) && (key == SDL_SCANCODE_LEFT || key == SDL_SCANCODE_RIGHT)){
-                    ctx.gameOptionsMenu.nudgeSpeed(key == SDL_SCANCODE_LEFT ? -5 : 5);
+                    if(ctx.screen == AppScreen::Settings)
+                        ctx.settingsMenu.nudge(ctx.focusIndex, key == SDL_SCANCODE_LEFT ? -5 : 5);
+                    else
+                        ctx.gameOptionsMenu.nudgeSpeed(key == SDL_SCANCODE_LEFT ? -5 : 5);
                     break;
                 }
                 if(key == SDL_SCANCODE_UP)         moveFocus(ctx, 0, -1);
@@ -1293,6 +1337,9 @@ static void mainLoopIteration(void *arg) {
     // Game Options' SOUND switch takes effect as soon as it's flipped
     // (BACK restores the menu's old value, and with it this).
     ctx.audio.effectsOn = ctx.gameOptionsMenu.soundEffects;
+    // SETTINGS: VOLUME and the drill's one-handed gestures, also live.
+    ctx.audio.setVolume(ctx.settingsMenu.volume / 100.0f);
+    ctx.drillMenu.oneHanded = ctx.settingsMenu.oneHandedDrill;
 
     switch(ctx.update.installState()){
         case UpdateCheck::Install::Done:
@@ -1344,6 +1391,8 @@ static void mainLoopIteration(void *arg) {
         ctx.keyboardMenu.draw(ctx.state, ctx.res);
     else if(ctx.screen == AppScreen::Charts)
         ctx.chartsMenu.draw(ctx.state);
+    else if(ctx.screen == AppScreen::Settings)
+        ctx.settingsMenu.draw(ctx.state);
     else if(ctx.screen == AppScreen::Training)
         ctx.trainingMenu.draw(ctx.state, ctx.trainer);
     else if(ctx.screen == AppScreen::Drill)
@@ -1427,6 +1476,8 @@ int main(int argc,char *argv[]) {
         ctx->tutorialMenu.open();
         ctx->screen = AppScreen::Tutorial;
     }
+    ctx->settingsMenu.volume = ctx->save.volume;
+    ctx->settingsMenu.oneHandedDrill = ctx->save.oneHandedDrill;
     // Last-used Game Options, for Resume and for the next new game alike.
     if(ctx->save.hasOptions){
         ctx->gameOptionsMenu.dealerSpeed = ctx->save.dealerSpeed;

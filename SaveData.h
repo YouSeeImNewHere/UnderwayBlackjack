@@ -3,6 +3,7 @@
 #include <string>
 #include <fstream>
 #include <cstdio>
+#include <algorithm>
 
 #ifdef __EMSCRIPTEN__
 #include <emscripten/emscripten.h>
@@ -67,6 +68,10 @@ struct SaveData
 	// 0 none, 1 practice, 2 count quiz.
 	int training = 0;
 
+	// SETTINGS: VOLUME (0-100) and ONE-HANDED DRILL.
+	int volume = 100;
+	bool oneHandedDrill = true;
+
 	// HOW TO PLAY opens by itself until it's been closed once.
 	bool tutorialSeen = false;
 
@@ -91,6 +96,8 @@ struct SaveData
 		training = webGet(11, 0);
 		dealerHitsSoft17 = webGet(12, 1) != 0;
 		indexPlays = webGet(13, 0) != 0;
+		volume = webGet(14, 100);
+		oneHandedDrill = webGet(15, 1) != 0;
 		for(int i = 0; i < 5; i++){
 			bankrolls[i] = webGetSeat(0, i, 500);
 			initialBets[i] = webGetSeat(1, i, 25);
@@ -143,6 +150,8 @@ struct SaveData
 			else if(key == "training") training = value;
 			else if(key == "dealerHitsSoft17") dealerHitsSoft17 = value != 0;
 			else if(key == "indexPlays") indexPlays = value != 0;
+			else if(key == "volume") volume = value;
+			else if(key == "oneHandedDrill") oneHandedDrill = value != 0;
 			else if(seat >= 0 && base == "bankroll") bankrolls[seat] = value;
 			else if(seat >= 0 && base == "bet") initialBets[seat] = value;
 			else if(seat >= 0 && base == "sideBet") sideBetSizes[seat] = value;
@@ -160,6 +169,7 @@ struct SaveData
 			numberOfPlayers = 1;
 		if(dealerSpeed < 0 || dealerSpeed > 100)
 			dealerSpeed = DEFAULT_DEALER_SPEED;
+		volume = std::clamp(volume, 0, 100);
 	}
 
 	// Called once SetupMenu's GO is confirmed -- persists exactly what the
@@ -213,6 +223,13 @@ struct SaveData
 		write();
 	}
 
+	// SETTINGS' own values (its table preferences go through saveOptions()).
+	void saveSettings(int volumePct, bool oneHanded){
+		volume = volumePct;
+		oneHandedDrill = oneHanded;
+		write();
+	}
+
 	// The old SLOW/NORMAL/FAST presets as slider positions -- the same
 	// speeds they gave (see GameOptionsMenu::dealerSpeedFactor()).
 	static int speedFromPreset(int preset){
@@ -261,7 +278,9 @@ private:
 			localStorage.setItem('underwayBlackjackTraining', $1);
 			localStorage.setItem('underwayBlackjackHitSoft17', $2);
 			localStorage.setItem('underwayBlackjackIndexPlays', $3);
-		}, doubleForLess ? 1 : 0, training, dealerHitsSoft17 ? 1 : 0, indexPlays ? 1 : 0);
+			localStorage.setItem('underwayBlackjackVolume', $4);
+			localStorage.setItem('underwayBlackjackOneHandedDrill', $5);
+		}, doubleForLess ? 1 : 0, training, dealerHitsSoft17 ? 1 : 0, indexPlays ? 1 : 0, volume, oneHandedDrill ? 1 : 0);
 		for(int i = 0; i < 5; i++){
 			EM_ASM({
 				localStorage.setItem('underwayBlackjackBankroll' + $0, $1);
@@ -288,6 +307,8 @@ private:
 		out << "training=" << training << "\n";
 		out << "dealerHitsSoft17=" << (dealerHitsSoft17 ? 1 : 0) << "\n";
 		out << "indexPlays=" << (indexPlays ? 1 : 0) << "\n";
+		out << "volume=" << volume << "\n";
+		out << "oneHandedDrill=" << (oneHandedDrill ? 1 : 0) << "\n";
 		for(int i = 0; i < 5; i++){
 			out << "bankroll" << i << "=" << bankrolls[i] << "\n";
 			out << "bet" << i << "=" << initialBets[i] << "\n";
@@ -305,7 +326,7 @@ private:
 	// literal) would split its argument and break the build.
 	static int webGet(int which, int def){
 		return EM_ASM_INT({
-			var keys = 'underwayBlackjackMode|underwayBlackjackPlayers|underwayBlackjackHasProgress|underwayBlackjackHasOptions|underwayBlackjackDealerSpeed|underwayBlackjackFaceDownDoubles|underwayBlackjackHideHands|underwayBlackjackTutorialSeen|underwayBlackjackDealerSpeedPct|underwayBlackjackSoundEffects|underwayBlackjackDoubleForLess|underwayBlackjackTraining|underwayBlackjackHitSoft17|underwayBlackjackIndexPlays'.split('|');
+			var keys = 'underwayBlackjackMode|underwayBlackjackPlayers|underwayBlackjackHasProgress|underwayBlackjackHasOptions|underwayBlackjackDealerSpeed|underwayBlackjackFaceDownDoubles|underwayBlackjackHideHands|underwayBlackjackTutorialSeen|underwayBlackjackDealerSpeedPct|underwayBlackjackSoundEffects|underwayBlackjackDoubleForLess|underwayBlackjackTraining|underwayBlackjackHitSoft17|underwayBlackjackIndexPlays|underwayBlackjackVolume|underwayBlackjackOneHandedDrill'.split('|');
 			var v = localStorage.getItem(keys[$0]);
 			return v === null ? $1 : parseInt(v);
 		}, which, def);

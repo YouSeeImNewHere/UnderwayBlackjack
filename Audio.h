@@ -3,6 +3,7 @@
 #include <string>
 #include <vector>
 #include <random>
+#include <algorithm>
 #include "Sound.h"
 
 // Plays the game's sound effects (Sound.h) through SDL's own audio (no
@@ -47,13 +48,26 @@ public:
 
 		for(SDL_AudioStream*& v : voices){
 			v = SDL_CreateAudioStream(&deviceSpec, &deviceSpec);
-			if(v)
+			if(v){
 				SDL_BindAudioStream(device, v);
+				SDL_SetAudioStreamGain(v, gain);
+			}
 		}
 	}
 
+	// SETTINGS' VOLUME, 0 to 1 (applied to every voice).
+	void setVolume(float volume){
+		volume = std::clamp(volume, 0.0f, 1.0f);
+		if(volume == gain)
+			return;
+		gain = volume;
+		for(SDL_AudioStream* v : voices)
+			if(v)
+				SDL_SetAudioStreamGain(v, gain);
+	}
+
 	void play(Sfx sfx){
-		if(!effectsOn || !device)
+		if(!effectsOn || !device || gain <= 0.0f)
 			return;
 		std::vector<Clip>& options = clips[(int)sfx];
 		if(options.empty())
@@ -89,6 +103,7 @@ private:
 	static constexpr int VOICE_COUNT = 8;
 
 	SDL_AudioDeviceID device = 0;
+	float gain = 1.0f;
 	SDL_AudioSpec deviceSpec{};
 	std::vector<Clip> clips[(int)Sfx::Count];
 	Uint64 lastPlayed[(int)Sfx::Count] = {};
