@@ -1078,33 +1078,6 @@ static bool wantsPortrait(const AppContext& ctx){
     }
 }
 
-// The game's canvas (logW x logH), scaled to fit the screen. On phones
-// it's fitted inside the safe area -- clear of the iPhone's Dynamic
-// Island/notch and rounded corners, and Android camera cut-outs -- by
-// making the logical canvas a little larger than the game and placing
-// the game in it with a viewport. SDL_RenderCoordinatesFromWindow()
-// takes the viewport off again, so taps still land in game coordinates.
-static void applyPresentation(SDLState& state){
-#if defined(SDL_PLATFORM_IOS) || defined(SDL_PLATFORM_ANDROID)
-    int ww = 0, wh = 0;
-    SDL_GetWindowSize(state.window, &ww, &wh);
-    SDL_Rect safe{ 0, 0, ww, wh };
-    if(!SDL_GetWindowSafeArea(state.window, &safe) || safe.w <= 0 || safe.h <= 0)
-        safe = SDL_Rect{ 0, 0, ww, wh };
-    if(ww > 0 && wh > 0){
-        float k = std::min(safe.w / (float)state.logW, safe.h / (float)state.logH);
-        SDL_SetRenderLogicalPresentation(state.renderer, (int)std::lround(ww / k), (int)std::lround(wh / k), SDL_LOGICAL_PRESENTATION_LETTERBOX);
-        SDL_Rect view{
-            (int)std::lround((safe.x + (safe.w - state.logW * k) / 2.0f) / k),
-            (int)std::lround((safe.y + (safe.h - state.logH * k) / 2.0f) / k),
-            state.logW, state.logH };
-        SDL_SetRenderViewport(state.renderer, &view);
-        return;
-    }
-#endif
-    SDL_SetRenderLogicalPresentation(state.renderer, state.logW, state.logH, SDL_LOGICAL_PRESENTATION_LETTERBOX);
-}
-
 static void updateOrientation(AppContext& ctx){
     bool want = wantsPortrait(ctx);
     if(want == ctx.portraitUI)
@@ -1114,7 +1087,7 @@ static void updateOrientation(AppContext& ctx){
     ctx.focusIndex = -1;
     ctx.state.logW = want ? 720 : 1440;
     ctx.state.logH = want ? 1440 : 720;
-    applyPresentation(ctx.state);
+    SDL_SetRenderLogicalPresentation(ctx.state.renderer, ctx.state.logW, ctx.state.logH, SDL_LOGICAL_PRESENTATION_LETTERBOX);
 #if defined(SDL_PLATFORM_IOS) || defined(SDL_PLATFORM_ANDROID)
     SDL_SetHint(SDL_HINT_ORIENTATIONS, want ? "Portrait" : "LandscapeLeft LandscapeRight");
 #endif
@@ -1160,11 +1133,6 @@ static void mainLoopIteration(void *arg) {
         case SDL_EVENT_WINDOW_RESIZED:
             ctx.state.width = event.window.data1;
             ctx.state.height = event.window.data2;
-            applyPresentation(ctx.state);
-        break;
-        // Rotating the phone moves the notch/island to the other side.
-        case SDL_EVENT_WINDOW_SAFE_AREA_CHANGED:
-            applyPresentation(ctx.state);
         break;
 
         case SDL_EVENT_FINGER_DOWN:
@@ -1759,10 +1727,8 @@ bool initialize(SDLState &state){
         cleanup(state);
         initSucess = false;
     }
-    // maintain aspect resolution no matter the screen resolution (inside
-    // the safe area on phones -- see applyPresentation())
-    if(state.renderer)
-        applyPresentation(state);
+    // maintain aspect resolution no matter the screen resolution
+    SDL_SetRenderLogicalPresentation(state.renderer,state.logW,state.logH,SDL_LOGICAL_PRESENTATION_LETTERBOX);
     return initSucess;
 }
 
