@@ -1,6 +1,7 @@
 #pragma once
 #include "Game.h"
 #include "DigitFont.h"
+#include "UI.h"
 #include "Platform.h"
 #include <algorithm>
 #include <string>
@@ -40,34 +41,26 @@ public:
 	bool updating = false;
 
 	void draw(SDLState& state, Resources& res){
-		SDL_SetRenderDrawColor(state.renderer, 20, 70, 35, 255);
-		SDL_RenderFillRect(state.renderer, nullptr);
+		UI::background(state);
+		UI::centered(state, "BLACKJACK VARIANTS", 56.0f, UI::HERO, UI::ACCENT);
 
-		float titlePixel = 9.0f;
-		std::string title = "BLACKJACK VARIANTS";
-		float titleW = DigitFont::textWidth(title, titlePixel);
-		DigitFont::drawText(state, title, (1440.0f - titleW) / 2.0f, 60.0f, titlePixel, SDL_Color{255, 225, 80, 255});
-
+		// The one main action, big and green; RESTART beside it in grey.
 		if(hasSavedGame){
-			drawButton(state, resumeButton, SDL_Color{60, 130, 70, 255}, "RESUME");
-			drawButton(state, restartButton, SDL_Color{150, 60, 60, 255}, "RESTART");
+			UI::button(state, resumeButton, UI::PRIMARY, "RESUME", UI::TITLE);
+			UI::button(state, restartButton, UI::SECONDARY, "RESTART", UI::BODY);
 		} else{
-			drawButton(state, startButton, SDL_Color{60, 130, 70, 255}, "START");
+			UI::button(state, startButton, UI::PRIMARY, "START", UI::TITLE);
 		}
 
-		// Every label the same size: as large as the longest one allows.
-		float pixel = 8.0f;
-		for(const Item& item : ITEMS)
-			pixel = std::min(pixel, (BTN_W - 28.0f) / DigitFont::textWidth(item.label, 1.0f));
 		for(int i = 0; i < ITEM_COUNT; i++)
-			drawButton(state, itemRect(i), ITEMS[i].color, ITEMS[i].label, pixel);
+			UI::button(state, itemRect(i), UI::NAV, ITEMS[i].label, UI::LARGE);
 
 		if(!updateVersion.empty())
-			drawButton(state, updateButton, updating ? SDL_Color{110, 90, 40, 255} : SDL_Color{190, 140, 30, 255},
-				updating ? std::string("UPDATING...") : "UPDATE TO V" + updateVersion);
+			UI::button(state, updateButton, updating ? UI::SECONDARY : UI::PRIMARY,
+				updating ? std::string("UPDATING...") : "UPDATE TO V" + updateVersion, UI::BODY);
 		if(!currentVersion.empty()){
 			std::string v = "V" + currentVersion;
-			DigitFont::drawText(state, v, 1440.0f - DigitFont::textWidth(v, 3.0f) - 16.0f, 690.0f, 3.0f, SDL_Color{150, 190, 150, 255});
+			UI::text(state, v, 1440.0f - UI::width(v, UI::SMALL) - 20.0f, 690.0f, UI::SMALL, UI::DIM);
 		}
 	}
 
@@ -120,44 +113,27 @@ public:
 private:
 	// Title, then the big play button(s), then a 3-wide grid of
 	// everything else (the last row centered).
-	SDL_FRect startButton{ .x = 570, .y = 160, .w = 300, .h = 110 };
-	SDL_FRect resumeButton{ .x = 570, .y = 150, .w = 300, .h = 74 };
-	SDL_FRect restartButton{ .x = 570, .y = 234, .w = 300, .h = 60 };
-	SDL_FRect updateButton{ .x = 520, .y = 636, .w = 400, .h = 60 };
+	SDL_FRect startButton{ .x = 560, .y = 160, .w = 320, .h = 104 };
+	SDL_FRect resumeButton{ .x = 560, .y = 150, .w = 320, .h = 84 };
+	SDL_FRect restartButton{ .x = 610, .y = 246, .w = 220, .h = 48 };
+	SDL_FRect updateButton{ .x = 520, .y = 620, .w = 400, .h = 56 };
 
-	struct Item{ const char* label; SDL_Color color; MenuChoice choice; };
+	struct Item{ const char* label; MenuChoice choice; };
 	static constexpr int ITEM_COUNT = 7;
 	static constexpr Item ITEMS[ITEM_COUNT] = {
-		{ "HOW TO PLAY", {50, 120, 130, 255}, MenuChoice::Tutorial },
-		{ "CHARTS", {150, 120, 40, 255}, MenuChoice::Charts },
-		{ "STATS", {120, 70, 130, 255}, MenuChoice::Stats },
-		{ "DRILLS", {60, 130, 70, 255}, MenuChoice::Drills },
-		{ "PLANNING", {150, 100, 40, 255}, MenuChoice::Planning },
-		{ "SESSION LOG", {90, 80, 140, 255}, MenuChoice::SessionLog },
-		{ "SETTINGS", {80, 90, 100, 255}, MenuChoice::Settings },
+		{ "HOW TO PLAY", MenuChoice::Tutorial },
+		{ "CHARTS", MenuChoice::Charts },
+		{ "STATS", MenuChoice::Stats },
+		{ "DRILLS", MenuChoice::Drills },
+		{ "PLANNING", MenuChoice::Planning },
+		{ "SESSION LOG", MenuChoice::SessionLog },
+		{ "SETTINGS", MenuChoice::Settings },
 	};
-	static constexpr float BTN_W = 340.0f, BTN_H = 66.0f, GAP = 24.0f;
+	static constexpr float BTN_W = 360.0f, BTN_H = 64.0f, GAP = 20.0f;
 	static SDL_FRect itemRect(int i){
 		int row = i / 3, col = i % 3;
 		int inRow = std::min(3, ITEM_COUNT - row * 3);
 		float rowW = inRow * BTN_W + (inRow - 1) * GAP;
-		return SDL_FRect{ .x = 720.0f - rowW / 2.0f + col * (BTN_W + GAP), .y = 340.0f + row * (BTN_H + 20.0f), .w = BTN_W, .h = BTN_H };
-	}
-
-	void drawButton(SDLState& state, const SDL_FRect& rect, SDL_Color color, const std::string& label, float maxPixel = 8.0f){
-		SDL_SetRenderDrawColor(state.renderer, color.r, color.g, color.b, color.a);
-		SDL_RenderFillRect(state.renderer, &rect);
-		SDL_SetRenderDrawColor(state.renderer, 255, 255, 255, 255);
-		SDL_RenderRect(state.renderer, &rect);
-
-		// Auto-shrinks to fit -- see GameModeMenu.h's drawButton() for why.
-		float pixel = maxPixel;
-		float maxW = rect.w - 12.0f;
-		float w = DigitFont::textWidth(label, pixel);
-		if(w > maxW && w > 0.0f)
-			pixel *= maxW / w;
-
-		w = DigitFont::textWidth(label, pixel);
-		DigitFont::drawText(state, label, rect.x + (rect.w - w) / 2.0f, rect.y + (rect.h - 5 * pixel) / 2.0f, pixel, SDL_Color{255, 255, 255, 255});
+		return SDL_FRect{ .x = 720.0f - rowW / 2.0f + col * (BTN_W + GAP), .y = 352.0f + row * (BTN_H + 22.0f), .w = BTN_W, .h = BTN_H };
 	}
 };

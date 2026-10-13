@@ -3,6 +3,7 @@
 #include "DigitFont.h"
 #include "GameModeMenu.h"
 #include "SaveData.h"
+#include "UI.h"
 #include <string>
 #include <vector>
 #include <algorithm>
@@ -121,74 +122,46 @@ public:
 	}
 
 	void draw(SDLState& state, Resources& res){
-		SDL_SetRenderDrawColor(state.renderer, 20, 70, 35, 255);
-		SDL_RenderFillRect(state.renderer, nullptr);
-
-		float titlePixel = 7.0f;
-		std::string title = "GAME OPTIONS";
-		float titleW = DigitFont::textWidth(title, titlePixel);
-		DigitFont::drawText(state, title, (1440.0f - titleW) / 2.0f, 50.0f, titlePixel, WHITE);
+		UI::background(state);
+		UI::title(state, "GAME OPTIONS");
 
 		drawRowLabel(state, ROW_Y[0], "DEALER SPEED");
 		drawSlider(state);
 
 		bool doublesAllowed = faceDownDoublesAllowed();
-		drawRowLabel(state, ROW_Y[1], doublesAllowed ? "FACE-DOWN DOUBLES" : "FACE-DOWN DOUBLES (N/A)");
-		if(doublesAllowed)
-			drawToggleButton(state, toggleButton(1), faceDownDoubles);
-		else{
-			SDL_FRect r = toggleButton(1);
-			SDL_SetRenderDrawColor(state.renderer, 50, 50, 50, 255);
-			SDL_RenderFillRect(state.renderer, &r);
-			SDL_SetRenderDrawColor(state.renderer, 255, 255, 255, 255);
-			SDL_RenderRect(state.renderer, &r);
-		}
+		drawRowLabel(state, ROW_Y[1], doublesAllowed ? "FACE-DOWN DOUBLES" : "FACE-DOWN DOUBLES - N/A");
+		UI::toggle(state, toggleButton(1), doublesAllowed && faceDownDoubles, doublesAllowed);
 
 		drawRowLabel(state, ROW_Y[2], "HIDE OTHER HANDS");
-		drawToggleButton(state, toggleButton(2), hideInactiveHands);
+		UI::toggle(state, toggleButton(2), hideInactiveHands);
 
 		drawRowLabel(state, ROW_Y[3], "SOUND");
-		drawToggleButton(state, toggleButton(3), soundEffects);
+		UI::toggle(state, toggleButton(3), soundEffects);
 
 		drawRowLabel(state, ROW_Y[4], "DOUBLE FOR LESS");
-		drawToggleButton(state, toggleButton(4), doubleForLess);
+		UI::toggle(state, toggleButton(4), doubleForLess);
 
 		bool soft17Choice = !isFreeBet(gameMode);
-		drawRowLabel(state, ROW_Y[5], soft17Choice ? "DEALER HITS SOFT 17" : "DEALER HITS SOFT 17 - ALWAYS");
-		drawToggleButton(state, toggleButton(5), soft17Choice ? dealerHitsSoft17 : true);
+		drawRowLabel(state, ROW_Y[5], soft17Choice ? "DEALER HITS SOFT 17" : "ALWAYS HITS SOFT 17");
+		UI::toggle(state, toggleButton(5), soft17Choice ? dealerHitsSoft17 : true, soft17Choice);
 
 		bool indexChoice = !isPlayersEdge(gameMode) && !isFreeBet(gameMode);
-		drawRowLabel(state, ROW_Y[6], indexChoice ? "INDEX PLAYS" : "INDEX PLAYS - STANDARD ONLY");
-		drawToggleButton(state, toggleButton(6), indexChoice && indexPlays);
+		drawRowLabel(state, ROW_Y[6], indexChoice ? "INDEX PLAYS" : "INDEX PLAYS - N/A");
+		UI::toggle(state, toggleButton(6), indexChoice && indexPlays, indexChoice);
 
 		drawRowLabel(state, ROW_Y[7], "AUTO SHUFFLER");
-		drawToggleButton(state, toggleButton(7), autoShuffler);
+		UI::toggle(state, toggleButton(7), autoShuffler);
 		if(autoShuffler){
 			// Why the count stays near zero, beside the switch.
-			float pixel = 2.8f;
-			SDL_Color dim{180, 200, 180, 255};
 			float x = CONTROL_X + TOGGLE_BTN_W + 16.0f;
-			DigitFont::drawText(state, "SHUFFLED EVERY ROUND", x, ROW_Y[7] + 8.0f, pixel, dim);
-			DigitFont::drawText(state, "COUNTING DOES NOT WORK", x, ROW_Y[7] + ROW_H - 5 * pixel - 8.0f, pixel, dim);
+			UI::text(state, "SHUFFLED EVERY ROUND", x, ROW_Y[7] + 6.0f, UI::SMALL, UI::DIM);
+			UI::text(state, "COUNTING DOES NOT WORK", x, ROW_Y[7] + ROW_H - 5 * UI::SMALL - 6.0f, UI::SMALL, UI::DIM);
 		}
 
 		drawSpeedDemo(state, res);
 
-		SDL_FRect go = confirmButton();
-		SDL_SetRenderDrawColor(state.renderer, 60, 130, 70, 255);
-		SDL_RenderFillRect(state.renderer, &go);
-		SDL_SetRenderDrawColor(state.renderer, 255, 255, 255, 255);
-		SDL_RenderRect(state.renderer, &go);
-		float goW = DigitFont::textWidth("GO", 8.0f);
-		DigitFont::drawText(state, "GO", go.x + (go.w - goW) / 2.0f, go.y + (go.h - 5 * 8.0f) / 2.0f, 8.0f, WHITE);
-
-		SDL_FRect back = backButton();
-		SDL_SetRenderDrawColor(state.renderer, 80, 80, 80, 255);
-		SDL_RenderFillRect(state.renderer, &back);
-		SDL_SetRenderDrawColor(state.renderer, 255, 255, 255, 255);
-		SDL_RenderRect(state.renderer, &back);
-		float backW = DigitFont::textWidth("BACK", 6.0f);
-		DigitFont::drawText(state, "BACK", back.x + (back.w - backW) / 2.0f, back.y + (back.h - 5 * 6.0f) / 2.0f, 6.0f, WHITE);
+		UI::button(state, confirmButton(), UI::PRIMARY, "GO", UI::TITLE);
+		UI::button(state, backButton(), UI::SECONDARY, "BACK", UI::LARGE);
 	}
 
 	// True when BACK is hit -- mina.cpp decides where back goes.
@@ -311,27 +284,17 @@ private:
 		SDL_FRect card{ .x = DEMO_X, .y = y, .w = cardWidth, .h = cardHeight };
 		SDL_RenderTexture(state.renderer, res.allCards, &backOFCard, &card);
 
-		std::string label = "SPEED";
-		float pixel = 3.5f;
-		float w = DigitFont::textWidth(label, pixel);
-		DigitFont::drawText(state, label, DEMO_X + (cardWidth - w) / 2.0f, DEMO_TOP_Y - 5 * pixel - 8.0f, pixel, WHITE);
+		UI::centered(state, "SPEED", DEMO_TOP_Y - 5 * UI::SMALL - 8.0f, UI::SMALL, UI::DIM, DEMO_X + cardWidth / 2.0f);
 	}
 
 	void drawRowLabel(SDLState& state, float y, const std::string& label){
-		// One size for every row (DEALER HITS SOFT 17 sets it); a rarer
-		// longer label shrinks on its own.
-		float maxW = CONTROL_X - LABEL_X - 20.0f;
-		float pixel = std::min(5.0f, maxW / DigitFont::textWidth("DEALER HITS SOFT 17", 1.0f));
-		float w = DigitFont::textWidth(label, pixel);
-		if(w > maxW && w > 0.0f)
-			pixel *= maxW / w;
-		DigitFont::drawText(state, label, LABEL_X, y + (ROW_H - 5 * pixel) / 2.0f, pixel, WHITE);
+		UI::label(state, label, LABEL_X, y, ROW_H);
 	}
 
 	static constexpr float SLOWEST_FACTOR = 2.5f;
 	static constexpr float FASTEST_FACTOR = 0.25f;
 	static constexpr float SLIDER_W = 440.0f;
-	static constexpr float KNOB_W = 36.0f;
+	static constexpr float KNOB_W = 30.0f; // UI::slider's knob
 	bool dragging = false;
 
 	// The whole slider row: what arrow keys highlight.
@@ -355,31 +318,7 @@ private:
 	}
 
 	void drawSlider(SDLState& state){
-		float midY = ROW_Y[0] + ROW_H / 2.0f;
-		float knobX = trackStart() + (trackEnd() - trackStart()) * dealerSpeed / 100.0f;
-
-		SDL_FRect track{ .x = CONTROL_X, .y = midY - 6.0f, .w = SLIDER_W, .h = 12.0f };
-		SDL_SetRenderDrawColor(state.renderer, 70, 70, 80, 255);
-		SDL_RenderFillRect(state.renderer, &track);
-		SDL_FRect filled{ .x = CONTROL_X, .y = track.y, .w = knobX - CONTROL_X, .h = track.h };
-		SDL_SetRenderDrawColor(state.renderer, 60, 130, 70, 255);
-		SDL_RenderFillRect(state.renderer, &filled);
-		SDL_SetRenderDrawColor(state.renderer, 255, 255, 255, 255);
-		SDL_RenderRect(state.renderer, &track);
-
-		SDL_FRect knob{ .x = knobX - KNOB_W / 2.0f, .y = ROW_Y[0] + 4.0f, .w = KNOB_W, .h = ROW_H - 8.0f };
-		SDL_SetRenderDrawColor(state.renderer, 230, 230, 230, 255);
-		SDL_RenderFillRect(state.renderer, &knob);
-		SDL_SetRenderDrawColor(state.renderer, 40, 40, 40, 255);
-		SDL_RenderRect(state.renderer, &knob);
-
-		float pixel = 3.5f, textY = ROW_Y[0] + ROW_H + 14.0f;
-		SDL_Color dim{180, 200, 180, 255};
-		DigitFont::drawText(state, "SLOW", CONTROL_X, textY, pixel, dim);
-		DigitFont::drawText(state, "FAST", CONTROL_X + SLIDER_W - DigitFont::textWidth("FAST", pixel), textY, pixel, dim);
-		std::string value = speedLabel();
-		float valuePixel = 4.5f;
-		DigitFont::drawText(state, value, CONTROL_X + (SLIDER_W - DigitFont::textWidth(value, valuePixel)) / 2.0f, textY, valuePixel, WHITE);
+		UI::slider(state, sliderRect(), dealerSpeed, speedLabel(), "SLOW", "FAST");
 	}
 
 	static constexpr float TOGGLE_BTN_W = 160.0f;
@@ -388,26 +327,8 @@ private:
 		return SDL_FRect{ .x = CONTROL_X, .y = ROW_Y[row], .w = TOGGLE_BTN_W, .h = ROW_H };
 	}
 
-	void drawToggleButton(SDLState& state, const SDL_FRect& r, bool on){
-		SDL_SetRenderDrawColor(state.renderer, on ? 60 : 80, on ? 130 : 80, on ? 70 : 80, 255);
-		SDL_RenderFillRect(state.renderer, &r);
-		SDL_SetRenderDrawColor(state.renderer, 255, 255, 255, 255);
-		SDL_RenderRect(state.renderer, &r);
-
-		std::string label = on ? "ON" : "OFF";
-		float pixel = 6.0f;
-		float w = DigitFont::textWidth(label, pixel);
-		DigitFont::drawText(state, label, r.x + (r.w - w) / 2.0f, r.y + (r.h - 5 * pixel) / 2.0f, pixel, WHITE);
-	}
-
 	// GO and BACK sit side by side, the pair centered.
-	SDL_FRect confirmButton(){
-		float w = 260.0f, h = 56.0f;
-		return SDL_FRect{ .x = 720.0f + 10.0f, .y = 646.0f, .w = w, .h = h };
-	}
+	SDL_FRect confirmButton(){ return UI::pairGoRect(); }
 
-	SDL_FRect backButton(){
-		float w = 200.0f, h = 56.0f;
-		return SDL_FRect{ .x = 720.0f - 10.0f - w, .y = 646.0f, .w = w, .h = h };
-	}
+	SDL_FRect backButton(){ return UI::pairBackRect(); }
 };

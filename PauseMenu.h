@@ -1,6 +1,7 @@
 #pragma once
 #include "Game.h"
 #include "DigitFont.h"
+#include "UI.h"
 #include "Platform.h"
 #include <string>
 #include <algorithm>
@@ -26,19 +27,21 @@ class PauseMenu
 public:
 	void draw(SDLState& state, Resources& res){
 		SDL_SetRenderDrawBlendMode(state.renderer, SDL_BLENDMODE_BLEND);
-		SDL_SetRenderDrawColor(state.renderer, 0, 0, 0, 165);
+		SDL_SetRenderDrawColor(state.renderer, 0, 0, 0, 185);
 		SDL_RenderFillRect(state.renderer, nullptr);
 		SDL_SetRenderDrawBlendMode(state.renderer, SDL_BLENDMODE_NONE);
 
-		// One label size for the grid: the largest that fits MAIN MENU.
-		gridPixel = std::min(6.0f, (mainMenuButton.w - 30.0f) / DigitFont::textWidth("MAIN MENU", 1.0f));
-		drawButton(state, resumeButton, SDL_Color{60, 130, 70, 255}, "RESUME");
-		drawButton(state, mainMenuButton, SDL_Color{150, 60, 60, 255}, "MAIN MENU");
-		drawButton(state, strategyButton, SDL_Color{60, 90, 150, 255}, "CHARTS");
-		drawButton(state, aboutButton, SDL_Color{110, 90, 60, 255}, "ABOUT");
-		drawButton(state, controlsButton, SDL_Color{90, 70, 130, 255}, "CONTROLS");
-		drawButton(state, statsButton, SDL_Color{120, 70, 130, 255}, "STATS");
-		drawButton(state, optionsButton, SDL_Color{70, 110, 110, 255}, "SETTINGS");
+		// A panel over the frozen table: the title, RESUME as the one
+		// main action, the rest in a grid, MAIN MENU last and in grey.
+		UI::box(state, panel, UI::PANEL);
+		UI::centered(state, "PAUSED", panel.y + 24.0f, UI::TITLE);
+		UI::button(state, resumeButton, UI::PRIMARY, "RESUME", UI::TITLE);
+		UI::button(state, strategyButton, UI::NAV, "CHARTS", UI::LARGE);
+		UI::button(state, optionsButton, UI::NAV, "SETTINGS", UI::LARGE);
+		UI::button(state, statsButton, UI::NAV, "STATS", UI::LARGE);
+		UI::button(state, controlsButton, UI::NAV, "CONTROLS", UI::LARGE);
+		UI::button(state, aboutButton, UI::NAV, "RULES", UI::LARGE);
+		UI::button(state, mainMenuButton, UI::SECONDARY, "MAIN MENU", UI::LARGE);
 	}
 
 	// windowX/windowY: raw event coordinates in window space, same
@@ -71,35 +74,18 @@ public:
 
 	// For mina.cpp's arrow-key navigation, top to bottom.
 	std::vector<SDL_FRect> focusRects(){
-		return { resumeButton, mainMenuButton, strategyButton, aboutButton, controlsButton, statsButton, optionsButton };
+		return { resumeButton, strategyButton, optionsButton, statsButton, controlsButton, aboutButton, mainMenuButton };
 	}
 
 private:
-	// RESUME full width on top, then a 2-column grid so each stays
-	// thumb-sized (56+ tall) within the 720-tall canvas.
-	float gridPixel = 6.0f;
-	SDL_FRect resumeButton{ .x = 440, .y = 150, .w = 560, .h = 70 };
-	SDL_FRect mainMenuButton{ .x = 440, .y = 240, .w = 270, .h = 64 };
-	SDL_FRect optionsButton{ .x = 730, .y = 240, .w = 270, .h = 64 };
-	SDL_FRect strategyButton{ .x = 440, .y = 322, .w = 270, .h = 64 };
-	SDL_FRect aboutButton{ .x = 730, .y = 322, .w = 270, .h = 64 };
-	SDL_FRect controlsButton{ .x = 440, .y = 404, .w = 270, .h = 64 };
-	SDL_FRect statsButton{ .x = 730, .y = 404, .w = 270, .h = 64 };
-
-	void drawButton(SDLState& state, const SDL_FRect& rect, SDL_Color color, const std::string& label){
-		SDL_SetRenderDrawColor(state.renderer, color.r, color.g, color.b, color.a);
-		SDL_RenderFillRect(state.renderer, &rect);
-		SDL_SetRenderDrawColor(state.renderer, 255, 255, 255, 255);
-		SDL_RenderRect(state.renderer, &rect);
-
-		// Auto-shrinks to fit -- see GameModeMenu.h's drawButton() for why.
-		float pixel = rect.w < resumeButton.w ? gridPixel : 6.0f;
-		float maxW = rect.w - 12.0f;
-		float w = DigitFont::textWidth(label, pixel);
-		if(w > maxW && w > 0.0f)
-			pixel *= maxW / w;
-
-		w = DigitFont::textWidth(label, pixel);
-		DigitFont::drawText(state, label, rect.x + (rect.w - w) / 2.0f, rect.y + (rect.h - 5 * pixel) / 2.0f, pixel, SDL_Color{255, 255, 255, 255});
-	}
+	// RESUME full width under the title, then a 2-column grid, each
+	// button thumb-sized within the 720-tall canvas.
+	SDL_FRect panel{ .x = 400, .y = 96, .w = 640, .h = 430 };
+	SDL_FRect resumeButton{ .x = 430, .y = 176, .w = 580, .h = 76 };
+	SDL_FRect strategyButton{ .x = 430, .y = 272, .w = 285, .h = 66 };
+	SDL_FRect optionsButton{ .x = 725, .y = 272, .w = 285, .h = 66 };
+	SDL_FRect statsButton{ .x = 430, .y = 352, .w = 285, .h = 66 };
+	SDL_FRect controlsButton{ .x = 725, .y = 352, .w = 285, .h = 66 };
+	SDL_FRect aboutButton{ .x = 430, .y = 432, .w = 285, .h = 66 };
+	SDL_FRect mainMenuButton{ .x = 725, .y = 432, .w = 285, .h = 66 };
 };

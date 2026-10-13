@@ -1003,8 +1003,8 @@ static void drawFocusHighlight(AppContext& ctx){
 // sync with each menu's background SDL_RenderFillRect color.
 static SDL_Color letterboxColor(const AppContext &ctx) {
     const SDL_Color darkGreen{10, 30, 15, 255};   // About, Gestures, StrategyChart
-    const SDL_Color menuGreen{20, 70, 35, 255};   // Menu, GameMode, GameOptions
-    const SDL_Color setupGreen{15, 55, 28, 255};  // SetupMenu
+    const SDL_Color menuGreen = UI::BG;   // Menu, GameMode, GameOptions, Settings
+    const SDL_Color setupGreen = UI::BG;  // SetupMenu
     const SDL_Color tableRail{86, 57, 15, 255};   // Table5Player.png's outer edge
     // tableRail under PauseMenu's 165-alpha black overlay
     const SDL_Color tableRailPaused{30, 20, 5, 255};
