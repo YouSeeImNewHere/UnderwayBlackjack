@@ -1,6 +1,7 @@
 #pragma once
 #include "Game.h"
 #include "DigitFont.h"
+#include "UI.h"
 #include "Platform.h"
 #include <algorithm>
 #include <string>
@@ -30,7 +31,7 @@ public:
 
 		float titlePixel = 7.0f;
 		float titleW = DigitFont::textWidth(pg.title, titlePixel);
-		DigitFont::drawText(state, pg.title, (1440.0f - titleW) / 2.0f, 50.0f, titlePixel, SDL_Color{255, 225, 80, 255});
+		DigitFont::drawText(state, pg.title, (1440.0f - titleW) / 2.0f, 50.0f, titlePixel, UI::ACCENT);
 
 		// Three kinds of line: "LEFT|RIGHT" rows make a two-column table
 		// (gold names, white details), aligned and centered as a block;
@@ -63,8 +64,8 @@ public:
 				y += 14.0f;
 			inTable = bar != std::string::npos;
 			if(bar != std::string::npos){
-				DigitFont::drawText(state, line.substr(0, bar), tableX, y, tablePixel, SDL_Color{255, 225, 80, 255});
-				DigitFont::drawText(state, line.substr(bar + 1), tableX + leftW + gap, y, tablePixel, SDL_Color{230, 230, 230, 255});
+				DigitFont::drawText(state, line.substr(0, bar), tableX, y, tablePixel, UI::ACCENT);
+				DigitFont::drawText(state, line.substr(bar + 1), tableX + leftW + gap, y, tablePixel, UI::TEXT);
 				y += 42.0f;
 				continue;
 			}
@@ -76,17 +77,17 @@ public:
 				w = DigitFont::textWidth(line, pixel);
 			}
 			DigitFont::drawText(state, line, (1440.0f - w) / 2.0f, y, pixel,
-				heading ? SDL_Color{255, 225, 80, 255} : SDL_Color{230, 230, 230, 255});
+				heading ? UI::ACCENT : UI::TEXT);
 			y += heading ? 46.0f : 50.0f;
 		}
 
 		std::string pageLabel = std::to_string(page + 1) + " / " + std::to_string(PAGE_COUNT);
 		float plW = DigitFont::textWidth(pageLabel, 4.0f);
-		DigitFont::drawText(state, pageLabel, (1440.0f - plW) / 2.0f, 590.0f, 4.0f, SDL_Color{160, 160, 160, 255});
+		DigitFont::drawText(state, pageLabel, (1440.0f - plW) / 2.0f, 590.0f, 4.0f, UI::DIM);
 
-		drawButton(state, backButton, SDL_Color{80, 80, 80, 255}, "BACK");
-		drawButton(state, nextButton, SDL_Color{60, 130, 70, 255}, page == PAGE_COUNT - 1 ? "DONE" : "NEXT");
-		drawButton(state, skipButton, SDL_Color{70, 70, 70, 255}, "SKIP");
+		drawButton(state, backButton, UI::SECONDARY, "BACK");
+		drawButton(state, nextButton, UI::PRIMARY, page == PAGE_COUNT - 1 ? "DONE" : "NEXT");
+		drawButton(state, skipButton, UI::SECONDARY, "SKIP");
 	}
 
 	// Returns true when the tutorial should close.
@@ -260,6 +261,6 @@ private:
 
 		float pixel = 6.0f;
 		float w = DigitFont::textWidth(label, pixel);
-		DigitFont::drawText(state, label, rect.x + (rect.w - w) / 2.0f, rect.y + (rect.h - 5 * pixel) / 2.0f, pixel, SDL_Color{255, 255, 255, 255});
+		DigitFont::drawText(state, label, rect.x + (rect.w - w) / 2.0f, rect.y + (rect.h - 5 * pixel) / 2.0f, pixel, UI::TEXT);
 	}
 };

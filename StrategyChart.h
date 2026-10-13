@@ -1,6 +1,7 @@
 #pragma once
 #include "Game.h"
 #include "DigitFont.h"
+#include "UI.h"
 #include "GameModeMenu.h"
 #include <string>
 #include <vector>
@@ -761,16 +762,6 @@ private:
 
 public:
 	static void drawButton(SDLState& state, const SDL_FRect& rect, SDL_Color color, const std::string& label, float pixel = 6.0f){
-		SDL_SetRenderDrawColor(state.renderer, color.r, color.g, color.b, color.a);
-		SDL_RenderFillRect(state.renderer, &rect);
-		SDL_SetRenderDrawColor(state.renderer, 255, 255, 255, 255);
-		SDL_RenderRect(state.renderer, &rect);
-
-		float w = DigitFont::textWidth(label, pixel);
-		if(w > rect.w - 16.0f){
-			pixel *= (rect.w - 16.0f) / w;
-			w = DigitFont::textWidth(label, pixel);
-		}
-		DigitFont::drawText(state, label, rect.x + (rect.w - w) / 2.0f, rect.y + (rect.h - 5 * pixel) / 2.0f, pixel, SDL_Color{255, 255, 255, 255});
+		UI::button(state, rect, color, label, UI::snap(pixel));
 	}
 };

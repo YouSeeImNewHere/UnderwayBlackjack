@@ -1002,7 +1002,7 @@ static void drawFocusHighlight(AppContext& ctx){
 // (whatever draw color happened to be left over from last frame). Keep in
 // sync with each menu's background SDL_RenderFillRect color.
 static SDL_Color letterboxColor(const AppContext &ctx) {
-    const SDL_Color darkGreen{10, 30, 15, 255};   // About, Gestures, StrategyChart
+    const SDL_Color darkGreen = UI::DEEP;   // About, Gestures, StrategyChart, drills
     const SDL_Color menuGreen = UI::BG;   // Menu, GameMode, GameOptions, Settings
     const SDL_Color setupGreen = UI::BG;  // SetupMenu
     const SDL_Color tableRail{86, 57, 15, 255};   // Table5Player.png's outer edge

@@ -19,6 +19,9 @@ namespace UI{
 
 inline constexpr SDL_Color BG{18, 60, 32, 255};
 inline constexpr SDL_Color PANEL{11, 38, 21, 255};
+// The content screens' background (drills, planning, stats, charts, how
+// to play): darker than the menus', so cards and numbers stand out.
+inline constexpr SDL_Color DEEP{10, 30, 15, 255};
 inline constexpr SDL_Color TEXT{240, 240, 232, 255};
 inline constexpr SDL_Color DIM{165, 192, 170, 255};
 inline constexpr SDL_Color ACCENT{240, 205, 95, 255};
@@ -64,10 +67,13 @@ inline void label(SDLState& state, const std::string& s, float x, float rowY, fl
 	DigitFont::drawText(state, s, x, rowY + (h - 5 * size) / 2.0f, size, c);
 }
 
-inline void background(SDLState& state){
-	SDL_SetRenderDrawColor(state.renderer, BG.r, BG.g, BG.b, 255);
+inline void background(SDLState& state, SDL_Color c = BG){
+	SDL_SetRenderDrawColor(state.renderer, c.r, c.g, c.b, 255);
 	SDL_RenderFillRect(state.renderer, nullptr);
 }
+// A size snapped to a whole number of font pixels (never below SMALL's 3,
+// the smallest that reads on a phone) -- fractional sizes blotch.
+inline float snap(float size){ return std::max(3.0f, (float)(int)(size + 0.5f)); }
 inline void title(SDLState& state, const std::string& s){
 	centered(state, s, TITLE_Y, TITLE, TEXT);
 }

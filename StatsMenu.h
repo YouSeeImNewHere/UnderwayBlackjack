@@ -1,6 +1,7 @@
 #pragma once
 #include "Game.h"
 #include "DigitFont.h"
+#include "UI.h"
 #include "Stats.h"
 #include <string>
 #include <vector>
@@ -31,9 +32,9 @@ public:
 		static const char* TITLES[PageCount] = { "STATS - ", "SIDE BETS - ", "GRAPH - " };
 		std::string title = std::string(TITLES[page]) + Stats::scopeName(scope);
 		float titleW = DigitFont::textWidth(title, titlePixel);
-		DigitFont::drawText(state, title, (1440.0f - titleW) / 2.0f, 45.0f, titlePixel, SDL_Color{255, 255, 255, 255});
-		drawButton(state, prevButton, SDL_Color{60, 90, 150, 255}, "<");
-		drawButton(state, nextButton, SDL_Color{60, 90, 150, 255}, ">");
+		DigitFont::drawText(state, title, (1440.0f - titleW) / 2.0f, 45.0f, titlePixel, UI::TEXT);
+		drawButton(state, prevButton, UI::NAV, "<");
+		drawButton(state, nextButton, UI::NAV, ">");
 
 		if(page == SideBetsPage)
 			drawSideBets(state, stats);
@@ -42,9 +43,9 @@ public:
 		else
 			drawMain(state, stats);
 
-		drawButton(state, backButton, SDL_Color{80, 80, 80, 255}, "BACK");
-		drawButton(state, pageButton, SDL_Color{60, 90, 150, 255}, page == MainPage ? "SIDE BETS" : page == SideBetsPage ? "GRAPH" : "MAIN STATS");
-		drawButton(state, resetButton, confirmingReset ? SDL_Color{170, 50, 50, 255} : SDL_Color{110, 60, 60, 255},
+		drawButton(state, backButton, UI::SECONDARY, "BACK");
+		drawButton(state, pageButton, UI::NAV, page == MainPage ? "SIDE BETS" : page == SideBetsPage ? "GRAPH" : "MAIN STATS");
+		drawButton(state, resetButton, confirmingReset ? UI::DANGER : UI::SECONDARY,
 			confirmingReset ? "SURE?" : "RESET");
 	}
 
@@ -117,7 +118,7 @@ public:
 			line = "NET WINNINGS " + signedNum(net) + " =  HANDS AND INSURANCE " + signedNum(net - sides) + "  +  SIDE BETS " + signedNum(sides);
 		}
 		float pixel = std::min(3.2f, 1400.0f / DigitFont::textWidth(line, 1.0f));
-		DigitFont::drawText(state, line, (1440.0f - DigitFont::textWidth(line, pixel)) / 2.0f, 600.0f, pixel, SDL_Color{150, 200, 150, 255});
+		DigitFont::drawText(state, line, (1440.0f - DigitFont::textWidth(line, pixel)) / 2.0f, 600.0f, pixel, UI::DIM);
 	}
 
 	// One row per side bet: how often and how much was bet, against how
@@ -177,7 +178,7 @@ public:
 
 		std::string note = "WON IS PROFIT ON HITS. NET ALSO COUNTS IN NET WINNINGS.";
 		float notePixel = 3.0f;
-		DigitFont::drawText(state, note, (1440.0f - DigitFont::textWidth(note, notePixel)) / 2.0f, 560.0f, notePixel, SDL_Color{150, 170, 150, 255});
+		DigitFont::drawText(state, note, (1440.0f - DigitFont::textWidth(note, notePixel)) / 2.0f, 560.0f, notePixel, UI::DIM);
 	}
 
 	// Net winnings after each round, lifetime, as a line; a dashed line
@@ -189,7 +190,7 @@ public:
 		long long session = net - stats.sessionBase[scope];
 
 		std::string summary = "LIFETIME " + signedNum(net) + "    THIS SESSION " + signedNum(session);
-		DigitFont::drawText(state, summary, (1440.0f - DigitFont::textWidth(summary, 4.5f)) / 2.0f, 125.0f, 4.5f, gold);
+		DigitFont::drawText(state, summary, (1440.0f - DigitFont::textWidth(summary, 5.0f)) / 2.0f, 125.0f, 5.0f, gold);
 
 		const float left = 170.0f, right = 1340.0f, top = 175.0f, bottom = 590.0f;
 		if(h.size() < 2){
@@ -214,11 +215,11 @@ public:
 		float zeroY = yFor(0);
 		SDL_SetRenderDrawColor(state.renderer, 160, 160, 160, 255);
 		SDL_RenderLine(state.renderer, left, zeroY, right, zeroY);
-		DigitFont::drawText(state, "0", left - 20.0f - DigitFont::textWidth("0", 3.5f), zeroY - 8.0f, 3.5f, dim);
+		DigitFont::drawText(state, "0", left - 20.0f - DigitFont::textWidth("0", 4.0f), zeroY - 8.0f, 4.0f, dim);
 		if(hi > 0 && yFor(hi) < zeroY - 30.0f)
-			DigitFont::drawText(state, signedNum(hi), left - 20.0f - DigitFont::textWidth(signedNum(hi), 3.5f), top, 3.5f, dim);
+			DigitFont::drawText(state, signedNum(hi), left - 20.0f - DigitFont::textWidth(signedNum(hi), 4.0f), top, 4.0f, dim);
 		if(lo < 0 && yFor(lo) > zeroY + 30.0f)
-			DigitFont::drawText(state, signedNum(lo), left - 20.0f - DigitFont::textWidth(signedNum(lo), 3.5f), bottom - 18.0f, 3.5f, dim);
+			DigitFont::drawText(state, signedNum(lo), left - 20.0f - DigitFont::textWidth(signedNum(lo), 4.0f), bottom - 18.0f, 4.0f, dim);
 
 		// Where this session started: as many points back as rounds played
 		// since the app opened.
@@ -314,9 +315,9 @@ private:
 	void drawColumn(SDLState& state, const std::vector<std::pair<std::string, std::string>>& rows, float x){
 		float y = 130.0f;
 		for(const auto& [label, value] : rows){
-			DigitFont::drawText(state, label, x, y, 4.0f, SDL_Color{200, 180, 100, 255});
+			DigitFont::drawText(state, label, x, y, 4.0f, UI::ACCENT);
 			float vW = DigitFont::textWidth(value, 5.0f);
-			DigitFont::drawText(state, value, x + 500.0f - vW, y - 2.0f, 5.0f, SDL_Color{235, 235, 235, 255});
+			DigitFont::drawText(state, value, x + 500.0f - vW, y - 2.0f, 5.0f, UI::TEXT);
 			y += 47.0f; // 10 rows end by 583, above drawNetBreakdown()'s line
 		}
 	}
@@ -333,6 +334,6 @@ private:
 			pixel *= (rect.w - 20.0f) / w;
 			w = DigitFont::textWidth(label, pixel);
 		}
-		DigitFont::drawText(state, label, rect.x + (rect.w - w) / 2.0f, rect.y + (rect.h - 5 * pixel) / 2.0f, pixel, SDL_Color{255, 255, 255, 255});
+		DigitFont::drawText(state, label, rect.x + (rect.w - w) / 2.0f, rect.y + (rect.h - 5 * pixel) / 2.0f, pixel, UI::TEXT);
 	}
 };

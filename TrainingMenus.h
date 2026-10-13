@@ -2,6 +2,7 @@
 #include "Game.h"
 #include "Card.h"
 #include "DigitFont.h"
+#include "UI.h"
 #include "StrategyChart.h"
 #include "ChartsMenu.h"
 #include "Trainer.h"
@@ -27,30 +28,25 @@
 // Each has draw()/handlePoint() (true = BACK) like every other menu; the
 // drills also take keys (handleKey) and time (update).
 namespace TrainingUI{
-	inline const SDL_Color WHITE{255, 255, 255, 255};
-	inline const SDL_Color GOLD{230, 210, 140, 255};
-	inline const SDL_Color DIM{160, 180, 160, 255};
+	// The shared palette (UI.h); GREEN and RED stay for right/wrong.
+	inline const SDL_Color WHITE = UI::TEXT;
+	inline const SDL_Color GOLD = UI::ACCENT;
+	inline const SDL_Color DIM = UI::DIM;
 	inline const SDL_Color GREEN{110, 230, 110, 255};
 	inline const SDL_Color RED{245, 110, 90, 255};
-	inline const SDL_Color BG{10, 30, 15, 255};
+	inline const SDL_Color BG = UI::DEEP;
 
-	inline void clear(SDLState& state){
-		SDL_SetRenderDrawColor(state.renderer, BG.r, BG.g, BG.b, BG.a);
-		SDL_RenderFillRect(state.renderer, nullptr);
-	}
+	inline void clear(SDLState& state){ UI::background(state, BG); }
 
-	// Centered on x (default: the screen), shrunk to fit maxW.
+	// Centered on x (default: the screen), at a whole size, stepped down
+	// a whole size at a time until it fits maxW.
 	inline void text(SDLState& state, const std::string& s, float y, float pixel, SDL_Color color, float cx = 720.0f, float maxW = 1400.0f){
-		float w = DigitFont::textWidth(s, pixel);
-		if(w > maxW && w > 0.0f){
-			pixel *= maxW / w;
-			w = DigitFont::textWidth(s, pixel);
-		}
-		DigitFont::drawText(state, s, cx - w / 2.0f, y, pixel, color);
+		pixel = UI::fit(s, UI::snap(pixel), maxW);
+		DigitFont::drawText(state, s, cx - DigitFont::textWidth(s, pixel) / 2.0f, y, pixel, color);
 	}
 
 	inline void button(SDLState& state, const SDL_FRect& r, SDL_Color c, const std::string& label, float pixel = 5.0f){
-		StrategyChart::drawButton(state, r, c, label, pixel);
+		UI::button(state, r, c, label, UI::snap(pixel));
 	}
 
 	inline bool hit(SDL_FPoint p, const SDL_FRect& r){ return SDL_PointInRectFloat(&p, &r); }
@@ -145,15 +141,15 @@ namespace TrainingUI{
 		void draw(SDLState& state, const std::string& value, const std::string& checkLabel = "CHECK"){
 			layout();
 			if(portrait){
-				button(state, minus, SDL_Color{70, 70, 80, 255}, "-", 12.0f);
-				button(state, plus, SDL_Color{70, 70, 80, 255}, "+", 12.0f);
-				text(state, value, 1140.0f, 10.0f, SDL_Color{255, 225, 80, 255}, CX, 220.0f);
-				button(state, check, SDL_Color{60, 130, 70, 255}, checkLabel, 9.0f);
+				button(state, minus, UI::SECONDARY, "-", 12.0f);
+				button(state, plus, UI::SECONDARY, "+", 12.0f);
+				text(state, value, 1140.0f, 10.0f, UI::ACCENT, CX, 220.0f);
+				button(state, check, UI::PRIMARY, checkLabel, 9.0f);
 			} else{
-				button(state, minus, SDL_Color{70, 70, 80, 255}, "-", 6.0f);
-				button(state, plus, SDL_Color{70, 70, 80, 255}, "+", 6.0f);
-				text(state, value, 480.0f, 7.0f, SDL_Color{255, 225, 80, 255}, 650.0f);
-				button(state, check, SDL_Color{60, 130, 70, 255}, checkLabel, 5.0f);
+				button(state, minus, UI::SECONDARY, "-", 6.0f);
+				button(state, plus, UI::SECONDARY, "+", 6.0f);
+				text(state, value, 480.0f, 7.0f, UI::ACCENT, 650.0f);
+				button(state, check, UI::PRIMARY, checkLabel, 5.0f);
 			}
 		}
 		bool hitMinus(SDL_FPoint p){ layout(); return hit(p, minus); }
@@ -196,7 +192,7 @@ public:
 				text(state, DRILL_LABELS[i], b.y + 26.0f, labelPixel(600.0f), WHITE, CX);
 				float np = notePixel(600.0f);
 				for(int l = 0; l < 2; l++)
-					text(state, DRILL_NOTES[i][l], b.y + 92.0f + l * 9.0f * np, np, SDL_Color{225, 235, 225, 255}, CX);
+					text(state, DRILL_NOTES[i][l], b.y + 92.0f + l * 9.0f * np, np, UI::TEXT, CX);
 			} else{
 				// A wide bar: the label on the left half, its note in two
 				// lines on the right, every label and note the same size.
@@ -210,7 +206,7 @@ public:
 				float np = notePixel(half - 40.0f);
 				for(int l = 0; l < 2; l++)
 					DigitFont::drawText(state, DRILL_NOTES[i][l], b.x + half + 10.0f, b.y + b.h / 2.0f - 7.5f * np + l * 9.0f * np, np,
-						SDL_Color{225, 235, 225, 255});
+						UI::TEXT);
 			}
 		}
 		int drills = 0, right = 0;
@@ -222,10 +218,10 @@ public:
 			? std::to_string(drills) + " STRATEGY DECISIONS SO FAR, " + std::to_string((right * 100 + drills / 2) / drills) + "% RIGHT"
 			: "EVERY DECISION IN DRILLS AND REAL HANDS IS TRACKED HERE";
 		if(portrait)
-			ptext(state, summary, 1200.0f, 2.8f, GOLD);
+			ptext(state, summary, 1200.0f, 3.0f, GOLD);
 		else
-			text(state, summary, 560.0f, 3.2f, GOLD);
-		button(state, backButton(), SDL_Color{80, 80, 80, 255}, "BACK", portrait ? 8.0f : 6.0f);
+			text(state, summary, 560.0f, 3.0f, GOLD);
+		button(state, backButton(), UI::SECONDARY, "BACK", portrait ? 8.0f : 6.0f);
 	}
 
 	Choice handlePoint(SDLState& state, float wx, float wy){
@@ -274,8 +270,7 @@ private:
 				p = std::min(p, maxW / DigitFont::textWidth(DRILL_NOTES[i][l], 1.0f));
 		return p;
 	}
-	static constexpr SDL_Color DRILL_COLORS[DRILL_COUNT] = { {60, 130, 70, 255}, {150, 70, 70, 255}, {60, 90, 150, 255},
-		{50, 120, 130, 255}, {70, 110, 60, 255} };
+	static constexpr SDL_Color DRILL_COLORS[DRILL_COUNT] = { UI::NAV, UI::NAV, UI::NAV, UI::NAV, UI::NAV };
 	static constexpr const char* PLAN_LABELS[PLAN_COUNT] = { "BET RAMP", "BANKROLL", "GAME ODDS" };
 	// Each card's note, a line per entry.
 	static constexpr const char* PLAN_NOTES[PLAN_COUNT][4] = {
@@ -283,7 +278,7 @@ private:
 		{ "WHAT A SESSION", "COSTS, AND HOW", "MUCH MONEY", "TO BRING" },
 		{ "EVERY GAME AND", "SIDE BET, RANKED", "BY WHAT IT", "COSTS YOU" }
 	};
-	static constexpr SDL_Color PLAN_COLORS[PLAN_COUNT] = { {150, 100, 40, 255}, {150, 120, 40, 255}, {120, 70, 130, 255} };
+	static constexpr SDL_Color PLAN_COLORS[PLAN_COUNT] = { UI::NAV, UI::NAV, UI::NAV };
 
 	int count() const{ return planning ? PLAN_COUNT : DRILL_COUNT; }
 
@@ -306,10 +301,10 @@ private:
 			float cx = b.x + b.w / 2.0f;
 			text(state, PLAN_LABELS[i], b.y + 50.0f, titlePixel, WHITE, cx);
 			for(int l = 0; l < 4; l++)
-				text(state, PLAN_NOTES[i][l], b.y + 150.0f + l * 9.0f * notePixel, notePixel, SDL_Color{235, 240, 235, 255}, cx);
+				text(state, PLAN_NOTES[i][l], b.y + 150.0f + l * 9.0f * notePixel, notePixel, UI::TEXT, cx);
 		}
 		text(state, "YOUR REAL SESSIONS ARE IN SESSION LOG ON THE MAIN MENU", 560.0f, 3.0f, DIM);
-		button(state, backButton(), SDL_Color{80, 80, 80, 255}, "BACK", 6.0f);
+		button(state, backButton(), UI::SECONDARY, "BACK", 6.0f);
 	}
 
 	SDL_FRect buttonRect(int i){
@@ -377,27 +372,27 @@ public:
 		StrategyChart::Rules rules = selector.rules();
 		DigitFont::drawText(state, "DRILL", 200.0f, 34.0f, 6.0f, WHITE);
 		DigitFont::drawText(state, std::to_string(sessionRight) + "/" + std::to_string(sessionTotal), 560.0f, 34.0f, 5.0f, DIM);
-		ptext(state, StrategyChart::titleFor(rules), 104.0f, 2.6f, DIM);
+		ptext(state, StrategyChart::titleFor(rules), 104.0f, 3.0f, DIM);
 		selector.draw(state, rulesY(), true);
 
 		ptext(state, "DEALER", 340.0f, 4.0f, GOLD);
 		drawCard(state, res, dealerSuit, dealerValue, CX - 70.0f, 375.0f, 1.4f);
 		if(counting)
-			ptext(state, "TRUE COUNT " + signedNum(trueCount), 585.0f, 5.0f, SDL_Color{255, 225, 80, 255});
+			ptext(state, "TRUE COUNT " + signedNum(trueCount), 585.0f, 5.0f, UI::ACCENT);
 		for(size_t i = 0; i < playerCards.size(); i++)
 			drawCard(state, res, playerCards[i].first, playerCards[i].second, CX - 150.0f + i * 160.0f, 630.0f, 1.4f);
 
 		if(phase == CORRECT){
 			ptext(state, "CORRECT - " + std::string(moveName(answer)), 845.0f, 6.0f, GREEN);
 			if(!answerWhy.empty())
-				ptext(state, answerWhy, 900.0f, 2.8f, GOLD);
+				ptext(state, answerWhy, 900.0f, 3.0f, GOLD);
 		} else if(phase == WRONG){
-			ptext(state, std::string("THE PLAY IS ") + moveName(answer), 838.0f, 5.5f, RED);
+			ptext(state, std::string("THE PLAY IS ") + moveName(answer), 838.0f, 6.0f, RED);
 			drawChartRow(state, rules, 20.0f, 875.0f, 70.0f, 60.4f, 30.0f, 46.0f);
 			std::string detail = handName(section, row) + " VS " + dealerName(col);
 			if(!answerWhy.empty())
 				detail += " - " + answerWhy;
-			ptext(state, detail + " - TAP FOR NEXT", 962.0f, 2.4f, GOLD);
+			ptext(state, detail + " - TAP FOR NEXT", 962.0f, 3.0f, GOLD);
 		} else{
 			int known = trainer ? trainer->totalAttempts(rules.set) : 0;
 			int knownRight = trainer ? trainer->totalCorrect(rules.set) : 0;
@@ -411,13 +406,13 @@ public:
 			drawGestureList(state);
 		else for(int i = 0; i < 5; i++){
 			bool enabled = moveEnabled(MOVES[i]);
-			SDL_Color c = !enabled ? SDL_Color{45, 50, 48, 255}
-				: (phase != ASKING && MOVES[i] == answer) ? SDL_Color{60, 150, 70, 255}
-				: (phase == WRONG && MOVES[i] == chosen) ? SDL_Color{160, 60, 60, 255}
+			SDL_Color c = !enabled ? UI::PANEL
+				: (phase != ASKING && MOVES[i] == answer) ? UI::PRIMARY
+				: (phase == WRONG && MOVES[i] == chosen) ? UI::DANGER
 				: StrategyChart::colorFor(MOVES[i]);
 			button(state, moveRect(i), c, moveName(MOVES[i]), 8.0f);
 		}
-		button(state, backButton(), SDL_Color{80, 80, 80, 255}, "BACK", 6.0f);
+		button(state, backButton(), UI::SECONDARY, "BACK", 6.0f);
 	}
 
 	bool handlePoint(SDLState& state, float wx, float wy){
@@ -549,29 +544,29 @@ private:
 			{ "TAP", 'H' }, { "SWIPE LEFT OR RIGHT", 'S' }, { "SWIPE UP", 'D' },
 			{ "SWIPE DOWN", 'R' }, { "PRESS AND HOLD", 'P' }
 		};
-		DigitFont::drawText(state, "CONTROLS", 30.0f, 1000.0f, 3.4f, GOLD);
+		DigitFont::drawText(state, "CONTROLS", 30.0f, 1000.0f, 3.0f, GOLD);
 		for(int i = 0; i < 5; i++){
 			const Row& r = ROWS[i];
 			float y = 1045.0f + i * 74.0f;
 			bool enabled = moveEnabled(r.move);
-			SDL_Color mark = (phase != ASKING && r.move == answer) ? SDL_Color{60, 150, 70, 255}
-				: (phase == WRONG && r.move == chosen) ? SDL_Color{160, 60, 60, 255}
+			SDL_Color mark = (phase != ASKING && r.move == answer) ? UI::PRIMARY
+				: (phase == WRONG && r.move == chosen) ? UI::DANGER
 				: SDL_Color{0, 0, 0, 0};
 			if(mark.a){
 				SDL_FRect band{ .x = 16, .y = y - 12.0f, .w = 688, .h = 64 };
 				SDL_SetRenderDrawColor(state.renderer, mark.r, mark.g, mark.b, 255);
 				SDL_RenderFillRect(state.renderer, &band);
 			}
-			SDL_Color chip = enabled ? StrategyChart::colorFor(r.move) : SDL_Color{45, 50, 48, 255};
+			SDL_Color chip = enabled ? StrategyChart::colorFor(r.move) : UI::PANEL;
 			SDL_FRect swatch{ .x = 30, .y = y - 4.0f, .w = 16, .h = 52 };
 			SDL_SetRenderDrawColor(state.renderer, chip.r, chip.g, chip.b, 255);
 			SDL_RenderFillRect(state.renderer, &swatch);
-			SDL_Color c = enabled ? WHITE : SDL_Color{110, 120, 112, 255};
+			SDL_Color c = enabled ? WHITE : UI::DIM;
 			std::string move = moveName(r.move);
 			if(!enabled)
 				move += r.move == 'P' ? " - PAIRS ONLY" : " - OFF";
 			DigitFont::drawText(state, move, 64.0f, y, 5.0f, enabled ? GOLD : c);
-			DigitFont::drawText(state, r.gesture, 64.0f, y + 31.0f, 3.2f, c);
+			DigitFont::drawText(state, r.gesture, 64.0f, y + 31.0f, 3.0f, c);
 		}
 	}
 
@@ -595,7 +590,7 @@ private:
 				pixel *= (r.w - 6.0f) / w;
 				w = DigitFont::textWidth(label, pixel);
 			}
-			DigitFont::drawText(state, label, r.x + (r.w - w) / 2.0f, r.y + (r.h - 5 * pixel) / 2.0f, pixel, SDL_Color{255, 255, 255, 255});
+			DigitFont::drawText(state, label, r.x + (r.w - w) / 2.0f, r.y + (r.h - 5 * pixel) / 2.0f, pixel, UI::TEXT);
 		};
 		SDL_Color head{40, 60, 45, 255};
 		float pixel = cellH * 0.075f;
@@ -634,34 +629,34 @@ private:
 		text(state, "STRATEGY DRILL", 16.0f, 6.0f, WHITE);
 		text(state, StrategyChart::titleFor(rules), 58.0f, 3.0f, DIM);
 
-		DigitFont::drawText(state, "DEALER", 650.0f - DigitFont::textWidth("DEALER", 4.5f), 150.0f, 4.5f, GOLD);
+		DigitFont::drawText(state, "DEALER", 650.0f - DigitFont::textWidth("DEALER", 5.0f), 150.0f, 5.0f, GOLD);
 		drawCard(state, res, dealerSuit, dealerValue, 670.0f, 85.0f);
 		if(counting)
-			DigitFont::drawText(state, "TRUE COUNT " + signedNum(trueCount), 800.0f, 145.0f, 5.0f, SDL_Color{255, 225, 80, 255});
+			DigitFont::drawText(state, "TRUE COUNT " + signedNum(trueCount), 800.0f, 145.0f, 5.0f, UI::ACCENT);
 
-		DigitFont::drawText(state, "YOU", 595.0f - DigitFont::textWidth("YOU", 4.5f), 315.0f, 4.5f, GOLD);
+		DigitFont::drawText(state, "YOU", 595.0f - DigitFont::textWidth("YOU", 5.0f), 315.0f, 5.0f, GOLD);
 		for(size_t i = 0; i < playerCards.size(); i++)
 			drawCard(state, res, playerCards[i].first, playerCards[i].second, 615.0f + i * 110.0f, 245.0f);
 
 		if(phase == CORRECT){
 			text(state, "CORRECT - " + std::string(moveName(answer)), 400.0f, 6.0f, GREEN);
 			if(!answerWhy.empty())
-				text(state, answerWhy, 445.0f, 3.2f, GOLD);
+				text(state, answerWhy, 445.0f, 3.0f, GOLD);
 		} else if(phase == WRONG){
 			text(state, std::string("NO - THE PLAY IS ") + moveName(answer), 400.0f, 6.0f, RED);
 			std::string detail = handName(section, row) + " VS " + dealerName(col);
 			if(!answerWhy.empty())
 				detail += " - " + answerWhy;
-			text(state, detail + "  -  TAP OR ENTER FOR NEXT", 445.0f, 3.2f, GOLD);
-			DigitFont::drawText(state, "THE WHOLE ROW", 20.0f, 160.0f, 3.6f, GOLD);
+			text(state, detail + "  -  TAP OR ENTER FOR NEXT", 445.0f, 3.0f, GOLD);
+			DigitFont::drawText(state, "THE WHOLE ROW", 20.0f, 160.0f, 4.0f, GOLD);
 			drawChartRow(state, rules, 20.0f, 196.0f, 56.0f, 45.0f, 30.0f, 44.0f);
 		}
 
 		for(int i = 0; i < 5; i++){
 			bool enabled = moveEnabled(MOVES[i]);
-			SDL_Color c = !enabled ? SDL_Color{45, 50, 48, 255}
-				: (phase != ASKING && MOVES[i] == answer) ? SDL_Color{60, 150, 70, 255}
-				: (phase == WRONG && MOVES[i] == chosen) ? SDL_Color{160, 60, 60, 255}
+			SDL_Color c = !enabled ? UI::PANEL
+				: (phase != ASKING && MOVES[i] == answer) ? UI::PRIMARY
+				: (phase == WRONG && MOVES[i] == chosen) ? UI::DANGER
 				: StrategyChart::colorFor(MOVES[i]);
 			button(state, moveRect(i), c, moveName(MOVES[i]), 5.0f);
 		}
@@ -672,10 +667,10 @@ private:
 			+ "   THIS SESSION " + std::to_string(sessionRight) + "/" + std::to_string(sessionTotal);
 		if(known > 0)
 			score += "   THIS CHART " + std::to_string((knownRight * 100 + known / 2) / known) + "% OF " + std::to_string(known);
-		text(state, score, 550.0f, 3.2f, DIM);
+		text(state, score, 550.0f, 3.0f, DIM);
 
 		selector.draw(state, rulesY(), true);
-		button(state, backButton(), SDL_Color{80, 80, 80, 255}, "BACK", 6.0f);
+		button(state, backButton(), UI::SECONDARY, "BACK", 6.0f);
 	}
 
 	bool moveEnabled(char m){
@@ -832,12 +827,12 @@ public:
 			selector.draw(state, rulesY(), false);
 			static const char* TABS[3] = { "HARD", "SOFT", "PAIRS" };
 			for(int i = 0; i < 3; i++)
-				button(state, tabRect(i), i == section ? SDL_Color{60, 90, 150, 255} : SDL_Color{50, 55, 60, 255}, TABS[i], 5.0f);
+				button(state, tabRect(i), i == section ? UI::NAV : UI::PANEL, TABS[i], 5.0f);
 			drawTable(state, rules);
 			drawAccuracyNotes(state, rules);
 		}
-		button(state, backButton(), SDL_Color{80, 80, 80, 255}, "BACK", 6.0f);
-		button(state, pageButton(), SDL_Color{60, 90, 150, 255}, showingMistakes ? "SHOW ACCURACY" : "SHOW MISTAKES", 7.0f);
+		button(state, backButton(), UI::SECONDARY, "BACK", 6.0f);
+		button(state, pageButton(), UI::NAV, showingMistakes ? "SHOW ACCURACY" : "SHOW MISTAKES", 7.0f);
 	}
 
 	bool handlePoint(SDLState& state, float wx, float wy){
@@ -889,7 +884,7 @@ private:
 
 	static SDL_Color accuracyColor(float a){
 		return a < 0.0f ? SDL_Color{40, 46, 44, 255}
-			: a >= 0.9f ? SDL_Color{50, 140, 70, 255}
+			: a >= 0.9f ? UI::PRIMARY
 			: a >= 0.7f ? SDL_Color{170, 140, 40, 255}
 			: SDL_Color{165, 50, 50, 255};
 	}
@@ -904,7 +899,7 @@ private:
 			pixel *= (r.w - 8.0f) / w;
 			w = DigitFont::textWidth(label, pixel);
 		}
-		DigitFont::drawText(state, label, r.x + (r.w - w) / 2.0f, r.y + (r.h - 5 * pixel) / 2.0f, pixel, SDL_Color{255, 255, 255, 255});
+		DigitFont::drawText(state, label, r.x + (r.w - w) / 2.0f, r.y + (r.h - 5 * pixel) / 2.0f, pixel, UI::TEXT);
 	}
 
 	// One section of the chart (hard / soft / pairs), each cell coloured by
@@ -913,14 +908,14 @@ private:
 		float x0 = 360.0f - 11.0f * STRIDE / 2.0f;
 		SDL_Color head{40, 60, 45, 255};
 		for(int c = 0; c < 10; c++)
-			cell(state, SDL_FRect{ x0 + STRIDE * (c + 1), TABLE_Y, CELL, CELL - 8.0f }, head, StrategyChart::dealerColLabel(c), 3.6f);
+			cell(state, SDL_FRect{ x0 + STRIDE * (c + 1), TABLE_Y, CELL, CELL - 8.0f }, head, StrategyChart::dealerColLabel(c), 4.0f);
 		int rows = StrategyChart::rowCount(section);
 		for(int r = 0; r < rows; r++){
 			float y = TABLE_Y + STRIDE * (rows - r) - 8.0f;
-			cell(state, SDL_FRect{ x0, y, CELL, CELL }, head, StrategyChart::rowLabel(section, r), 3.6f);
+			cell(state, SDL_FRect{ x0, y, CELL, CELL }, head, StrategyChart::rowLabel(section, r), 4.0f);
 			for(int c = 0; c < 10; c++){
 				SDL_Color color = accuracyColor(trainer->accuracy(rules.set, section, r, c));
-				cell(state, SDL_FRect{ x0 + STRIDE * (c + 1), y, CELL, CELL }, color, StrategyChart::cellLabel(rules, section, r, c), 3.6f);
+				cell(state, SDL_FRect{ x0 + STRIDE * (c + 1), y, CELL, CELL }, color, StrategyChart::cellLabel(rules, section, r, c), 4.0f);
 			}
 		}
 	}
@@ -940,13 +935,13 @@ private:
 			SDL_RenderFillRect(state.renderer, &sw);
 			SDL_SetRenderDrawColor(state.renderer, 255, 255, 255, 255);
 			SDL_RenderRect(state.renderer, &sw);
-			DigitFont::drawText(state, KEYS[i].label, x + 46.0f, yy + 5.0f, 3.4f, WHITE);
+			DigitFont::drawText(state, KEYS[i].label, x + 46.0f, yy + 5.0f, 3.0f, WHITE);
 		}
 		y += 92.0f;
 
 		int n = trainer->totalAttempts(rules.set), right = trainer->totalCorrect(rules.set);
 		ptext(state, n == 0 ? "NO DECISIONS ON THIS CHART YET"
-			: "THIS CHART: " + std::to_string((right * 100 + n / 2) / n) + "% RIGHT OF " + std::to_string(n), y, 3.4f, GOLD);
+			: "THIS CHART: " + std::to_string((right * 100 + n / 2) / n) + "% RIGHT OF " + std::to_string(n), y, 3.0f, GOLD);
 		// The 3 weakest cells.
 		std::vector<Weak> weak = weakCells(rules);
 		for(size_t i = 0; i < weak.size() && i < 3; i++)
@@ -958,8 +953,8 @@ private:
 		using namespace TrainingUI;
 		if(trainer->mistakes.empty()){
 			ptext(state, "NONE YET", 400.0f, 6.0f, GOLD);
-			ptext(state, "EVERY MISSED DECISION, IN DRILLS OR", 480.0f, 3.2f, DIM);
-			ptext(state, "REAL HANDS, SHOWS UP HERE", 520.0f, 3.2f, DIM);
+			ptext(state, "EVERY MISSED DECISION, IN DRILLS OR", 480.0f, 3.0f, DIM);
+			ptext(state, "REAL HANDS, SHOWS UP HERE", 520.0f, 3.0f, DIM);
 			return;
 		}
 		float y = 120.0f;
@@ -968,12 +963,12 @@ private:
 			std::string hand = handName(m.section, m.row) + " VS " + dealerName(m.col);
 			if(m.cards > 2)
 				hand += ", " + std::to_string(m.cards) + " CARDS";
-			DigitFont::drawText(state, hand, 30.0f, y, 3.6f, WHITE);
+			DigitFont::drawText(state, hand, 30.0f, y, 4.0f, WHITE);
 			std::string detail = std::string("YOU ") + moveName(m.chosen) + ", PLAY " + moveName(m.correct);
-			DigitFont::drawText(state, detail, 30.0f, y + 30.0f, 2.8f, GREEN);
+			DigitFont::drawText(state, detail, 30.0f, y + 30.0f, 3.0f, GREEN);
 			std::string where = std::string(setShortName(m.set)) + (m.fromDrill ? "" : " GAME")
 				+ (m.trueCount == Trainer::NO_COUNT ? "" : " TC " + signedNum(m.trueCount));
-			DigitFont::drawText(state, where, 690.0f - DigitFont::textWidth(where, 2.4f), y + 32.0f, 2.4f, DIM);
+			DigitFont::drawText(state, where, 690.0f - DigitFont::textWidth(where, 3.0f), y + 32.0f, 3.0f, DIM);
 			y += 80.0f;
 		}
 	}
@@ -992,8 +987,8 @@ private:
 			drawAccuracyNotesWide(state, rules);
 		}
 		selector.draw(state, rulesY(), false);
-		button(state, backButton(), SDL_Color{80, 80, 80, 255}, "BACK", 6.0f);
-		button(state, pageButton(), SDL_Color{60, 90, 150, 255}, showingMistakes ? "ACCURACY" : "MISTAKES", 5.0f);
+		button(state, backButton(), UI::SECONDARY, "BACK", 6.0f);
+		button(state, pageButton(), UI::NAV, showingMistakes ? "ACCURACY" : "MISTAKES", 5.0f);
 	}
 
 	// The cells played at least 3 times and under 90%, weakest first.
@@ -1025,8 +1020,8 @@ private:
 			SDL_RenderFillRect(state.renderer, &sw);
 			SDL_SetRenderDrawColor(state.renderer, 255, 255, 255, 255);
 			SDL_RenderRect(state.renderer, &sw);
-			DigitFont::drawText(state, k.label, x + 40.0f, y + 4.0f, 3.2f, WHITE);
-			x += 70.0f + DigitFont::textWidth(k.label, 3.2f) + 30.0f;
+			DigitFont::drawText(state, k.label, x + 40.0f, y + 4.0f, 3.0f, WHITE);
+			x += 70.0f + DigitFont::textWidth(k.label, 3.0f) + 30.0f;
 		}
 		int n = trainer->totalAttempts(rules.set), right = trainer->totalCorrect(rules.set);
 		std::string line = n == 0 ? "NO DECISIONS ON THIS CHART YET - PLAY OR DRILL IT"
@@ -1046,13 +1041,13 @@ private:
 		clear(state);
 		text(state, "RECENT MISTAKES", 20.0f, 6.0f, WHITE);
 		if(trainer->mistakes.empty()){
-			text(state, "NONE YET - EVERY MISSED DECISION, IN DRILLS OR REAL HANDS, SHOWS UP HERE", 300.0f, 3.6f, GOLD);
+			text(state, "NONE YET - EVERY MISSED DECISION, IN DRILLS OR REAL HANDS, SHOWS UP HERE", 300.0f, 4.0f, GOLD);
 			return;
 		}
 		static const float X[6] = { 40.0f, 520.0f, 660.0f, 880.0f, 1100.0f, 1230.0f };
 		static const char* HEAD[6] = { "YOUR HAND", "VS", "YOU PLAYED", "THE PLAY", "COUNT", "CHART" };
 		for(int i = 0; i < 6; i++)
-			DigitFont::drawText(state, HEAD[i], X[i], 80.0f, 3.2f, GOLD);
+			DigitFont::drawText(state, HEAD[i], X[i], 80.0f, 3.0f, GOLD);
 		float y = 112.0f;
 		for(size_t i = 0; i < trainer->mistakes.size() && i < 13; i++){
 			const Trainer::Mistake& m = trainer->mistakes[i];
@@ -1066,7 +1061,7 @@ private:
 			DigitFont::drawText(state, moveName(m.chosen), X[2], y, 3.0f, RED);
 			DigitFont::drawText(state, moveName(m.correct), X[3], y, 3.0f, GREEN);
 			DigitFont::drawText(state, m.trueCount == Trainer::NO_COUNT ? "-" : signedNum(m.trueCount), X[4], y, 3.0f, WHITE);
-			DigitFont::drawText(state, setShortName(m.set), X[5], y, 2.6f, DIM);
+			DigitFont::drawText(state, setShortName(m.set), X[5], y, 3.0f, DIM);
 			y += 34.0f;
 		}
 	}
@@ -1105,22 +1100,24 @@ public:
 			drawWide(state, res);
 			return;
 		}
-		DigitFont::drawText(state, "COUNT SPEED", 190.0f, 34.0f, 5.5f, WHITE);
+		DigitFont::drawText(state, "COUNT SPEED", 190.0f, 34.0f, 6.0f, WHITE);
 		ptext(state, "HI-LO:  2-6 +1   7-9 0   10-A -1", 120.0f, 4.0f, GOLD);
 
 		if(phase == SETUP || phase == RESULT){
-			button(state, cardsButton(), SDL_Color{60, 90, 150, 255}, "CARDS: " + std::to_string(cardCount()), 6.0f);
-			button(state, speedButton(), SDL_Color{60, 90, 150, 255}, speedLabel(), 6.0f);
-			button(state, groupButton(), SDL_Color{60, 90, 150, 255}, groupLabel(), 6.0f);
-			button(state, startButton(), SDL_Color{60, 130, 70, 255}, phase == RESULT ? "AGAIN" : "START", 11.0f);
+			// The three choices at one size, START bigger.
+			float size = TrainingUI::portrait ? 6.0f : UI::BODY;
+			button(state, cardsButton(), UI::NAV, "CARDS: " + std::to_string(cardCount()), size);
+			button(state, speedButton(), UI::NAV, speedLabel(), size);
+			button(state, groupButton(), UI::NAV, groupLabel(), size);
+			button(state, startButton(), UI::PRIMARY, phase == RESULT ? "AGAIN" : "START", 11.0f);
 			if(phase == RESULT){
 				ptext(state, resultLine, 560.0f, 7.0f, resultOk ? GREEN : RED);
-				ptext(state, resultDetail, 640.0f, 3.2f, GOLD);
+				ptext(state, resultDetail, 640.0f, 3.0f, GOLD);
 			} else{
-				ptext(state, "WATCH THE CARDS, KEEP THE COUNT,", 580.0f, 3.6f, DIM);
-				ptext(state, "THEN ENTER IT", 625.0f, 3.6f, DIM);
+				ptext(state, "WATCH THE CARDS, KEEP THE COUNT,", 580.0f, 4.0f, DIM);
+				ptext(state, "THEN ENTER IT", 625.0f, 4.0f, DIM);
 			}
-			ptext(state, statsLine(), 760.0f, 3.6f, DIM);
+			ptext(state, statsLine(), 760.0f, 4.0f, DIM);
 			ptext(state, "CASINO PACE: ABOUT 0.5 SEC A CARD,", 840.0f, 3.0f, DIM);
 			ptext(state, "A FULL DECK IN UNDER 30 SEC", 880.0f, 3.0f, DIM);
 		} else if(phase == RUNNING){
@@ -1130,7 +1127,7 @@ public:
 			ptext(state, "RUNNING COUNT?", 560.0f, 8.0f, WHITE);
 			stepper.draw(state, signedNum(guess));
 		}
-		button(state, backButton(), SDL_Color{80, 80, 80, 255}, "BACK", 6.0f);
+		button(state, backButton(), UI::SECONDARY, "BACK", 6.0f);
 	}
 
 	bool handlePoint(SDLState& state, float wx, float wy){
@@ -1192,16 +1189,16 @@ private:
 	TrainingUI::Stepper stepper;
 
 	SDL_FRect cardsButton() const{
-		return TrainingUI::portrait ? SDL_FRect{ .x = 20, .y = 200, .w = 680, .h = 110 } : SDL_FRect{ .x = 190, .y = 330, .w = 230, .h = 64 };
+		return TrainingUI::portrait ? SDL_FRect{ .x = 20, .y = 200, .w = 680, .h = 110 } : SDL_FRect{ .x = 460, .y = 268, .w = 520, .h = 54 };
 	}
 	SDL_FRect speedButton() const{
-		return TrainingUI::portrait ? SDL_FRect{ .x = 20, .y = 325, .w = 680, .h = 110 } : SDL_FRect{ .x = 435, .y = 330, .w = 300, .h = 64 };
+		return TrainingUI::portrait ? SDL_FRect{ .x = 20, .y = 325, .w = 680, .h = 110 } : SDL_FRect{ .x = 460, .y = 330, .w = 520, .h = 54 };
 	}
 	SDL_FRect groupButton() const{
-		return TrainingUI::portrait ? SDL_FRect{ .x = 20, .y = 450, .w = 680, .h = 110 } : SDL_FRect{ .x = 750, .y = 330, .w = 280, .h = 64 };
+		return TrainingUI::portrait ? SDL_FRect{ .x = 20, .y = 450, .w = 680, .h = 110 } : SDL_FRect{ .x = 460, .y = 392, .w = 520, .h = 54 };
 	}
 	SDL_FRect startButton() const{
-		return TrainingUI::portrait ? SDL_FRect{ .x = 20, .y = 1200, .w = 680, .h = 210 } : SDL_FRect{ .x = 1045, .y = 330, .w = 200, .h = 64 };
+		return TrainingUI::portrait ? SDL_FRect{ .x = 20, .y = 1200, .w = 680, .h = 210 } : SDL_FRect{ .x = 460, .y = 466, .w = 520, .h = 70 };
 	}
 
 	int group() const{ return groupIndex + 1; }
@@ -1246,19 +1243,19 @@ private:
 	void drawWide(SDLState& state, Resources& res){
 		using namespace TrainingUI;
 		text(state, "COUNTING SPEED", 20.0f, 6.0f, WHITE);
-		text(state, "HI-LO: 2-6 COUNT +1    7-9 COUNT 0    10S AND ACES COUNT -1", 70.0f, 3.4f, GOLD);
+		text(state, "HI-LO: 2-6 COUNT +1    7-9 COUNT 0    10S AND ACES COUNT -1", 70.0f, 3.0f, GOLD);
 		if(phase == SETUP || phase == RESULT){
-			button(state, cardsButton(), SDL_Color{60, 90, 150, 255}, "CARDS: " + std::to_string(cardCount()), 4.5f);
-			button(state, speedButton(), SDL_Color{60, 90, 150, 255}, speedLabel(), 4.5f);
-			button(state, groupButton(), SDL_Color{60, 90, 150, 255}, groupLabel(), 4.0f);
-			button(state, startButton(), SDL_Color{60, 130, 70, 255}, phase == RESULT ? "AGAIN" : "START", 6.0f);
+			button(state, cardsButton(), UI::NAV, "CARDS: " + std::to_string(cardCount()), 5.0f);
+			button(state, speedButton(), UI::NAV, speedLabel(), 5.0f);
+			button(state, groupButton(), UI::NAV, groupLabel(), 4.0f);
+			button(state, startButton(), UI::PRIMARY, phase == RESULT ? "AGAIN" : "START", 6.0f);
 			if(phase == RESULT){
 				text(state, resultLine, 200.0f, 6.0f, resultOk ? GREEN : RED);
-				text(state, resultDetail, 260.0f, 3.6f, GOLD);
+				text(state, resultDetail, 260.0f, 4.0f, GOLD);
 			} else{
-				text(state, "WATCH THE CARDS, KEEP THE COUNT, THEN ENTER IT", 220.0f, 3.6f, DIM);
+				text(state, "WATCH THE CARDS, KEEP THE COUNT, THEN ENTER IT", 220.0f, 4.0f, DIM);
 			}
-			text(state, statsLine(), 560.0f, 3.6f, DIM);
+			text(state, statsLine(), 560.0f, 4.0f, DIM);
 			text(state, "A CASINO PACE IS ABOUT 0.5 SEC PER CARD - A FULL DECK IN UNDER 30 SEC", 600.0f, 3.0f, DIM);
 		} else if(phase == RUNNING){
 			drawGroup(state, res, 720.0f, 200.0f, false);
@@ -1267,7 +1264,7 @@ private:
 			text(state, "WHAT IS THE RUNNING COUNT?", 300.0f, 5.0f, WHITE);
 			stepper.draw(state, signedNum(guess));
 		}
-		button(state, backButton(), SDL_Color{80, 80, 80, 255}, "BACK", 6.0f);
+		button(state, backButton(), UI::SECONDARY, "BACK", 6.0f);
 	}
 
 	int cardCount() const{ static const int N[3] = { 13, 26, 52 }; return N[cardsIndex]; }
@@ -1323,7 +1320,7 @@ public:
 			drawWide(state);
 			return;
 		}
-		DigitFont::drawText(state, "TRUE COUNT", 200.0f, 34.0f, 5.5f, WHITE);
+		DigitFont::drawText(state, "TRUE COUNT", 200.0f, 34.0f, 6.0f, WHITE);
 		if(estimating){
 			ptext(state, std::to_string(shoeDecks) + " DECK SHOE", 120.0f, 5.0f, GOLD);
 			ptext(state, "HOW MANY DECKS ARE LEFT?", 170.0f, 4.0f, GOLD);
@@ -1339,10 +1336,10 @@ public:
 		}
 		if(answered){
 			ptext(state, resultLine, 920.0f, 5.0f, resultOk ? GREEN : RED);
-			ptext(state, resultDetail, 980.0f, 2.8f, GOLD);
+			ptext(state, resultDetail, 980.0f, 3.0f, GOLD);
 		}
-		ptext(state, statsLine(), 1035.0f, 2.8f, DIM);
-		button(state, backButton(), SDL_Color{80, 80, 80, 255}, "BACK", 6.0f);
+		ptext(state, statsLine(), 1035.0f, 3.0f, DIM);
+		button(state, backButton(), UI::SECONDARY, "BACK", 6.0f);
 	}
 
 	bool handlePoint(SDLState& state, float wx, float wy){
@@ -1395,7 +1392,7 @@ private:
 		using namespace TrainingUI;
 		text(state, "TRUE COUNT + DECKS", 20.0f, 6.0f, WHITE);
 		if(estimating){
-			text(state, std::to_string(shoeDecks) + " DECK SHOE - HOW MANY DECKS ARE LEFT TO PLAY?", 72.0f, 3.8f, GOLD);
+			text(state, std::to_string(shoeDecks) + " DECK SHOE - HOW MANY DECKS ARE LEFT TO PLAY?", 72.0f, 4.0f, GOLD);
 			drawTray(state);
 			stepper.draw(state, half(guessHalves), answered ? "NEXT" : "CHECK");
 		} else{
@@ -1405,11 +1402,11 @@ private:
 		}
 		// The discard tray fills the middle when estimating decks.
 		if(answered){
-			text(state, resultLine, estimating ? 545.0f : 395.0f, 5.5f, resultOk ? GREEN : RED);
-			text(state, resultDetail, estimating ? 585.0f : 545.0f, 3.4f, GOLD);
+			text(state, resultLine, estimating ? 545.0f : 395.0f, 6.0f, resultOk ? GREEN : RED);
+			text(state, resultDetail, estimating ? 585.0f : 545.0f, 3.0f, GOLD);
 		}
-		text(state, statsLine(), estimating ? 612.0f : 600.0f, 3.2f, DIM);
-		button(state, backButton(), SDL_Color{80, 80, 80, 255}, "BACK", 6.0f);
+		text(state, statsLine(), estimating ? 612.0f : 600.0f, 3.0f, DIM);
+		button(state, backButton(), UI::SECONDARY, "BACK", 6.0f);
 	}
 
 	static std::string half(int halves){
@@ -1481,11 +1478,11 @@ private:
 		stack(trayX, trayY + trayH - played, played);
 		SDL_SetRenderDrawColor(state.renderer, 255, 255, 255, 255);
 		SDL_RenderRect(state.renderer, &tray);
-		TrainingUI::text(state, "DISCARDS", trayY + trayH + 14.0f, 3.2f, TrainingUI::DIM, trayX + trayW / 2.0f - 5.0f);
+		TrainingUI::text(state, "DISCARDS", trayY + trayH + 14.0f, 3.0f, TrainingUI::DIM, trayX + trayW / 2.0f - 5.0f);
 
 		float refX = tall ? 400.0f : 760.0f;
 		stack(refX, trayY + trayH - perDeck, perDeck);
-		TrainingUI::text(state, "1 DECK", trayY + trayH + 14.0f, 3.2f, TrainingUI::DIM, refX + trayW / 2.0f - 5.0f);
+		TrainingUI::text(state, "1 DECK", trayY + trayH + 14.0f, 3.0f, TrainingUI::DIM, refX + trayW / 2.0f - 5.0f);
 	}
 };
 
@@ -1556,9 +1553,9 @@ public:
 		bool freeBet = g.edgeH17 == g.edgeS17;
 		bool counting = counts && canCount(g);
 		text(state, counting ? "HI-LO COUNT WITH INDEX PLAYS AND THE 1-8 BET RAMP, 75% PENETRATION, SIDE BET EVERY HAND"
-			: "PERFECT BASIC STRATEGY ON THE MAIN BET, FLAT BETTING, SIDE BET EVERY HAND", 60.0f, 2.8f, DIM);
+			: "PERFECT BASIC STRATEGY ON THE MAIN BET, FLAT BETTING, SIDE BET EVERY HAND", 60.0f, 3.0f, DIM);
 		SDL_Color on{60, 90, 150, 255}, fixed{55, 60, 58, 255};
-		button(state, gameButton, SDL_Color{150, 120, 40, 255}, std::string("GAME: ") + g.name, 4.0f);
+		button(state, gameButton, UI::NAV, std::string("GAME: ") + g.name, 4.0f);
 		button(state, soft17Button, freeBet ? fixed : on, std::string("SOFT 17: ") + (freeBet || hitsSoft17 ? "HITS" : "STANDS"), 4.0f);
 		std::string sideLabel = "SIDE BET: NONE";
 		if(side > 0){
@@ -1567,8 +1564,8 @@ public:
 			std::snprintf(edge, sizeof(edge), "%.1f%%", sb.edge * 100.0f);
 			sideLabel = std::string("SIDE BET: ") + sb.name + " - " + edge + " EDGE";
 		}
-		button(state, sideButton, SDL_Color{120, 70, 140, 255}, sideLabel, 4.0f);
-		button(state, strategyButton, canCount(g) ? (counts ? SDL_Color{60, 130, 70, 255} : on) : fixed,
+		button(state, sideButton, UI::NAV, sideLabel, 4.0f);
+		button(state, strategyButton, canCount(g) ? (counts ? UI::PRIMARY : on) : fixed,
 			counting ? "COUNTING 1-8 RAMP" : canCount(g) ? "BASIC STRATEGY" : "BASIC - NO COUNT HERE", 4.0f);
 		drawStepper(state, 0, counting ? "1 UNIT" : "BET", "$" + std::to_string(BETS[betIndex]));
 		drawStepper(state, 1, "SIDE BET", side > 0 ? "$" + std::to_string(SIDE_BETS[sideIndex]) : "-");
@@ -1599,7 +1596,7 @@ public:
 		auto plusMoney = [&](double v){ return v >= 0.5 ? "+" + money(v) : money(v); };
 		float y = 422.0f;
 		auto row = [&](const std::string& label, const std::string& value, SDL_Color c){
-			DigitFont::drawText(state, label, 180.0f, y, 3.4f, GOLD);
+			DigitFont::drawText(state, label, 180.0f, y, 3.0f, GOLD);
 			DigitFont::drawText(state, value, 1260.0f - DigitFont::textWidth(value, 4.0f), y - 2.0f, 4.0f, c);
 			y += 30.0f;
 		};
@@ -1613,7 +1610,7 @@ public:
 		row("1 IN 20 SESSIONS LOSE AT LEAST", money(-(mean - 1.645 * sd)), RED);
 		row("BRING THIS TO BE 95% SURE NOT TO GO BROKE", money(bankrollFor(0.05, mean, sd, hands)), GREEN);
 		row("BRING THIS TO BE 99% SURE", money(bankrollFor(0.01, mean, sd, hands)), GREEN);
-		button(state, backButton, SDL_Color{80, 80, 80, 255}, "BACK", 6.0f);
+		button(state, backButton, UI::SECONDARY, "BACK", 6.0f);
 	}
 
 	bool handlePoint(SDLState& state, float wx, float wy){
@@ -1692,9 +1689,9 @@ private:
 	void drawStepper(SDLState& state, int i, const std::string& label, const std::string& value){
 		using namespace TrainingUI;
 		DigitFont::drawText(state, label, 380.0f, minusRect(i).y + 12.0f, 4.0f, WHITE);
-		button(state, minusRect(i), SDL_Color{70, 70, 80, 255}, "-", 5.0f);
-		button(state, plusRect(i), SDL_Color{70, 70, 80, 255}, "+", 5.0f);
-		text(state, value, minusRect(i).y + 10.0f, 5.0f, SDL_Color{255, 225, 80, 255}, 910.0f);
+		button(state, minusRect(i), UI::SECONDARY, "-", 5.0f);
+		button(state, plusRect(i), UI::SECONDARY, "+", 5.0f);
+		text(state, value, minusRect(i).y + 10.0f, 5.0f, UI::ACCENT, 910.0f);
 	}
 
 	void step(int i, int d){
@@ -1776,7 +1773,7 @@ public:
 			// Rank, best first.
 			SDL_Color c = rankColor((float)i / std::max<size_t>(1, rows.size() - 1));
 			DigitFont::drawText(state, std::to_string(i + 1) + ". " + r.name, X_NAME, y, 3.0f, WHITE);
-			float rulesPixel = std::min(2.2f, 2.2f * (X_BAR - X_NAME - 56.0f) / std::max(1.0f, DigitFont::textWidth(r.rules, 2.2f)));
+			float rulesPixel = UI::fit(r.rules, UI::SMALL, X_BAR - X_NAME - 56.0f);
 			DigitFont::drawText(state, r.rules, X_NAME + 36.0f, y + 19.0f, rulesPixel, DIM);
 
 			float w = BAR_W * r.edge / maxEdge;
@@ -1786,9 +1783,9 @@ public:
 
 			char edge[16];
 			std::snprintf(edge, sizeof(edge), r.edge < 0.1f ? "%.2f%%" : "%.0f%%", r.edge * 100.0f);
-			DigitFont::drawText(state, edge, X_EDGE - DigitFont::textWidth(edge, 3.6f), y + 2.0f, 3.6f, c);
+			DigitFont::drawText(state, edge, X_EDGE - DigitFont::textWidth(edge, 4.0f), y + 2.0f, 4.0f, c);
 			std::string cost = "$" + std::to_string((int)std::lround(r.edge * bet * hands * r.frequency)) + "/HR";
-			DigitFont::drawText(state, cost, X_COST - DigitFont::textWidth(cost, 3.6f), y + 2.0f, 3.6f, WHITE);
+			DigitFont::drawText(state, cost, X_COST - DigitFont::textWidth(cost, 4.0f), y + 2.0f, 4.0f, WHITE);
 			y += rowH;
 		}
 
@@ -1797,11 +1794,11 @@ public:
 			: "LOWER IS BETTER. NO GAME BEATS THE HOUSE WITH BASIC STRATEGY ALONE - COUNTING CAN";
 		text(state, tip, 572.0f, 3.0f, GOLD);
 
-		button(state, minusButton, SDL_Color{70, 70, 80, 255}, "-", 5.0f);
-		text(state, "$" + std::to_string(bet), 610.0f, 4.6f, SDL_Color{255, 225, 80, 255}, 330.0f);
-		button(state, plusButton, SDL_Color{70, 70, 80, 255}, "+", 5.0f);
-		button(state, pageButton, SDL_Color{60, 90, 150, 255}, showingSideBets ? "MAIN GAMES" : "SIDE BETS", 5.0f);
-		button(state, backButton, SDL_Color{80, 80, 80, 255}, "BACK", 6.0f);
+		button(state, minusButton, UI::SECONDARY, "-", 5.0f);
+		text(state, "$" + std::to_string(bet), 610.0f, 5.0f, UI::ACCENT, 330.0f);
+		button(state, plusButton, UI::SECONDARY, "+", 5.0f);
+		button(state, pageButton, UI::NAV, showingSideBets ? "MAIN GAMES" : "SIDE BETS", 5.0f);
+		button(state, backButton, UI::SECONDARY, "BACK", 6.0f);
 	}
 
 	bool handlePoint(SDLState& state, float wx, float wy){

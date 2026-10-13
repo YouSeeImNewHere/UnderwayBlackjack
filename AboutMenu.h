@@ -1,6 +1,7 @@
 #pragma once
 #include "Game.h"
 #include "DigitFont.h"
+#include "UI.h"
 #include "GameModeMenu.h"
 #include <string>
 #include <vector>
@@ -23,7 +24,7 @@ public:
 		float titlePixel = 7.0f;
 		std::string title = titleFor(mode);
 		float titleW = DigitFont::textWidth(title, titlePixel);
-		DigitFont::drawText(state, title, (1440.0f - titleW) / 2.0f, 40.0f, titlePixel, SDL_Color{255, 255, 255, 255});
+		DigitFont::drawText(state, title, (1440.0f - titleW) / 2.0f, 40.0f, titlePixel, UI::TEXT);
 
 		const std::vector<std::string>& rules = rulesFor(mode);
 		const std::vector<std::string>& sideBets = sideBetsFor(mode);
@@ -40,7 +41,7 @@ public:
 			drawColumn(state, sideBets, "SIDE BET PAYOUTS", leftX + COLUMN_W + gap);
 		}
 
-		drawButton(state, backButton, SDL_Color{80, 80, 80, 255}, "BACK");
+		drawButton(state, backButton, UI::SECONDARY, "BACK");
 	}
 
 	// windowX/windowY: raw event coordinates in window space, same
@@ -305,7 +306,7 @@ private:
 
 	void drawColumn(SDLState& state, const std::vector<std::string>& lines, const std::string& heading, float x){
 		float headingPixel = 5.0f;
-		DigitFont::drawText(state, heading, x, COLUMN_TOP - headingPixel * 6.0f, headingPixel, SDL_Color{200, 180, 100, 255});
+		DigitFont::drawText(state, heading, x, COLUMN_TOP - headingPixel * 6.0f, headingPixel, UI::ACCENT);
 
 		// A small square bullet to the left of every real line -- rules
 		// text used to run together into one solid block; a marker per
@@ -331,7 +332,7 @@ private:
 				SDL_SetRenderDrawColor(state.renderer, 200, 180, 100, 255);
 				SDL_RenderFillRect(state.renderer, &bullet);
 			}
-			DigitFont::drawText(state, display, textX, y, BODY_PIXEL, SDL_Color{220, 220, 220, 255});
+			DigitFont::drawText(state, display, textX, y, BODY_PIXEL, UI::TEXT);
 			y += LINE_H;
 		}
 	}
@@ -350,6 +351,6 @@ private:
 			pixel *= maxW / w;
 
 		w = DigitFont::textWidth(label, pixel);
-		DigitFont::drawText(state, label, rect.x + (rect.w - w) / 2.0f, rect.y + (rect.h - 5 * pixel) / 2.0f, pixel, SDL_Color{255, 255, 255, 255});
+		DigitFont::drawText(state, label, rect.x + (rect.w - w) / 2.0f, rect.y + (rect.h - 5 * pixel) / 2.0f, pixel, UI::TEXT);
 	}
 };
