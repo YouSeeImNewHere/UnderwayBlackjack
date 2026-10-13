@@ -1,6 +1,7 @@
 #pragma once
 #include "Game.h"
 #include "DigitFont.h"
+#include "UI.h"
 #include "GameModeMenu.h"
 #include <string>
 #include <algorithm>
@@ -70,8 +71,7 @@ public:
 	bool training = false;
 
 	void draw(SDLState& state, Resources& res){
-		SDL_SetRenderDrawColor(state.renderer, 15, 55, 28, 255);
-		SDL_RenderFillRect(state.renderer, nullptr);
+		UI::background(state);
 
 		drawStepper(state, playersStepper(), "PLAYERS", numberOfPlayers);
 
@@ -80,37 +80,24 @@ public:
 		int endIdx = training ? startIdx : std::min(numberOfPlayers, startIdx + 3);
 
 		if(training){
-			std::string note = "NO BETS IN THIS GAME - JUST PICK HOW MANY HANDS";
-			DigitFont::drawText(state, note, (1440.0f - DigitFont::textWidth(note, 3.5f)) / 2.0f, 185.0f, 3.5f, SDL_Color{230, 210, 140, 255});
+			UI::centered(state, "NO BETS IN THIS GAME - JUST PICK HOW MANY HANDS", 185.0f, UI::BODY, UI::DIM);
 		}
 		if(maxPage() > 0 && !training){
 			SDL_FRect prev = pagePrevButton();
-			drawButton(state, prev, SDL_Color{80, 80, 80, 255});
-			float symPixel = 8.0f;
-			DigitFont::drawText(state, "<", prev.x + (PAGE_BTN - 5 * symPixel) / 2.0f, prev.y + (PAGE_BTN - 5 * symPixel) / 2.0f, symPixel, WHITE);
+			UI::button(state, prev, UI::SECONDARY, "<", UI::LARGE);
 
 			std::string label = "PAGE " + std::to_string(playerPage + 1) + "/" + std::to_string(maxPage() + 1);
-			float labelPixel = std::min(4.0f, (PAGE_LABEL_W - 20.0f) / DigitFont::textWidth(label, 1.0f));
+			float labelPixel = UI::fit(label, UI::BODY, PAGE_LABEL_W - 20.0f);
 			float labelW = DigitFont::textWidth(label, labelPixel);
-			DigitFont::drawText(state, label, prev.x + PAGE_BTN + (PAGE_LABEL_W - labelW) / 2.0f, prev.y + (PAGE_BTN - 5 * labelPixel) / 2.0f, labelPixel, WHITE);
-
-			SDL_FRect next = pageNextButton();
-			drawButton(state, next, SDL_Color{80, 80, 80, 255});
-			DigitFont::drawText(state, ">", next.x + (PAGE_BTN - 5 * symPixel) / 2.0f, next.y + (PAGE_BTN - 5 * symPixel) / 2.0f, symPixel, WHITE);
+			UI::text(state, label, prev.x + PAGE_BTN + (PAGE_LABEL_W - labelW) / 2.0f, prev.y + (PAGE_BTN - 5 * labelPixel) / 2.0f, labelPixel, UI::DIM);
+			UI::button(state, pageNextButton(), UI::SECONDARY, ">", UI::LARGE);
 		}
 
 		for(int i = startIdx; i < endIdx; i++)
 			drawPlayerRow(state, i, i - startIdx);
 
-		SDL_FRect go = confirmButton(endIdx - startIdx);
-		drawButton(state, go, SDL_Color{60, 130, 70, 255});
-		float goW = DigitFont::textWidth("GO", 8.0f);
-		DigitFont::drawText(state, "GO", go.x + (go.w - goW) / 2.0f, go.y + (go.h - 5 * 8.0f) / 2.0f, 8.0f, WHITE);
-
-		SDL_FRect back = backButton(endIdx - startIdx);
-		drawButton(state, back, SDL_Color{80, 80, 80, 255});
-		float backW = DigitFont::textWidth("BACK", 6.0f);
-		DigitFont::drawText(state, "BACK", back.x + (back.w - backW) / 2.0f, back.y + (back.h - 5 * 6.0f) / 2.0f, 6.0f, WHITE);
+		UI::button(state, confirmButton(endIdx - startIdx), UI::PRIMARY, "GO", UI::TITLE);
+		UI::button(state, backButton(endIdx - startIdx), UI::SECONDARY, "BACK", UI::LARGE);
 	}
 
 	// True when BACK is hit -- mina.cpp decides where back goes.
@@ -315,56 +302,17 @@ private:
 		return SDL_FRect{ colX(0) + blockWidth() / 2.0f - 10.0f - w, y, w, 56 };
 	}
 
-	void drawButton(SDLState& state, const SDL_FRect& rect, SDL_Color color){
-		SDL_SetRenderDrawColor(state.renderer, color.r, color.g, color.b, color.a);
-		SDL_RenderFillRect(state.renderer, &rect);
-		SDL_SetRenderDrawColor(state.renderer, 255, 255, 255, 255);
-		SDL_RenderRect(state.renderer, &rect);
-	}
 
-	void drawStepper(SDLState& state, const Stepper& s, const std::string& captionOverride, int value, SDL_Color valueColor = SDL_Color{10, 40, 20, 230}){
+	// Caption, -, value, +: the caption right-aligned against its -
+	// button, every caption and value at the shared sizes.
+	void drawStepper(SDLState& state, const Stepper& s, const std::string& captionOverride, int value, SDL_Color valueColor = UI::PANEL){
 		const std::string& caption = captionOverride.empty() ? s.caption : captionOverride;
-		// Auto-fits per caption instead of one pixel size shared by all of
-		// them -- "PLAYERS" is the longest and needs CAPTION_PIXEL's small
-		// size to fit CAPTION_W, but that left every shorter caption
-		// ("BET", "CNT", ...) much smaller than it needed to be, with a
-		// big empty gap around it. This starts from a bigger base size and
-		// only shrinks a specific caption down if it actually has to.
-		float captionPixel = 5.0f;
-		float maxCaptionW = CAPTION_W - 8.0f;
-		float captionW = DigitFont::textWidth(caption, captionPixel);
-		if(captionW > maxCaptionW && captionW > 0.0f)
-			captionPixel *= maxCaptionW / captionW;
-		captionW = DigitFont::textWidth(caption, captionPixel);
-		// Right-aligned within its CAPTION_W slot, not left-aligned at the
-		// slot's start -- a short caption like "BET"/"CNT" left a wide gap
-		// of empty space between itself and the button it's labeling,
-		// since it no longer needs the full slot width the way "PLAYERS"
-		// does. 10px keeps a small, consistent gap instead of butting
-		// right up against the button.
-		DigitFont::drawText(state, caption, s.minus.x - captionW - 10.0f, s.minus.y + (STEP_BTN_H - 5 * captionPixel) / 2.0f, captionPixel, WHITE);
-
-		drawButton(state, s.minus, SDL_Color{80, 80, 80, 255});
-		// Was 6.0f -- STEP_BTN_W has room for a bigger, bolder +/- at the
-		// new font's size.
-		float symPixel = 8.0f;
-		DigitFont::drawText(state, "-", s.minus.x + (STEP_BTN_W - 5 * symPixel) / 2.0f, s.minus.y + (STEP_BTN_H - 5 * symPixel) / 2.0f, symPixel, WHITE);
-
-		drawButton(state, s.value, valueColor);
-		std::string text = std::to_string(value);
-		// Was shrunk all the way to 4.0f -- typical 2-4 digit values fit
-		// fine back at 6.0f; auto-shrink is still here as a safety net for
-		// the rare much larger value (a big calculator total).
-		float pixel = 6.0f;
-		float maxW = s.value.w - 8.0f;
-		float w = DigitFont::textWidth(text, pixel);
-		if(w > maxW && w > 0.0f)
-			pixel *= maxW / w;
-		w = DigitFont::textWidth(text, pixel);
-		DigitFont::drawText(state, text, s.value.x + (s.value.w - w) / 2.0f, s.value.y + (s.value.h - 5 * pixel) / 2.0f, pixel, WHITE);
-
-		drawButton(state, s.plus, SDL_Color{80, 80, 80, 255});
-		DigitFont::drawText(state, "+", s.plus.x + (STEP_BTN_W - 5 * symPixel) / 2.0f, s.plus.y + (STEP_BTN_H - 5 * symPixel) / 2.0f, symPixel, WHITE);
+		float captionSize = UI::fit(caption, UI::BODY, CAPTION_W - 8.0f);
+		UI::text(state, caption, s.minus.x - UI::width(caption, captionSize) - 10.0f,
+			s.minus.y + (STEP_BTN_H - 5 * captionSize) / 2.0f, captionSize, UI::DIM);
+		UI::button(state, s.minus, UI::SECONDARY, "-", UI::LARGE);
+		UI::button(state, s.value, valueColor, std::to_string(value), UI::LARGE);
+		UI::button(state, s.plus, UI::SECONDARY, "+", UI::LARGE);
 	}
 
 	void drawStepper(SDLState& state, const Stepper& s, int value){
@@ -380,32 +328,25 @@ private:
 		float top = playerRowTop(row);
 		PlayerConfig& cfg = playerConfigs[playerIndex];
 
-		DigitFont::drawText(state, "P" + std::to_string(playerIndex + 1), colX(0), top, 6.0f, WHITE);
+		UI::text(state, "P" + std::to_string(playerIndex + 1), colX(0), top, UI::LARGE, UI::ACCENT);
 
 		// BANK shows the calculated total (and turns green) once the
 		// calculator's driving it -- bankroll *is* the total in that mode,
 		// so there's no separate number worth showing on its own anymore.
 		int sideBetCount = sideBetCountFor(gameMode);
-		SDL_Color bankColor = cfg.useCalculator ? SDL_Color{40, 140, 60, 255} : SDL_Color{10, 40, 20, 230};
+		SDL_Color bankColor = cfg.useCalculator ? UI::PRIMARY : UI::PANEL;
 		drawStepper(state, bankStepper(row), "", cfg.effectiveBankroll(sideBetCount), bankColor);
 		drawStepper(state, betStepper(row), cfg.minBet);
 
 		SDL_FRect calc = calcToggle(row);
-		drawButton(state, calc, cfg.useCalculator ? SDL_Color{60, 130, 70, 255} : SDL_Color{80, 80, 80, 255});
-		std::string calcLabel = cfg.useCalculator ? "CALC ON" : "CALC OFF";
-		float calcPixel = 7.0f;
-		float calcW = DigitFont::textWidth(calcLabel, calcPixel);
-		DigitFont::drawText(state, calcLabel, calc.x + (calc.w - calcW) / 2.0f, calc.y + (calc.h - 5 * calcPixel) / 2.0f, calcPixel, WHITE);
+		UI::button(state, calc, cfg.useCalculator ? UI::PRIMARY : UI::SECONDARY, cfg.useCalculator ? "CALCULATOR ON" : "CALCULATOR OFF", UI::BODY);
 
 		drawStepper(state, cntStepper(row), cfg.minBetCount);
 
 		// Player's Edge has two side bets, but they always start equal (see
 		// Person::setInitialMatchBets()), so one stepper covers both here.
-		// A distinct purple value box (not the neutral dark-green every
-		// other stepper uses) so it doesn't read as just another BANK/BET/
-		// CNT field -- it's a different kind of number.
 		if(sideBetCount > 0)
-			drawStepper(state, sideBetStepper(row), "", cfg.sideBetSize, SDL_Color{90, 50, 110, 230});
+			drawStepper(state, sideBetStepper(row), "", cfg.sideBetSize);
 	}
 
 	void handlePlayerRowPoint(int playerIndex, int row, const SDL_FPoint& p){

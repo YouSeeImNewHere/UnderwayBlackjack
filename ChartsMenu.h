@@ -1,6 +1,7 @@
 #pragma once
 #include "Game.h"
 #include "DigitFont.h"
+#include "UI.h"
 #include "StrategyChart.h"
 #include "Trainer.h"
 #include <string>
@@ -63,21 +64,25 @@ struct RuleSelector
 	void draw(SDLState& state, float y, bool withIndexButton){
 		static const char* GAMES[3] = { "STANDARD", "SPANISH 21", "FREE BET" };
 		static const char* DECKS[3] = { "1", "2", "4-8" };
-		SDL_Color on{60, 90, 150, 255}, fixed{55, 60, 58, 255};
+		// Changeable rules in the choice colour, fixed ones dark; every
+		// label at one size, the largest that fits all of them.
+		SDL_Color on = UI::NAV, fixed = UI::PANEL;
 		int n = withIndexButton ? 6 : 5;
-		float p = 3.4f;
-		StrategyChart::drawButton(state, button(0, y, n), SDL_Color{150, 120, 40, 255}, std::string("GAME: ") + GAMES[game], p);
-		StrategyChart::drawButton(state, button(1, y, n), game == STANDARD ? on : fixed,
-			std::string("DECKS: ") + (game == STANDARD ? DECKS[decks] : game == SPANISH ? "6-8" : "6"), p);
-		StrategyChart::drawButton(state, button(2, y, n), game != FREE_BET ? on : fixed,
-			std::string("SOFT 17: ") + (dealerHitsSoft17() ? "HITS" : "STANDS"), p);
-		StrategyChart::drawButton(state, button(3, y, n), game == STANDARD ? on : fixed,
-			std::string("DOUBLE AFTER SPLIT: ") + (game != STANDARD || das ? "YES" : "NO"), p);
-		StrategyChart::drawButton(state, button(4, y, n), game != FREE_BET ? on : fixed,
-			std::string("SURRENDER: ") + (game != FREE_BET && surrender ? "YES" : "NO"), p);
-		if(withIndexButton)
-			StrategyChart::drawButton(state, button(5, y, n), game == STANDARD ? (indexPlays ? SDL_Color{60, 130, 70, 255} : on) : fixed,
-				std::string("INDEX PLAYS: ") + (usesIndexPlays() ? "ON" : "OFF"), p);
+		std::string labels[6] = {
+			GAMES[game],
+			std::string("DECKS: ") + (game == STANDARD ? DECKS[decks] : game == SPANISH ? "6-8" : "6"),
+			std::string("SOFT 17: ") + (dealerHitsSoft17() ? "HITS" : "STANDS"),
+			std::string("DAS: ") + (game != STANDARD || das ? "YES" : "NO"),
+			std::string("SURRENDER: ") + (game != FREE_BET && surrender ? "YES" : "NO"),
+			std::string("INDEX: ") + (usesIndexPlays() ? "ON" : "OFF") };
+		SDL_Color fills[6] = { on, game == STANDARD ? on : fixed, game != FREE_BET ? on : fixed,
+			game == STANDARD ? on : fixed, game != FREE_BET ? on : fixed,
+			game == STANDARD ? (indexPlays ? UI::PRIMARY : on) : fixed };
+		float size = grid ? UI::BODY : UI::SMALL;
+		for(int k = 0; k < n; k++)
+			size = std::min(size, UI::fit(labels[k], size, button(k, y, n).w - 16.0f));
+		for(int k = 0; k < n; k++)
+			UI::button(state, button(k, y, n), fills[k], labels[k], size);
 	}
 
 	// True when a tap changed a rule.
@@ -109,10 +114,14 @@ struct RuleSelector
 	SDL_FRect button(int i, float y, int n){
 		if(grid)
 			return SDL_FRect{ .x = 20.0f + (i % 2) * 350.0f, .y = y + (i / 2) * 62.0f, .w = 330.0f, .h = 54.0f };
-		static const float W5[5] = { 250.0f, 190.0f, 260.0f, 360.0f, 260.0f };
-		static const float W6[6] = { 220.0f, 160.0f, 210.0f, 300.0f, 220.0f, 220.0f };
-		const float* W = n == 6 ? W6 : W5;
-		float gap = n == 6 ? 10.0f : 14.0f, total = (n - 1) * gap;
+		// Each slot fits its longest value at the small size (SPANISH 21,
+		// DECKS: 4-8, SOFT 17: STANDS, DAS: YES, SURRENDER: YES,
+		// INDEX: OFF), so nothing shifts when a rule changes.
+		static const char* LONGEST[6] = { "SPANISH 21", "DECKS: 4-8", "SOFT 17: STANDS", "DAS: YES", "SURRENDER: YES", "INDEX: OFF" };
+		float W[6];
+		for(int k = 0; k < 6; k++)
+			W[k] = UI::width(LONGEST[k], UI::SMALL) + 22.0f;
+		float gap = 10.0f, total = (n - 1) * gap;
 		for(int k = 0; k < n; k++) total += W[k];
 		float x = (1440.0f - total) / 2.0f;
 		for(int k = 0; k < i; k++)
@@ -158,9 +167,9 @@ public:
 			if(detailSection >= 0)
 				StrategyChart::drawCellDetail(state, rules, detailSection, detailRow, detailCol, deviations ? &marks : nullptr);
 		}
-		StrategyChart::drawButton(state, backRect(), SDL_Color{80, 80, 80, 255}, "BACK");
+		StrategyChart::drawButton(state, backRect(), UI::SECONDARY, "BACK");
 		if(deviations)
-			StrategyChart::drawButton(state, listButton, SDL_Color{190, 120, 40, 255}, listing ? "CHART" : "DEVIATIONS", 5.0f);
+			StrategyChart::drawButton(state, listButton, UI::NAV, listing ? "CHART" : "DEVIATIONS", 5.0f);
 	}
 
 	bool handlePoint(SDLState& state, float windowX, float windowY){

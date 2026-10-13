@@ -1,6 +1,7 @@
 #pragma once
 #include "Game.h"
 #include "DigitFont.h"
+#include "UI.h"
 #include <string>
 #include <vector>
 
@@ -22,20 +23,20 @@ public:
 		float titlePixel = 7.0f;
 		std::string title = oneHanded ? "GESTURES - ONE-HANDED" : "GESTURES";
 		float titleW = DigitFont::textWidth(title, titlePixel);
-		DigitFont::drawText(state, title, (1440.0f - titleW) / 2.0f, 50.0f, titlePixel, SDL_Color{255, 255, 255, 255});
+		DigitFont::drawText(state, title, (1440.0f - titleW) / 2.0f, 50.0f, titlePixel, UI::TEXT);
 
 		float y = 160.0f;
 		for(const auto& [action, gesture] : oneHanded ? ONE_HANDED : GESTURES){
 			float actionPixel = 5.0f;
-			DigitFont::drawText(state, action, 280.0f, y, actionPixel, SDL_Color{200, 180, 100, 255});
+			DigitFont::drawText(state, action, 280.0f, y, actionPixel, UI::ACCENT);
 
 			float gesturePixel = 4.5f;
-			DigitFont::drawText(state, gesture, 640.0f, y + 3.0f, gesturePixel, SDL_Color{220, 220, 220, 255});
+			DigitFont::drawText(state, gesture, 640.0f, y + 3.0f, gesturePixel, UI::TEXT);
 
 			y += 80.0f;
 		}
 
-		drawButton(state, backButton, SDL_Color{80, 80, 80, 255}, "BACK");
+		drawButton(state, backButton, UI::SECONDARY, "BACK");
 	}
 
 	// windowX/windowY: raw event coordinates in window space, same
@@ -90,6 +91,6 @@ private:
 			pixel *= maxW / w;
 
 		w = DigitFont::textWidth(label, pixel);
-		DigitFont::drawText(state, label, rect.x + (rect.w - w) / 2.0f, rect.y + (rect.h - 5 * pixel) / 2.0f, pixel, SDL_Color{255, 255, 255, 255});
+		DigitFont::drawText(state, label, rect.x + (rect.w - w) / 2.0f, rect.y + (rect.h - 5 * pixel) / 2.0f, pixel, UI::TEXT);
 	}
 };
