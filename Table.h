@@ -279,6 +279,15 @@ public:
 		awaitingBets = true;
 	}
 
+	// Anything moving on the table: cards or chips flying, a shuffle, a
+	// timed pause, a pop-up waiting on an answer. Waiting for bets or for
+	// a move counts as still (mina.cpp's frame pacing slows down then).
+	bool animating(){
+		if(awaitingBets)
+			return !chipAnimations.empty() || shuffling;
+		return !tableIdle();
+	}
+
 	bool isAwaitingBets(){
 		return awaitingBets;
 	}

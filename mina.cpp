@@ -137,6 +137,9 @@ struct AppContext {
     GameMode gameModeAboutPreview = GameMode::TwoDeck;
     PauseState pauseState = PauseState::None;
     uint64_t prevTime;
+    // When the player last touched, clicked or pressed a key -- the frame
+    // rate stays up for a moment after (see framePacing()).
+    uint64_t lastInputTicks = 0;
     bool running = true;
 
     // The finger that touched a small HUD button (pause, quick tip), if
@@ -1105,6 +1108,47 @@ static void updateOrientation(AppContext& ctx){
 #endif
 }
 
+// Something on screen is moving: cards or chips flying, a shuffle, a
+// timed pause, a pop-up waiting on an answer, a drill's flashing cards,
+// the Game Options speed demo -- or the player touched the screen in the
+// last moment (a drag, a hold).
+static bool screenIsBusy(AppContext& ctx){
+    if(SDL_GetTicks() - ctx.lastInputTicks < 1500)
+        return true;
+    switch(ctx.screen){
+    case AppScreen::Playing:
+        if(ctx.pauseState != PauseState::None)
+            return false;
+        return ctx.table.animating();
+    case AppScreen::GameOptions:
+    case AppScreen::CountDrill:
+    case AppScreen::Drill:
+    case AppScreen::RampDrill:
+    case AppScreen::TrueCount:
+        return true;
+    default:
+        return false;
+    }
+}
+
+// Without a cap the loop redraws as fast as the phone can (hundreds of
+// frames a second), which is what made phones run hot. 60 frames a second
+// while anything moves; 20 when nothing is, waking the moment a touch or
+// key arrives so it never feels slower. (The web build is paced by the
+// browser instead.)
+static void framePacing(AppContext& ctx, uint64_t frameStartNS){
+    const bool busy = screenIsBusy(ctx);
+    const uint64_t frameNS = busy ? 1000000000ull / 60 : 1000000000ull / 20;
+    uint64_t spent = SDL_GetTicksNS() - frameStartNS;
+    if(spent >= frameNS)
+        return;
+    uint64_t left = frameNS - spent;
+    if(busy)
+        SDL_DelayPrecise(left);
+    else
+        SDL_WaitEventTimeout(nullptr, (Sint32)(left / 1000000ull)); // input wakes it early
+}
+
 static void mainLoopIteration(void *arg) {
     AppContext &ctx = *static_cast<AppContext *>(arg);
 
@@ -1114,6 +1158,10 @@ static void mainLoopIteration(void *arg) {
     SDL_Event event;
     while(SDL_PollEvent(&event))
     {
+        if(event.type == SDL_EVENT_FINGER_DOWN || event.type == SDL_EVENT_FINGER_MOTION || event.type == SDL_EVENT_FINGER_UP
+            || event.type == SDL_EVENT_MOUSE_BUTTON_DOWN || event.type == SDL_EVENT_MOUSE_BUTTON_UP
+            || event.type == SDL_EVENT_MOUSE_MOTION || event.type == SDL_EVENT_KEY_DOWN)
+            ctx.lastInputTicks = nowTime;
         switch(event.type)
         {
         case SDL_EVENT_QUIT:
@@ -1654,7 +1702,9 @@ int main(int argc,char *argv[]) {
     emscripten_set_main_loop_arg(mainLoopIteration, ctx, 0, true);
 #else
     while(ctx->running){
+        uint64_t start = SDL_GetTicksNS();
         mainLoopIteration(ctx);
+        framePacing(*ctx, start);
     }
 
     ctx->res.unload();
