@@ -10,6 +10,7 @@
 #include "Person.h"
 #include "BettingSquare.h"
 #include "DigitFont.h"
+#include "UI.h"
 #include "StrategyChart.h"
 #include "GameModeMenu.h"
 #include "Stats.h"
@@ -422,26 +423,8 @@ public:
 	void drawCardCountToggleButton(SDLState& state){
 		if(countQuizOn)
 			return;
-		SDL_FRect btn = cardCountToggleButton();
-		SDL_SetRenderDrawColor(state.renderer, showCardCount ? 90 : 70, showCardCount ? 150 : 70, showCardCount ? 110 : 140, 255);
-		SDL_RenderFillRect(state.renderer, &btn);
-		SDL_SetRenderDrawColor(state.renderer, 255, 255, 255, 255);
-		SDL_RenderRect(state.renderer, &btn);
-
-		std::string label = "CNT";
-		float pixel = 5.0f;
-		// Height is 44 (still leaves a gap above the center betting box),
-		// so the default pixel size fits -- the height check below only
-		// matters if the button is ever shrunk again.
-		float maxW = btn.w - 8.0f;
-		float maxH = btn.h - 4.0f;
-		float w = DigitFont::textWidth(label, pixel);
-		if(w > maxW && w > 0.0f)
-			pixel *= maxW / w;
-		if(5 * pixel > maxH)
-			pixel = maxH / 5.0f;
-		w = DigitFont::textWidth(label, pixel);
-		DigitFont::drawText(state, label, btn.x + (btn.w - w) / 2.0f, btn.y + (btn.h - 5 * pixel) / 2.0f, pixel, SDL_Color{255, 255, 255, 255});
+		// Grey, green while its overlay is showing.
+		UI::button(state, cardCountToggleButton(), showCardCount ? UI::PRIMARY : UI::SECONDARY, "CNT", UI::LARGE);
 	}
 
 	// DEAL was pressed: locks in whatever each player's raise/lower buttons
@@ -1887,7 +1870,7 @@ private:
 			return;
 		{
 			SDL_FRect t = quizTimingButton();
-			drawButton(state, t, SDL_Color{60, 90, 150, 255});
+			drawButton(state, t, UI::NAV);
 			std::string label = quizRandom ? "TIMING: RANDOM" : "TIMING: EVERY ROUND";
 			DigitFont::drawText(state, label, t.x + (t.w - DigitFont::textWidth(label, 3.2f)) / 2.0f, t.y + (t.h - 16.0f) / 2.0f, 3.2f, SDL_Color{255, 255, 255, 255});
 		}
@@ -1901,22 +1884,21 @@ private:
 		}
 		SDL_Color white{255, 255, 255, 255};
 		SDL_FRect ok = insuranceYesButton(), skip = insuranceNoButton();
-		float b = 5.5f;
 
 		if(quizState == QuizState::Asking){
 			std::string q = "RUNNING COUNT?";
 			DigitFont::drawText(state, q, panel.x + (panel.w - DigitFont::textWidth(q, 5.0f)) / 2.0f, panel.y + 14.0f, 5.0f, white);
 			SDL_FRect minus = doubleMinusButton(), plus = doublePlusButton();
-			drawButton(state, minus, SDL_Color{70, 70, 80, 255});
-			drawButton(state, plus, SDL_Color{70, 70, 80, 255});
+			drawButton(state, minus, UI::SECONDARY);
+			drawButton(state, plus, UI::SECONDARY);
 			DigitFont::drawText(state, "-", minus.x + (minus.w - 3 * 5.0f) / 2.0f, minus.y + (minus.h - 25.0f) / 2.0f, 5.0f, white);
 			DigitFont::drawText(state, "+", plus.x + (plus.w - DigitFont::textWidth("+", 5.0f)) / 2.0f, plus.y + (plus.h - 25.0f) / 2.0f, 5.0f, white);
 			std::string v = signedCount(quizGuess);
 			DigitFont::drawText(state, v, 720.0f - DigitFont::textWidth(v, 6.0f) / 2.0f, 329.0f, 6.0f, SDL_Color{255, 225, 80, 255});
-			drawButton(state, ok, SDL_Color{60, 130, 70, 255});
-			drawButton(state, skip, SDL_Color{80, 80, 80, 255});
-			DigitFont::drawText(state, "CHECK", ok.x + (ok.w - DigitFont::textWidth("CHECK", b)) / 2.0f, ok.y + (ok.h - 5 * b) / 2.0f, b, white);
-			DigitFont::drawText(state, "SKIP", skip.x + (skip.w - DigitFont::textWidth("SKIP", b)) / 2.0f, skip.y + (skip.h - 5 * b) / 2.0f, b, white);
+			drawButton(state, ok, UI::PRIMARY);
+			drawButton(state, skip, UI::SECONDARY);
+			buttonLabel(state, ok, "CHECK");
+			buttonLabel(state, skip, "SKIP");
 			return;
 		}
 
@@ -1934,8 +1916,8 @@ private:
 			DigitFont::drawText(state, depth, panel.x + (panel.w - DigitFont::textWidth(depth, dp)) / 2.0f, panel.y + 68.0f, dp, SDL_Color{230, 210, 140, 255});
 		}
 		SDL_FRect cont{ .x = 720.0f - 130.0f, .y = ok.y, .w = 260.0f, .h = ok.h };
-		drawButton(state, cont, SDL_Color{60, 130, 70, 255});
-		DigitFont::drawText(state, "CONTINUE", cont.x + (cont.w - DigitFont::textWidth("CONTINUE", b)) / 2.0f, cont.y + (cont.h - 5 * b) / 2.0f, b, white);
+		drawButton(state, cont, UI::PRIMARY);
+		buttonLabel(state, cont, "CONTINUE");
 	}
 
 	Trainer* trainer = nullptr;
@@ -1974,11 +1956,10 @@ private:
 		DigitFont::drawText(state, q, panel.x + (panel.w - DigitFont::textWidth(q, 4.5f)) / 2.0f, panel.y + 20.0f, 4.5f, SDL_Color{255, 255, 255, 255});
 		DigitFont::drawText(state, sub, panel.x + (panel.w - DigitFont::textWidth(sub, 4.0f)) / 2.0f, panel.y + 58.0f, 4.0f, SDL_Color{255, 225, 80, 255});
 		SDL_FRect yes = insuranceYesButton(), no = insuranceNoButton();
-		drawButton(state, yes, SDL_Color{60, 130, 70, 255});
-		drawButton(state, no, SDL_Color{110, 60, 60, 255});
-		float b = 5.5f;
-		DigitFont::drawText(state, "BUY IN", yes.x + (yes.w - DigitFont::textWidth("BUY IN", b)) / 2.0f, yes.y + (yes.h - 5 * b) / 2.0f, b, SDL_Color{255, 255, 255, 255});
-		DigitFont::drawText(state, "CANCEL", no.x + (no.w - DigitFont::textWidth("CANCEL", b)) / 2.0f, no.y + (no.h - 5 * b) / 2.0f, b, SDL_Color{255, 255, 255, 255});
+		drawButton(state, yes, UI::PRIMARY);
+		drawButton(state, no, UI::SECONDARY);
+		buttonLabel(state, yes, "BUY IN");
+		buttonLabel(state, no, "CANCEL");
 	}
 
 	bool askDoubleAmount = false;
@@ -2018,19 +1999,27 @@ private:
 		DigitFont::drawText(state, q, panel.x + (panel.w - DigitFont::textWidth(q, 5.0f)) / 2.0f, panel.y + 14.0f, 5.0f, SDL_Color{255, 255, 255, 255});
 
 		SDL_FRect minus = doubleMinusButton(), plus = doublePlusButton();
-		drawButton(state, minus, SDL_Color{70, 70, 80, 255});
-		drawButton(state, plus, SDL_Color{70, 70, 80, 255});
-		DigitFont::drawText(state, "-", minus.x + (minus.w - 3 * 5.0f) / 2.0f, minus.y + (minus.h - 25.0f) / 2.0f, 5.0f, SDL_Color{255, 255, 255, 255});
-		DigitFont::drawText(state, "+", plus.x + (plus.w - DigitFont::textWidth("+", 5.0f)) / 2.0f, plus.y + (plus.h - 25.0f) / 2.0f, 5.0f, SDL_Color{255, 255, 255, 255});
+		drawButton(state, minus, UI::SECONDARY);
+		drawButton(state, plus, UI::SECONDARY);
+		buttonLabel(state, minus, "-");
+		buttonLabel(state, plus, "+");
+		// Clear of - and + (x 600 to 840): the amount, and FULL at the top.
 		std::string v = std::to_string(doubleChoice) + (doubleChoice == doubleMax() ? " FULL" : "");
-		DigitFont::drawText(state, v, 720.0f - DigitFont::textWidth(v, 6.0f) / 2.0f, 329.0f, 6.0f, SDL_Color{255, 225, 80, 255});
+		float vp = UI::fit(v, UI::LARGE, 220.0f);
+		DigitFont::drawText(state, v, 720.0f - DigitFont::textWidth(v, vp) / 2.0f, 331.0f, vp, UI::ACCENT);
 
 		SDL_FRect ok = insuranceYesButton(), cancel = insuranceNoButton();
-		drawButton(state, ok, SDL_Color{60, 130, 70, 255});
-		drawButton(state, cancel, SDL_Color{110, 60, 60, 255});
-		float b = 5.5f;
-		DigitFont::drawText(state, "DOUBLE", ok.x + (ok.w - DigitFont::textWidth("DOUBLE", b)) / 2.0f, ok.y + (ok.h - 5 * b) / 2.0f, b, SDL_Color{255, 255, 255, 255});
-		DigitFont::drawText(state, "CANCEL", cancel.x + (cancel.w - DigitFont::textWidth("CANCEL", b)) / 2.0f, cancel.y + (cancel.h - 5 * b) / 2.0f, b, SDL_Color{255, 255, 255, 255});
+		drawButton(state, ok, UI::PRIMARY);
+		drawButton(state, cancel, UI::SECONDARY);
+		buttonLabel(state, ok, "DOUBLE");
+		buttonLabel(state, cancel, "CANCEL");
+	}
+
+	// A label centred on a table button, at the shared size (UI.h),
+	// stepped down whole sizes if it doesn't fit.
+	void buttonLabel(SDLState& state, const SDL_FRect& r, const std::string& text, float size = UI::LARGE){
+		size = UI::fit(text, size, r.w - 10.0f);
+		DigitFont::drawText(state, text, r.x + (r.w - DigitFont::textWidth(text, size)) / 2.0f, r.y + (r.h - 5 * size) / 2.0f, size, UI::TEXT);
 	}
 
 	SDL_FRect insurancePanel(){ return SDL_FRect{ .x = 440, .y = 270, .w = 560, .h = 180 }; }
@@ -2080,8 +2069,8 @@ private:
 		}
 
 		SDL_FRect yes = insuranceYesButton(), no = insuranceNoButton();
-		drawButton(state, yes, SDL_Color{60, 130, 70, 255});
-		drawButton(state, no, SDL_Color{130, 60, 60, 255});
+		drawButton(state, yes, UI::PRIMARY);
+		drawButton(state, no, UI::SECONDARY);
 		float bPixel = 6.0f;
 		float yW = DigitFont::textWidth("YES", bPixel), nW = DigitFont::textWidth("NO", bPixel);
 		DigitFont::drawText(state, "YES", yes.x + (yes.w - yW) / 2.0f, yes.y + (yes.h - 5 * bPixel) / 2.0f, bPixel, SDL_Color{255, 255, 255, 255});
@@ -2474,7 +2463,7 @@ private:
 		if(!awaitingBets && !awaitingInsurance && !awaitingPeek && activePlayer < numberOfPlayers){
 			Person& p = players[activePlayer];
 			int hand = p.getActiveHand();
-			if(hand < p.hands.size()){
+			if(hand < p.hands.size() && p.hands[hand].getHandSize() > 0){
 				auto [hard, soft] = p.hands[hand].getShownTotals();
 				std::string label = numberOfPlayers > 1 ? "P" + std::to_string(activePlayer + 1) + " HAND" : "YOUR HAND";
 				drawTotalBox(state, activeHandTotalBox, label, hard, soft);
@@ -2492,20 +2481,7 @@ private:
 		if(awaitingBets || !getStrategySituation(section, row, col))
 			return;
 
-		SDL_FRect btn = quickTipButton();
-		SDL_SetRenderDrawColor(state.renderer, showQuickTip ? 90 : 70, showQuickTip ? 150 : 70, showQuickTip ? 110 : 140, 255);
-		SDL_RenderFillRect(state.renderer, &btn);
-		SDL_SetRenderDrawColor(state.renderer, 255, 255, 255, 255);
-		SDL_RenderRect(state.renderer, &btn);
-
-		std::string label = "TIP";
-		float pixel = 6.0f;
-		float maxW = btn.w - 8.0f;
-		float w = DigitFont::textWidth(label, pixel);
-		if(w > maxW && w > 0.0f)
-			pixel *= maxW / w;
-		w = DigitFont::textWidth(label, pixel);
-		DigitFont::drawText(state, label, btn.x + (btn.w - w) / 2.0f, btn.y + (btn.h - 5 * pixel) / 2.0f, pixel, SDL_Color{255, 255, 255, 255});
+		UI::button(state, quickTipButton(), showQuickTip ? UI::PRIMARY : UI::SECONDARY, "TIP", 6.0f);
 	}
 
 	// The actual popup: just the one relevant row (hard/soft/pairs, per
@@ -2782,20 +2758,12 @@ private:
 		// box itself -- floats centered above it rather than being clipped
 		// to box.w -- so it's auto-shrunk against a fixed budget instead of
 		// box.w, just enough to keep it from running off the canvas edge.
-		float labelPixel = 4.0f;
-		float maxLabelW = 200.0f;
+		float labelPixel = UI::fit(label, UI::BODY, 200.0f);
 		float labelW = DigitFont::textWidth(label, labelPixel);
-		if(labelW > maxLabelW && labelW > 0.0f)
-			labelPixel *= maxLabelW / labelW;
-		labelW = DigitFont::textWidth(label, labelPixel);
 		float labelX = box.x + (box.w - labelW) / 2.0f;
 		float labelY = box.y - (5 * labelPixel) - 6.0f;
-		DigitFont::drawText(state, label, labelX, labelY, labelPixel, SDL_Color{255, 255, 255, 255});
-
-		SDL_SetRenderDrawColor(state.renderer, 10, 40, 20, 230);
-		SDL_RenderFillRect(state.renderer, &box);
-		SDL_SetRenderDrawColor(state.renderer, 255, 255, 255, 255);
-		SDL_RenderRect(state.renderer, &box);
+		DigitFont::drawText(state, label, labelX, labelY, labelPixel, UI::TEXT);
+		UI::box(state, box, UI::PANEL);
 
 		// Only worth showing both numbers when they actually differ --
 		// otherwise (no ace among the shown cards, or the soft total would
@@ -3023,16 +2991,11 @@ private:
 	}
 
 	void drawDenomButton(SDLState& state, const SDL_FRect& rect, int denom, bool isRaise){
-		drawButton(state, rect, isRaise ? SDL_Color{40, 110, 50, 255} : SDL_Color{120, 50, 50, 255});
-
-		std::string text = std::to_string(denom);
-		float pixel = 4.0f;
-		float maxW = rect.w - 8.0f;
-		float w = DigitFont::textWidth(text, pixel);
-		if(w > maxW && w > 0.0f)
-			pixel *= maxW / w;
-		w = DigitFont::textWidth(text, pixel);
-		DigitFont::drawText(state, text, rect.x + (rect.w - w) / 2.0f, rect.y + (rect.h - 5 * pixel) / 2.0f, pixel, SDL_Color{255, 255, 255, 255});
+		// Grey like every other minor button, captioned like BET and CHIP:
+		// what it does over the amount it moves the bet by.
+		drawButton(state, rect, UI::SECONDARY);
+		drawBoxCaption(state, rect, isRaise ? "MORE" : "LESS");
+		drawBoxValue(state, rect, std::to_string(denom), 4.0f);
 	}
 
 	// A bankrupt seat (bankroll == 0 -- raiseBet()/raiseSideBet() already
@@ -3091,7 +3054,7 @@ private:
 
 		// Chip-size selector, directly above the bet total. Its caption,
 		// like BET's, sits small inside the box over the number.
-		drawButton(state, row.selMinus, SDL_Color{80, 80, 80, 255});
+		drawButton(state, row.selMinus, UI::SECONDARY);
 		float symPixel = 4.0f;
 		DigitFont::drawText(state, "-", row.selMinus.x + (SEL_BTN_W - 3 * symPixel) / 2.0f, row.selMinus.y + (SEL_BTN_H - 5 * symPixel) / 2.0f, symPixel, SDL_Color{255, 255, 255, 255});
 
@@ -3102,7 +3065,7 @@ private:
 		drawBoxCaption(state, row.selValue, "CHIP");
 		drawBoxValue(state, row.selValue, std::to_string(denom), 4.0f);
 
-		drawButton(state, row.selPlus, SDL_Color{80, 80, 80, 255});
+		drawButton(state, row.selPlus, UI::SECONDARY);
 		DigitFont::drawText(state, "+", row.selPlus.x + (SEL_BTN_W - 3 * symPixel) / 2.0f, row.selPlus.y + (SEL_BTN_H - 5 * symPixel) / 2.0f, symPixel, SDL_Color{255, 255, 255, 255});
 	}
 
@@ -3190,7 +3153,7 @@ private:
 		// at the new font's width it ran under/past it instead of just
 		// the canvas edge, hence the smaller size and the tighter
 		// right-side clamp (1344, not 1440) below.
-		float pixel = 3.5f;
+		float pixel = UI::BODY;
 
 		struct Label{ int playerIndex; float centerX, width, x; std::string text; SDL_Color color; };
 		std::vector<Label> labels;
@@ -3205,9 +3168,9 @@ private:
 			if(isTraining())
 				;
 			else if(bankroll < buyIn)
-				color = SDL_Color{230, 80, 80, 255};
+				color = SDL_Color{255, 145, 130, 255};
 			else if(bankroll > buyIn)
-				color = SDL_Color{90, 220, 110, 255};
+				color = SDL_Color{140, 240, 150, 255};
 
 			std::string text = "P" + std::to_string(i + 1) + (isTraining() ? "" : " " + std::to_string(bankroll));
 			float w = DigitFont::textWidth(text, pixel);
@@ -3716,10 +3679,7 @@ private:
 
 	void drawBetting(SDLState& state){
 		SDL_FRect deal = dealButton();
-		drawButton(state, deal, SDL_Color{60, 130, 70, 255});
-		float dealPixel = 8.5f;
-		float dealW = DigitFont::textWidth("DEAL", dealPixel);
-		DigitFont::drawText(state, "DEAL", deal.x + (deal.w - dealW) / 2.0f, deal.y + (deal.h - 5 * dealPixel) / 2.0f, dealPixel, SDL_Color{255, 255, 255, 255});
+		UI::button(state, deal, UI::PRIMARY, "DEAL", 8.0f);
 
 		if(isTraining())
 			return;

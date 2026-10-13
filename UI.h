@@ -87,7 +87,7 @@ inline void box(SDLState& state, const SDL_FRect& r, SDL_Color fill, SDL_Color b
 
 inline void button(SDLState& state, const SDL_FRect& r, SDL_Color fill, const std::string& s, float size = BODY){
 	box(state, r, fill);
-	size = fit(s, size, r.w - 16.0f);
+	size = fit(s, size, r.w - 10.0f);
 	DigitFont::drawText(state, s, r.x + (r.w - width(s, size)) / 2.0f, r.y + (r.h - 5 * size) / 2.0f, size, TEXT);
 }
 

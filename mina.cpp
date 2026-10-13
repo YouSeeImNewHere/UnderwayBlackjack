@@ -189,10 +189,8 @@ static SDL_FRect pauseButtonHitRect(){
 
 static void drawPauseButton(AppContext& ctx){
     SDL_FRect btn = pauseButtonRect();
-    SDL_SetRenderDrawColor(ctx.state.renderer, 40, 40, 40, 220);
-    SDL_RenderFillRect(ctx.state.renderer, &btn);
+    UI::box(ctx.state, btn, UI::SECONDARY);
     SDL_SetRenderDrawColor(ctx.state.renderer, 255, 255, 255, 255);
-    SDL_RenderRect(ctx.state.renderer, &btn);
 
     SDL_FRect bar1{ .x = btn.x + btn.w / 2.0f - 14.0f, .y = btn.y + 22.0f, .w = 10.0f, .h = 40.0f };
     SDL_FRect bar2{ .x = btn.x + btn.w / 2.0f + 4.0f, .y = btn.y + 22.0f, .w = 10.0f, .h = 40.0f };
