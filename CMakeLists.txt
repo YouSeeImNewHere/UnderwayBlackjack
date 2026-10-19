@@ -110,7 +110,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
     # Plain Objective-C: enabling OBJCXX makes CMake build SDL_image's .m
     # files as Objective-C++, which they don't compile as.
     enable_language(OBJC)
-    list(APPEND GAME_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/ios/Orientation.m ${CMAKE_CURRENT_SOURCE_DIR}/ios/Haptics.m)
+    list(APPEND GAME_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/ios/Orientation.m ${CMAKE_CURRENT_SOURCE_DIR}/ios/Haptics.m ${CMAKE_CURRENT_SOURCE_DIR}/ios/Backup.m)
     set(IOS_RESOURCES
         ${CMAKE_CURRENT_SOURCE_DIR}/ios/Assets.xcassets
         ${CMAKE_CURRENT_SOURCE_DIR}/ios/LaunchScreen.storyboard)

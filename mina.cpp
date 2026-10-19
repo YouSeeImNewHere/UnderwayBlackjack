@@ -19,6 +19,8 @@
 #include "TrainingMenus.h"
 #include "SettingsMenu.h"
 #include "CountingMenus.h"
+#include "BackupMenu.h"
+#include "Backup.h"
 #include "Haptics.h"
 #include "AboutMenu.h"
 #include "GesturesMenu.h"
@@ -57,6 +59,7 @@ enum class AppScreen {
     RampDrill,
     SessionLog,
     Settings,
+    Backup,
     Playing
 };
 
@@ -114,6 +117,7 @@ struct AppContext {
     RampMenu rampMenu;
     RampDrillMenu rampDrillMenu;
     SessionLogMenu sessionLogMenu;
+    BackupMenu backupMenu;
     SettingsMenu settingsMenu;
     Haptics haptics;
     int drillMissesSeen = 0;
@@ -306,6 +310,11 @@ static void applyMenuChoice(AppContext& ctx, MenuChoice choice){
         case MenuChoice::SessionLog:
             ctx.sessionLogMenu.open(ctx.trainer, ctx.save.unitBets[0]);
             ctx.screen = AppScreen::SessionLog;
+        break;
+
+        case MenuChoice::Backup:
+            ctx.backupMenu.open();
+            ctx.screen = AppScreen::Backup;
         break;
 
         case MenuChoice::Settings:
@@ -575,6 +584,7 @@ static void goBack(AppContext& ctx){
         [[fallthrough]];
     case AppScreen::Charts:
     case AppScreen::Training:
+    case AppScreen::Backup:
     case AppScreen::Gestures:
     case AppScreen::Keyboard:
     case AppScreen::Stats:
@@ -800,6 +810,33 @@ static void handleMenuClick(AppContext& ctx, float wx, float wy){
         if(ctx.sessionLogMenu.handlePoint(ctx.state, wx, wy))
             goBack(ctx);
         return;
+    case AppScreen::Backup:
+        switch(ctx.backupMenu.handlePoint(ctx.state, wx, wy)){
+            case BackupMenu::BACK:
+                goBack(ctx);
+            break;
+            case BackupMenu::SAVE:
+                // Everything in memory onto disk first, so the backup has it.
+                ctx.trainer.save();
+                ctx.stats.save();
+#ifdef __EMSCRIPTEN__
+                ub_web_export();
+                ctx.backupMenu.setStatus("DOWNLOADED - CHECK YOUR DOWNLOADS", true);
+#else
+                Backup::requestSave(ctx.state.window);
+#endif
+            break;
+            case BackupMenu::LOAD:
+#ifdef __EMSCRIPTEN__
+                ub_web_import(); // reloads the page once loaded
+#else
+                Backup::requestLoad(ctx.state.window);
+#endif
+            break;
+            case BackupMenu::NONE:
+            break;
+        }
+        return;
     case AppScreen::Settings:
         handleSettingsPoint(ctx, wx, wy);
         return;
@@ -882,6 +919,7 @@ static std::vector<SDL_FRect> currentFocusRects(AppContext& ctx){
     case AppScreen::Ramp:          return ctx.rampMenu.focusRects();
     case AppScreen::RampDrill:     return ctx.rampDrillMenu.focusRects();
     case AppScreen::SessionLog:    return ctx.sessionLogMenu.focusRects();
+    case AppScreen::Backup:        return ctx.backupMenu.focusRects();
     case AppScreen::Stats:         return ctx.statsMenu.focusRects();
     case AppScreen::Tutorial:      return ctx.tutorialMenu.focusRects();
     case AppScreen::Playing:       break;
@@ -1030,6 +1068,7 @@ static SDL_Color letterboxColor(const AppContext &ctx) {
     case AppScreen::Ramp:
     case AppScreen::RampDrill:
     case AppScreen::SessionLog:
+    case AppScreen::Backup:
     case AppScreen::Gestures:
     case AppScreen::Keyboard:
     case AppScreen::Stats:
@@ -1148,6 +1187,51 @@ static void framePacing(AppContext& ctx, uint64_t frameStartNS){
         SDL_DelayPrecise(frameNS - spent);
 }
 
+// The saved settings and game options, onto the menus and the table --
+// at startup, and again after LOAD BACKUP.
+static void applySavedSettings(AppContext& ctx){
+    ctx.settingsMenu.volume = ctx.save.volume;
+    ctx.settingsMenu.oneHandedDrill = ctx.save.oneHandedDrill;
+    ctx.settingsMenu.oneHandedTable = ctx.save.oneHandedTable;
+    ctx.settingsMenu.penetration = ctx.save.penetration;
+    ctx.settingsMenu.vibrate = ctx.save.vibrate;
+    ctx.table.setQuizRandom(ctx.save.quizRandom);
+    // Last-used Game Options, for Resume and for the next new game alike.
+    if(ctx.save.hasOptions){
+        ctx.gameOptionsMenu.dealerSpeed = ctx.save.dealerSpeed;
+        ctx.gameOptionsMenu.faceDownDoubles = ctx.save.faceDownDoubles;
+        ctx.gameOptionsMenu.hideInactiveHands = ctx.save.hideInactiveHands;
+        ctx.gameOptionsMenu.soundEffects = ctx.save.soundEffects;
+        ctx.gameOptionsMenu.doubleForLess = ctx.save.doubleForLess;
+        ctx.gameOptionsMenu.dealerHitsSoft17 = ctx.save.dealerHitsSoft17;
+        ctx.gameOptionsMenu.indexPlays = ctx.save.indexPlays;
+        ctx.gameOptionsMenu.autoShuffler = ctx.save.autoShuffler;
+    }
+}
+
+#ifndef __EMSCRIPTEN__
+// A finished SAVE BACKUP / LOAD BACKUP (Backup.h). After a load, the game
+// rereads everything from disk, as if it had just started: RESUME picks up
+// the backup's game, and its stats, training and settings take over.
+static void pollBackup(AppContext& ctx){
+    bool ok = false;
+    std::string message;
+    Backup::Op op = Backup::poll(ok, message);
+    if(op == Backup::Op::None)
+        return;
+    if(op == Backup::Op::Load && ok){
+        ctx.save.load();
+        ctx.stats.load();
+        ctx.trainer.load();
+        ctx.table.resetForNewGame();
+        ctx.tableLive = false;
+        ctx.menu.hasSavedGame = ctx.save.gameStarted;
+        applySavedSettings(ctx);
+    }
+    ctx.backupMenu.setStatus(message, ok);
+}
+#endif
+
 static void mainLoopIteration(void *arg) {
     AppContext &ctx = *static_cast<AppContext *>(arg);
 
@@ -1156,6 +1240,9 @@ static void mainLoopIteration(void *arg) {
     // long stall (the app paused, a slow frame) can't jump animations.
     uint64_t nowTime = SDL_GetTicksNS();
     float deltaTime = std::min(0.1f, (nowTime - ctx.prevTime) / 1e9f);
+#ifndef __EMSCRIPTEN__
+    pollBackup(ctx);
+#endif
 
     SDL_Event event;
     while(SDL_PollEvent(&event))
@@ -1569,6 +1656,8 @@ static void mainLoopIteration(void *arg) {
         ctx.rampDrillMenu.draw(ctx.state);
     else if(ctx.screen == AppScreen::SessionLog)
         ctx.sessionLogMenu.draw(ctx.state);
+    else if(ctx.screen == AppScreen::Backup)
+        ctx.backupMenu.draw(ctx.state);
     else if(ctx.screen == AppScreen::Stats)
         ctx.statsMenu.draw(ctx.state, ctx.res, ctx.stats);
     else if(ctx.screen == AppScreen::Tutorial)
@@ -1638,23 +1727,7 @@ int main(int argc,char *argv[]) {
         ctx->tutorialMenu.open();
         ctx->screen = AppScreen::Tutorial;
     }
-    ctx->settingsMenu.volume = ctx->save.volume;
-    ctx->settingsMenu.oneHandedDrill = ctx->save.oneHandedDrill;
-    ctx->settingsMenu.oneHandedTable = ctx->save.oneHandedTable;
-    ctx->settingsMenu.penetration = ctx->save.penetration;
-    ctx->settingsMenu.vibrate = ctx->save.vibrate;
-    ctx->table.setQuizRandom(ctx->save.quizRandom);
-    // Last-used Game Options, for Resume and for the next new game alike.
-    if(ctx->save.hasOptions){
-        ctx->gameOptionsMenu.dealerSpeed = ctx->save.dealerSpeed;
-        ctx->gameOptionsMenu.faceDownDoubles = ctx->save.faceDownDoubles;
-        ctx->gameOptionsMenu.hideInactiveHands = ctx->save.hideInactiveHands;
-        ctx->gameOptionsMenu.soundEffects = ctx->save.soundEffects;
-        ctx->gameOptionsMenu.doubleForLess = ctx->save.doubleForLess;
-        ctx->gameOptionsMenu.dealerHitsSoft17 = ctx->save.dealerHitsSoft17;
-        ctx->gameOptionsMenu.indexPlays = ctx->save.indexPlays;
-        ctx->gameOptionsMenu.autoShuffler = ctx->save.autoShuffler;
-    }
+    applySavedSettings(*ctx);
 
 #ifdef __EMSCRIPTEN__
     // SDL writes the window's w/h straight onto the canvas as an inline

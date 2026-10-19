@@ -21,6 +21,7 @@
 #include "Table.h"
 #include "TrainingMenus.h"
 #include "CountingMenus.h"
+#include "Backup.h"
 #undef private
 #include "Stats.h"
 static int fails=0;
@@ -491,6 +492,15 @@ int main(){
     x.t.setAutoShuffler(false); x.deal({C(10),C(10),C(9),C(7)}); x.settle(); x.key(SDL_SCANCODE_S); x.toBetting();
     bool cut = std::any_of(x.t.shoe.begin(), x.t.shoe.end(), [](Card& c){ return c.getValue() == 14; });
     CHECK(cut, "switching it off cuts a normal shoe"); }
+  out("Backup file");
+  { Backup::Entries in{ {"save.txt", "gameStarted=1\nvolume=80\n"}, {"stats.txt", "END\nFILE x 3\n\n"}, {"trainer.txt", ""} };
+    std::string text = Backup::serialize(in);
+    Backup::Entries back; std::string err;
+    CHECK(Backup::parse(text, back, err) && back == in, "saves and reads back exactly, even text that looks like the format");
+    CHECK(Backup::parse(Backup::serialize({{"a", "x"}}), back, err) && back.size() == 1, "one entry");
+    CHECK(!Backup::parse(text.substr(0, text.size() / 2), back, err), "a cut-short file is refused");
+    CHECK(!Backup::parse("hello\n", back, err) && err == "NOT A BLACKJACK VARIANTS BACKUP", "another file is refused");
+    CHECK(!Backup::parse(std::string(Backup::HEADER) + "\nFILE save.txt 999\nabc\nEND\n", back, err), "a wrong length is refused"); }
   out("Session log dates and the bet ramp");
   CHECK(SessionLogMenu::addDays(20261231, 1) == 20270101, "Dec 31 + 1 day is Jan 1");
   CHECK(SessionLogMenu::addDays(20280301, -1) == 20280229, "Mar 1 2028 - 1 day is Feb 29");
