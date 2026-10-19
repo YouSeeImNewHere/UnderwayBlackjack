@@ -20,6 +20,7 @@ enum class MenuChoice{
 	Drills,
 	Planning,
 	SessionLog,
+	Backup,
 	Settings,
 	Update
 };
@@ -119,7 +120,7 @@ private:
 	SDL_FRect updateButton{ .x = 520, .y = 620, .w = 400, .h = 56 };
 
 	struct Item{ const char* label; MenuChoice choice; };
-	static constexpr int ITEM_COUNT = 7;
+	static constexpr int ITEM_COUNT = 8;
 	static constexpr Item ITEMS[ITEM_COUNT] = {
 		{ "HOW TO PLAY", MenuChoice::Tutorial },
 		{ "CHARTS", MenuChoice::Charts },
@@ -128,6 +129,7 @@ private:
 		{ "PLANNING", MenuChoice::Planning },
 		{ "SESSION LOG", MenuChoice::SessionLog },
 		{ "SETTINGS", MenuChoice::Settings },
+		{ "BACKUP", MenuChoice::Backup },
 	};
 	static constexpr float BTN_W = 360.0f, BTN_H = 64.0f, GAP = 20.0f;
 	static SDL_FRect itemRect(int i){
